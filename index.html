@@ -420,6 +420,7 @@
   <div id="desktop">
     <div id="icons" data-size="medium">
       <div class="icon" data-open="recycle-bin" data-menu="recycle-bin"><img src="images/desktop/recycle-bin.png" alt=""><span>Recycle Bin</span></div>
+      <div class="icon" data-href="ableton-live-12/"><img src="images/desktop/ableton-live-12.svg" alt=""><span>Ableton Live 12</span></div>
       <!--
         Desktop icon template. data-open is the id of the window it opens.
         <div class="icon" data-open="win-example"><img src="images/icon.png" alt=""><span>Label</span></div>
@@ -457,6 +458,9 @@
           <div class="pinned">
             <a class="prog" data-name="Instagram" href="https://www.instagram.com/sunbrightmedia?exln=Y3VqNGJqeGl2OXhv&amp;utm_source=qr" target="_blank" rel="noopener">
               <img src="images/instagram.svg" alt=""><span>Instagram</span>
+            </a>
+            <a class="prog" data-name="Ableton Live 12" href="ableton-live-12/" target="_blank" rel="noopener">
+              <img src="images/desktop/ableton-live-12.svg" alt=""><span>Ableton Live 12</span>
             </a>
           </div>
           <div class="results" hidden></div>
@@ -1263,6 +1267,7 @@
 
     // ---------- Desktop icons ----------
     function openIcon(i) {
+      if (i.dataset.href) { window.open(i.dataset.href, '_blank', 'noopener'); return; }
       const id = i.dataset.open;
       const w = document.getElementById(id) || (EXPLORERS[id] && getExplorer(id));
       if (!w) return;

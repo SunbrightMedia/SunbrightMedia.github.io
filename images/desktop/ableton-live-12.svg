@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Ableton logo mark (from ableton.com) on a dark tile, like Live's app icon -->
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="#1c1c1c"/>
+  <rect x="2.5" y="2.5" width="59" height="59" rx="11.5" fill="none" stroke="#000" stroke-opacity=".5"/>
+  <g fill="#fff" transform="translate(9.5 21.5)">
+    <path d="M0 0h3v21H0zM6 0h3v21H6zM12 0h3v21h-3zM18 0h3v21h-3zM24 18h21v3H24zM24 12h21v3H24zM24 6h21v3H24zM24 0h21v3H24z"/>
+  </g>
+</svg>
