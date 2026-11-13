@@ -61,6 +61,9 @@
     .task.active { background: linear-gradient(rgba(255,255,255,.4), rgba(255,255,255,.2) 50%, rgba(140,200,255,.15) 50%, rgba(140,200,255,.35)); }
 
     #tray { display: flex; align-items: center; height: 100%; color: #fff; text-shadow: 0 0 3px #000; }
+    #trayicons { display: flex; align-items: center; gap: 6px; padding-left: 6px; }
+    #trayicons img { width: 16px; height: 16px; display: block; }
+    #trayicons img[hidden] { display: none; }
     #clock { padding: 0 10px; text-align: center; line-height: 1.35; }
     #showdesk {
       width: 15px; height: 100%; margin-left: 4px; padding: 0; border: 0; border-left: 1px solid rgba(0,0,0,.5);
@@ -95,9 +98,10 @@
       position: fixed; right: 10px; bottom: 58px; z-index: 10001; max-width: calc(100vw - 20px);
       display: flex; align-items: center; gap: 10px; padding: 12px 34px 12px 12px;
       font: 9pt "Segoe UI", Tahoma, sans-serif; color: #000;
-      opacity: 1; transition: opacity .4s;
+      opacity: 1; transition: opacity .4s; cursor: default;
     }
     #notify[hidden] { display: none; }
+    #notify::before { right: var(--tail, 12px); }
     #notify.fading { opacity: 0; }
     #notify img { width: 32px; height: 32px; flex: none; }
     #notify .text { font-weight: bold; }
@@ -180,7 +184,7 @@
   <div id="taskbar">
     <div id="start" tabindex="0" aria-label="Start"></div>
     <div id="tasks"></div>
-    <div id="tray"><div id="clock"></div><div id="showdesk" tabindex="0" aria-label="Show desktop"></div></div>
+    <div id="tray"><div id="trayicons"><img id="notify-icon" src="images/info-small.png" alt="" hidden></div><div id="clock"></div><div id="showdesk" tabindex="0" aria-label="Show desktop"></div></div>
   </div>
 
   <script>
@@ -215,19 +219,32 @@
     // on its close button, or when any other button is pressed
     const notify = document.getElementById('notify');
     let notifyTimer;
+    const notifyIcon = document.getElementById('notify-icon');
+    // Like Windows 7, the balloon comes from a (temporary) tray icon and its tail points at it
+    function aimNotify() {
+      const r = notifyIcon.getBoundingClientRect();
+      const want = innerWidth - (r.left + r.width / 2) - 12;            // right offset that puts the tail on the icon
+      const right = Math.min(want, innerWidth - notify.offsetWidth - 8); // but keep an 8px gap on the left
+      notify.style.right = Math.max(4, right) + 'px';
+      notify.style.setProperty('--tail', (12 + want - Math.max(4, right)) + 'px');
+    }
     function hideNotify() {
       if (notify.hidden || notify.classList.contains('fading')) return;
       clearTimeout(notifyTimer);
       notify.classList.add('fading');
-      setTimeout(() => { notify.hidden = true; }, 400);
+      setTimeout(() => { notify.hidden = true; notifyIcon.hidden = true; }, 400);
     }
     if (isPhone()) {
       setTimeout(() => {
+        notifyIcon.hidden = false;
         notify.hidden = false;
+        aimNotify();
         notifyTimer = setTimeout(hideNotify, 5000);
       }, 800);
     }
-    notify.querySelector('.close').addEventListener('click', hideNotify);
+    addEventListener('resize', () => { if (!notify.hidden) aimNotify(); });
+    // Clicking anywhere on the balloon dismisses it, as in Windows 7
+    notify.addEventListener('click', hideNotify);
     document.addEventListener('pointerdown', e => {
       if (!notify.hidden && !notify.contains(e.target) &&
           e.target.closest('button, a, input, #start, .task, #showdesk, .icon')) hideNotify();
