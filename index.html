@@ -72,29 +72,91 @@
     }
     #showdesk:hover { background: linear-gradient(90deg, rgba(255,255,255,.5), rgba(255,255,255,.2)); }
 
-    /* ---------- Start menu (add your own items in .left .items / .right) ---------- */
+    /* ---------- Start menu (Windows 7 layout) ---------- */
     #startmenu {
-      position: fixed; left: 0; bottom: 40px; width: 400px; max-width: 100vw; height: 500px; max-height: calc(100vh - 40px); z-index: 10000;
-      display: flex; padding: 8px; gap: 8px;
-      border: 1px solid rgba(0,0,0,.7); border-radius: 6px 6px 0 0;
-      background: linear-gradient(rgba(40,70,110,.75), rgba(20,35,60,.85));
+      position: fixed; left: 0; bottom: 40px; width: 424px; max-width: 100vw; height: 520px; max-height: calc(100vh - 70px); z-index: 10000;
+      display: flex; padding: 6px 6px 8px 6px; gap: 0;
+      border: 1px solid rgba(0,0,0,.75); border-bottom: 0; border-radius: 7px 7px 0 0;
+      background: linear-gradient(rgba(60,100,150,.55), rgba(25,45,80,.8));
       -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.35), 0 0 15px rgba(0,0,0,.5);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.4), 0 0 12px rgba(0,0,0,.55);
+      font: 9pt "Segoe UI", Tahoma, sans-serif;
     }
     #startmenu[hidden] { display: none; }
-    #startmenu .left {
-      flex: 1.4; display: flex; flex-direction: column; background: #fff; border: 1px solid rgba(0,0,0,.6); border-radius: 4px;
-      box-shadow: 0 0 0 1px rgba(255,255,255,.4);
+    #startmenu a { text-decoration: none; color: inherit; }
+
+    /* Left column: white program list, then the search box on the glass */
+    #startmenu .left { width: 252px; flex: none; display: flex; flex-direction: column; }
+    #startmenu .programs {
+      flex: 1; min-height: 0; display: flex; flex-direction: column;
+      background: #fff; border: 1px solid rgba(0,0,0,.55); border-radius: 4px;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.45);
     }
-    #startmenu .items { flex: 1; padding: 4px; }
-    #startmenu .items a { display: flex; align-items: center; gap: 8px; padding: 3px 6px; color: #000; }
-    #startmenu .items a img { width: 32px; height: 32px; flex: none; }
-    #startmenu .search { margin: 6px; }
-    #startmenu .search input { width: 100%; }
-    #startmenu .right { flex: 1; display: flex; flex-direction: column; padding: 4px 0; color: #fff; text-shadow: 0 0 3px #000; }
-    #startmenu a { display: block; padding: 6px 8px; color: inherit; text-decoration: none; border: 1px solid transparent; border-radius: 3px; }
-    #startmenu .left a:hover { background: linear-gradient(#f2f8fe, #d6e9fd); border-color: #a8d8f7; }
-    #startmenu .right a:hover { background: linear-gradient(rgba(255,255,255,.25), rgba(255,255,255,.1)); border-color: rgba(255,255,255,.4); }
+    #startmenu .list { flex: 1; overflow: auto; padding: 6px 4px 2px; }
+    #startmenu .sep { height: 1px; margin: 4px 8px; background: linear-gradient(90deg, transparent, #d5dfe9 15%, #d5dfe9 85%, transparent); }
+    #startmenu .prog {
+      display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 6px; color: #000;
+      border: 1px solid transparent; border-radius: 3px; cursor: default;
+    }
+    #startmenu .prog img { width: 32px; height: 32px; flex: none; }
+    #startmenu .prog:hover, #startmenu .allprogs:hover {
+      border-color: #7da2ce; background: linear-gradient(#dcebfc, #c1dbfc);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.6);
+    }
+    #startmenu .results-head { padding: 4px 8px 2px; color: #1e395b; font-weight: bold; }
+    #startmenu .noresults { padding: 8px; color: #6d6d6d; }
+    #startmenu .allprogs {
+      display: flex; align-items: center; gap: 8px; height: 30px; margin: 0 4px 4px; padding: 0 8px; color: #000;
+      border: 1px solid transparent; border-radius: 3px; cursor: default;
+    }
+    #startmenu .allprogs .arrow { width: 0; height: 0; border-left: 5px solid #2b2b2b; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+    #startmenu .allprogs .mag { display: none; width: 12px; height: 12px; }
+    #startmenu.searching .allprogs .arrow { display: none; }
+    #startmenu.searching .allprogs .mag { display: block; }
+    #startmenu.all .allprogs .arrow { border-left: 0; border-right: 5px solid #2b2b2b; }
+    #startmenu .searchbox {
+      position: relative; height: 26px; margin: 9px 4px 0 2px; display: flex; align-items: center;
+      background: #fff; border: 1px solid #8e9fb3; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,.35);
+    }
+    #startmenu .searchbox input {
+      all: unset; flex: 1; min-width: 0; height: 100%; padding: 0 6px; font: 9pt "Segoe UI", Tahoma, sans-serif; color: #000;
+    }
+    #startmenu .searchbox input::placeholder { color: #6d6d6d; font-style: italic; opacity: 1; }
+    #startmenu .searchbox svg { width: 14px; height: 14px; margin-right: 6px; flex: none; }
+
+    /* Right column: user picture, folder links, Shut down */
+    #startmenu .right { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 46px 0 0 6px; color: #fff; }
+    #startmenu .userpic {
+      position: absolute; top: -26px; right: 52px; width: 66px; height: 66px; padding: 8px;
+      border: 1px solid rgba(0,0,0,.6); border-radius: 6px;
+      background: linear-gradient(rgba(255,255,255,.95), rgba(214,229,245,.85) 50%, rgba(190,210,235,.85));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.9), 0 1px 4px rgba(0,0,0,.45);
+    }
+    #startmenu .userpic img { display: block; width: 48px; height: 48px; border-radius: 2px; }
+    #startmenu .userpic img[hidden] { display: none; }
+    #startmenu .userpic .blank { width: 48px; height: 48px; border-radius: 2px; background: linear-gradient(#e8f1fb, #b9d2ee); box-shadow: inset 0 0 0 1px rgba(0,0,0,.2); }
+    #startmenu .place {
+      display: block; height: 31px; line-height: 29px; padding: 0 10px; margin-right: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      border: 1px solid transparent; border-radius: 3px; cursor: default; text-shadow: 0 0 6px #000, 0 0 2px #000;
+    }
+    #startmenu .place:hover {
+      border-color: rgba(0,0,0,.6);
+      background: linear-gradient(rgba(255,255,255,.4), rgba(255,255,255,.15) 50%, rgba(255,255,255,.05) 50%, rgba(255,255,255,.2));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.45);
+    }
+    #startmenu .rsep { height: 1px; margin: 3px 8px 3px 4px; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.3) 20%, rgba(255,255,255,.3) 80%, rgba(255,255,255,0)); box-shadow: 0 -1px 0 rgba(0,0,0,.25); }
+    #startmenu .spacer { flex: 1; }
+    #startmenu .shutdown { display: flex; height: 24px; margin: 0 6px 0 4px; align-self: flex-start; }
+    #startmenu .shutdown div {
+      display: flex; align-items: center; justify-content: center; color: #fff; cursor: default; text-shadow: 0 0 4px #000;
+      border: 1px solid rgba(0,0,0,.7);
+      background: linear-gradient(rgba(255,255,255,.35), rgba(255,255,255,.12) 50%, rgba(0,0,0,.1) 50%, rgba(255,255,255,.15));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.4);
+    }
+    #startmenu .shutdown .main { padding: 0 14px; border-radius: 3px 0 0 3px; }
+    #startmenu .shutdown .more { width: 22px; border-left: 0; border-radius: 0 3px 3px 0; }
+    #startmenu .shutdown .more::after { content: ""; border-left: 4px solid #fff; border-top: 4px solid transparent; border-bottom: 4px solid transparent; filter: drop-shadow(0 0 1px #000); }
+    #startmenu .shutdown div:hover { background: linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.25) 50%, rgba(120,190,255,.25) 50%, rgba(160,220,255,.5)); }
     /* ---------- Notification balloon (7.css [role=tooltip], tail pointing down at the tray) ---------- */
     #notify {
       position: fixed; right: 10px; bottom: 58px; z-index: 10001; max-width: calc(100vw - 20px);
@@ -134,7 +196,10 @@
       #showdesk { width: 12px; }
 
       /* Start menu spans the screen */
-      #startmenu { width: 100%; height: 70vh; border-radius: 0; }
+      #startmenu { width: 100%; height: 70vh; }
+      #startmenu .left { width: auto; flex: 1.35; min-width: 0; }
+      #startmenu .right { flex: 1; }
+      #startmenu .userpic { right: calc(6px + (100% - 12px) / 2.35 / 2 - 34px); }
     }
   </style>
 </head>
@@ -170,14 +235,41 @@
 
   <div id="startmenu" hidden>
     <div class="left">
-      <div class="items">
-        <a href="https://www.instagram.com/sunbrightmedia?exln=Y3VqNGJqeGl2OXhv&amp;utm_source=qr" target="_blank" rel="noopener">
-          <img src="images/instagram.svg" alt=""><span>Instagram</span>
-        </a>
+      <div class="programs">
+        <div class="list">
+          <!-- Pinned programs (data-name is what the search box matches) -->
+          <div class="pinned">
+            <a class="prog" data-name="Instagram" href="https://www.instagram.com/sunbrightmedia?exln=Y3VqNGJqeGl2OXhv&amp;utm_source=qr" target="_blank" rel="noopener">
+              <img src="images/instagram.svg" alt=""><span>Instagram</span>
+            </a>
+          </div>
+          <div class="results" hidden></div>
+        </div>
+        <div class="sep"></div>
+        <div class="allprogs" tabindex="0"><span class="arrow"></span><svg class="mag" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="#3a6ea5" stroke-width="1.8"/><path d="M10 10l4.2 4.2" stroke="#3a6ea5" stroke-width="2.2" stroke-linecap="round"/></svg><span class="label">All Programs</span></div>
       </div>
-      <div class="search"><input type="search" aria-label="Search"></div>
+      <div class="searchbox">
+        <input type="text" placeholder="Search programs and files" aria-label="Search programs and files">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="#3a6ea5" stroke-width="1.8"/><path d="M10 10l4.2 4.2" stroke="#3a6ea5" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </div>
     </div>
-    <div class="right"></div>
+    <div class="right">
+      <div class="userpic"><div class="blank" data-default></div><img alt="" hidden></div>
+      <div class="place" data-icon="">SunbrightMedia</div>
+      <div class="place" data-icon="images/startmenu/documents.png">Documents</div>
+      <div class="place" data-icon="images/startmenu/pictures.png">Pictures</div>
+      <div class="place" data-icon="images/startmenu/music.png">Music</div>
+      <div class="rsep"></div>
+      <div class="place" data-icon="images/startmenu/games.png">Games</div>
+      <div class="place" data-icon="images/startmenu/computer.png">Computer</div>
+      <div class="rsep"></div>
+      <div class="place" data-icon="images/startmenu/control-panel.png">Control Panel</div>
+      <div class="place" data-icon="images/startmenu/devices-printers.png">Devices and Printers</div>
+      <div class="place" data-icon="">Default Programs</div>
+      <div class="place" data-icon="images/startmenu/help.png">Help and Support</div>
+      <div class="spacer"></div>
+      <div class="shutdown"><div class="main">Shut down</div><div class="more"></div></div>
+    </div>
   </div>
 
   <!-- Mobile-only notification (shown by the script below) -->
@@ -212,10 +304,63 @@
 
     // Start menu
     const start = document.getElementById('start'), menu = document.getElementById('startmenu');
-    menu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => { menu.hidden = true; start.classList.remove('open'); }));
-    start.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; start.classList.toggle('open', !menu.hidden); };
+    const pinned = menu.querySelector('.pinned'), results = menu.querySelector('.results');
+    const allBtn = menu.querySelector('.allprogs'), allLabel = allBtn.querySelector('.label');
+    const search = menu.querySelector('.searchbox input');
+    function resetMenu() {
+      menu.classList.remove('all', 'searching'); allLabel.textContent = 'All Programs';
+      search.value = ''; results.hidden = true; pinned.hidden = false;
+    }
+    function closeMenu() { menu.hidden = true; start.classList.remove('open'); resetMenu(); }
+    start.onclick = e => {
+      e.stopPropagation();
+      if (menu.hidden) { menu.hidden = false; start.classList.add('open'); } else closeMenu();
+    };
     document.addEventListener('mousedown', e => {
-      if (!menu.hidden && !menu.contains(e.target) && e.target !== start) { menu.hidden = true; start.classList.remove('open'); }
+      if (!menu.hidden && !menu.contains(e.target) && e.target !== start) closeMenu();
+    });
+    menu.querySelectorAll('a.prog').forEach(a => a.addEventListener('click', closeMenu));
+
+    // All Programs: lists every program A-Z, then becomes "Back"
+    const progs = () => [...pinned.querySelectorAll('a.prog')];
+    function showList(items, head) {
+      results.innerHTML = '';
+      if (head) { const h = document.createElement('div'); h.className = 'results-head'; h.textContent = head; results.append(h); }
+      if (!items.length) { const n = document.createElement('div'); n.className = 'noresults'; n.textContent = 'No items match your search.'; results.append(n); }
+      items.forEach(a => { const c = a.cloneNode(true); c.addEventListener('click', closeMenu); results.append(c); });
+      pinned.hidden = true; results.hidden = false;
+    }
+    allBtn.addEventListener('click', () => {
+      if (menu.classList.contains('searching')) return; // "See more results"
+      if (menu.classList.toggle('all')) {
+        allLabel.textContent = 'Back';
+        showList(progs().sort((a, b) => a.dataset.name.localeCompare(b.dataset.name)));
+      } else resetMenu();
+    });
+    allBtn.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); allBtn.click(); } });
+
+    // Search programs as you type
+    search.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      menu.classList.remove('all');
+      menu.classList.toggle('searching', !!q);
+      allLabel.textContent = q ? 'See more results' : 'All Programs';
+      if (!q) { results.hidden = true; pinned.hidden = false; return; }
+      const found = progs().filter(a => a.dataset.name.toLowerCase().includes(q));
+      showList(found, found.length ? `Programs (${found.length})` : '');
+    });
+    search.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeMenu();
+      if (e.key === 'Enter') results.querySelector('a.prog')?.click();
+    });
+
+    // Hovering a link on the right shows its icon in the user picture frame
+    const picImg = menu.querySelector('.userpic img'), picBlank = menu.querySelector('.userpic .blank');
+    menu.querySelectorAll('.place').forEach(pl => {
+      pl.addEventListener('mouseenter', () => {
+        if (pl.dataset.icon) { picImg.src = pl.dataset.icon; picImg.hidden = false; picBlank.hidden = true; }
+      });
+      pl.addEventListener('mouseleave', () => { picImg.hidden = true; picBlank.hidden = false; });
     });
 
     // Phone layout (matches the CSS breakpoint); touch devices open icons with one tap
