@@ -24,76 +24,84 @@
       --font: "Ableton Sans", "Ableton Sans Medium", "Helvetica Neue", Helvetica, Arial, sans-serif;
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font: 12px/1.2 var(--font); user-select: none; -webkit-user-select: none; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font: 10px/1.2 var(--font); user-select: none; -webkit-user-select: none; -webkit-font-smoothing: antialiased; }
     button { font: inherit; color: inherit; }
 
-    #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+    /* Geometry measured from Ableton's Live 12 screenshots at 1x (1440 px wide window) */
+    #app { position: fixed; inset: 0; display: flex; flex-direction: column; --hw: 226px; }
 
-    /* ---------- Control bar ---------- */
-    #controlbar { height: 42px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: var(--bg); white-space: nowrap; overflow: hidden; }
-    .cb { height: 22px; min-width: 22px; padding: 0 7px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; background: var(--panel); color: var(--text); border-radius: 2px; flex: none; }
-    .cb.num { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+    /* ---------- Control bar: 47 px tall, 17 px controls ---------- */
+    #controlbar { height: 47px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 12px; background: var(--bg); white-space: nowrap; overflow: hidden; }
+    .cb { height: 17px; min-width: 17px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; background: var(--panel); color: var(--text); flex: none; font-size: 10px; }
+    .cb.num { font-variant-numeric: tabular-nums; letter-spacing: .04em; white-space: pre; }
+    #cb-follow.on { background: var(--panel); color: var(--text); }
     .cb.on { background: var(--orange); color: #1e1e1e; }
-    .cb.dd::after { content: ""; border-top: 4px solid currentColor; border-left: 3px solid transparent; border-right: 3px solid transparent; margin-left: 2px; }
+    .cb.dd { justify-content: space-between; }
+    .cb.dd::after { content: ""; border-top: 3.5px solid currentColor; border-left: 3px solid transparent; border-right: 3px solid transparent; margin-left: 3px; }
     .cb.ghost { background: transparent; }
-    .cb svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
-    .cb .play { width: 0; height: 0; border-left: 13px solid #10c47a; border-top: 8px solid transparent; border-bottom: 8px solid transparent; }
-    .cb.playing .play { border-left-color: #12e08a; }
-    .cb .stop { width: 14px; height: 14px; background: #b5b5b5; }
-    .cb .rec { width: 15px; height: 15px; border-radius: 50%; background: #b5b5b5; }
-    .gap { width: 14px; flex: none; }
+    .cb svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.2; }
+    .cb .play { width: 0; height: 0; border-left: 12px solid #05d38c; border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
+    .cb.playing .play { border-left-color: #2bf3a8; }
+    .cb .stop { width: 13px; height: 13px; background: #b5b5b5; }
+    .cb .rec { width: 13px; height: 13px; flex: none; border-radius: 50%; background: #b5b5b5; }
+    .cb .stop, .cb .play { flex: none; }
     .flex { flex: 1; }
-    #cb-scale-btn { background: #a78bfa; color: #1e1e1e; }
-    #cb-cpu-bar { width: 6px; height: 14px; background: var(--orange); }
+    #cb-scale-btn { background: #b595fc; color: #1e1e1e; font-size: 9px; }
+    #cb-cpu-bar { width: 7px; height: 17px; margin-left: -5px; background: var(--orange); }
     .cb.clickable:hover { filter: brightness(1.15); }
 
     /* ---------- Arrangement ---------- */
-    #arrangement { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 8px; background: var(--sep); border-radius: 3px 3px 0 0; overflow: hidden; position: relative; }
-    #ruler-row { height: 40px; flex: none; display: flex; background: var(--panel); }
-    #ruler { flex: 1; min-width: 0; position: relative; }
+    #arrangement { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 9px; background: var(--sep); overflow: hidden; position: relative; }
+    #ruler-row { height: 42px; flex: none; display: flex; background: var(--sep); }
+    #ruler { flex: 1; min-width: 0; height: 40px; position: relative; }
     #ruler canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-    #ruler-side { width: var(--hw); flex: none; display: flex; flex-direction: column; gap: 3px; padding: 3px 8px 0; overflow: hidden; }
-    #ruler-side .row { display: flex; gap: 6px; }
-    .pill { height: 16px; padding: 0 9px; display: inline-flex; align-items: center; border-radius: 9px; background: var(--dark); color: var(--text); }
-    .sq { height: 16px; width: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 2px; background: var(--dark); }
-    .circ { width: 15px; height: 15px; border-radius: 50%; background: var(--dark); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; }
+    #ruler-side { width: var(--hw); height: 40px; flex: none; display: flex; flex-direction: column; gap: 4px; padding: 5px 0 0 6px; overflow: hidden; background: var(--panel); border-left: 2px solid var(--sep); }
+    #ruler-side .row { display: flex; gap: 4px; align-items: center; }
+    .pill { height: 13px; padding: 0 7px; display: inline-flex; align-items: center; border-radius: 7px; background: var(--dark); color: var(--text); }
+    .sq { height: 13px; width: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--dark); color: var(--text); font-size: 9px; }
+    .circ { width: 12px; height: 12px; border-radius: 50%; background: var(--dark); display: inline-flex; align-items: center; justify-content: center; font-size: 8px; color: var(--text); }
 
     #tracks-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     .tscroll { position: relative; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
     .tscroll::-webkit-scrollbar { display: none; }
-    #tracks { flex: 1; min-height: 0; }
+    #tracks { flex: 1; min-height: 0; background: var(--panel); }
     #pinned { flex: none; border-top: 2px solid var(--sep); }
     .lanes-canvas { position: sticky; top: 0; left: 0; display: block; }
     .rows { position: relative; }
     .trow { display: flex; }
     .trow .lane { flex: 1; min-width: 0; }
-    .theader { width: var(--hw); flex: none; display: flex; border-bottom: 1px solid var(--sep); background: var(--bg); }
-    .theader .name { width: 104px; flex: none; display: flex; align-items: flex-start; gap: 6px; padding: 3px 6px; color: #1a1a1a; overflow: hidden; }
-    .theader .name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; line-height: 13px; padding-top: 1px; }
-    .theader .fold { width: 13px; height: 13px; flex: none; border-radius: 50%; border: 1.3px solid currentColor; display: grid; place-items: center; opacity: .85; }
-    .theader .fold::after { content: ""; border-top: 4.5px solid currentColor; border-left: 3.2px solid transparent; border-right: 3.2px solid transparent; margin-top: 1px; }
-    .theader.folded .fold::after { border-top: 3.2px solid transparent; border-bottom: 3.2px solid transparent; border-left: 4.5px solid currentColor; border-right: 0; margin: 0 0 0 1.5px; }
-    .theader.group .fold::after, .theader.group.folded .fold::after { content: "≡"; border: 0; font-size: 10px; line-height: 1; margin: -1px 0 0; font-weight: bold; }
-    .theader .ctrls { flex: 1; min-width: 0; display: grid; grid-template-columns: 46px 22px 22px; grid-auto-rows: 15px; gap: 2px 3px; padding: 3px 4px 3px 4px; align-content: start; background: var(--bg); }
-    .theader .act { background: var(--orange); color: #1e1e1e; display: flex; align-items: center; justify-content: center; font-size: 11px; }
-    .theader .act.off { background: #5a5a5a; color: #bdbdbd; }
-    .theader .solo, .theader .arm { background: var(--dark); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text); }
+
+    /* Track header: 2 px divider, 103 px name, 2 px divider, controls (46/21/21 px, 13 px rows every 17 px), meter */
+    .theader { width: var(--hw); flex: none; display: flex; background: var(--sep); padding-left: 2px; padding-bottom: 2px; }
+    .theader .name { width: 103px; flex: none; display: flex; align-items: flex-start; padding: 2px 0 0 3px; color: #1e1e1e; overflow: hidden; }
+    .theader .name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px; font-weight: 600; line-height: 12px; margin: 1px 0 0 8px; }
+    .theader .fold { width: 12.5px; height: 12.5px; flex: none; border-radius: 50%; border: 1.1px solid currentColor; display: grid; place-items: center; }
+    .theader .fold::after { content: ""; border-top: 4px solid currentColor; border-left: 3px solid transparent; border-right: 3px solid transparent; margin-top: 1px; }
+    .theader.folded .fold::after { border-top: 3px solid transparent; border-bottom: 3px solid transparent; border-left: 4px solid currentColor; border-right: 0; margin: 0 0 0 1.5px; }
+    .theader.group .fold::after, .theader.group.folded .fold::after { content: ""; width: 5.5px; height: 1.2px; border: 0; margin: 0; background: currentColor; box-shadow: 0 -2.4px 0 currentColor, 0 2.4px 0 currentColor; }
+    .theader .ctrls { width: 98px; flex: none; margin-left: 2px; display: grid; grid-template-columns: 46px 21px 21px; grid-auto-rows: 13px; gap: 4px 4px; padding: 2px 0 0 2px; align-content: start; background: var(--panel); }
+    .theader .ctrls > div { border: 1px solid #111; font-size: 10px; display: flex; align-items: center; justify-content: center; }
+    .theader .act { background: var(--orange); color: #1e1e1e; font-weight: 600; }
+    .theader .act.off { background: #5f5f5f; color: #b5b5b5; }
+    .theader .solo, .theader .arm { background: var(--dark); color: var(--text); }
     .theader .solo.on { background: #2f8ff6; color: #fff; }
-    .theader .arm::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #6b6b6b; }
-    .theader .vol { grid-column: 1; position: relative; background: var(--dark); font-size: 11px; display: flex; align-items: center; justify-content: center; color: #d6d6d6; overflow: hidden; }
+    .theader .arm::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #5a5a5a; }
+    .theader .vol { grid-column: 1; position: relative; background: var(--sep); color: #e0e0e0; overflow: hidden; }
     .theader .vol i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--teal); }
     .theader .vol b { position: relative; font-weight: normal; }
-    .theader .panv { grid-column: 2 / span 2; background: var(--dark); display: flex; align-items: center; justify-content: center; font-size: 11px; }
-    .theader .send { background: var(--dark); display: flex; align-items: center; justify-content: center; font-size: 11px; color: #9a9a9a; }
-    .theader .meter { width: 10px; flex: none; display: flex; gap: 2px; padding: 3px 2px 3px 0; }
-    .theader .meter i { flex: 1; background: var(--dark); position: relative; overflow: hidden; }
-    .theader .meter i b { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: linear-gradient(to top, #1ec95a, #1ec95a 70%, #e6d83a 88%, #f2502e); }
-    .theader.sel .ctrls, .theader.sel .meter { background: #3a3a3a; }
-    .theader.main .name { color: #1a1a1a; }
+    .theader .panv { grid-column: 2 / span 2; background: var(--sep); }
+    .theader .sends { grid-column: 1 / span 3; border: 0 !important; justify-content: flex-start !important; gap: 3.5px; }
+    .theader .send { width: 29.5px; height: 13px; border: 1px solid #111; background: var(--sep); display: flex; align-items: center; justify-content: center; color: var(--text); font-size: 10px; }
+    .theader .meter { width: 21px; flex: none; display: flex; gap: 1px; padding: 2px 10px 2px 4px; background: var(--panel); }
+    .theader .meter i { width: 3px; flex: none; background: #181818; position: relative; overflow: hidden; }
+    .theader .meter i b { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: linear-gradient(to top, #02f757, #02f757 70%, #e6d83a 88%, #f2502e); }
+    .theader.sel .ctrls, .theader.sel .meter { background: #464646; }
+    .theader.main .name { color: #1e1e1e; }
+    .theader.main .vol2 { grid-column: 2 / span 2; background: #3c6ab6; color: #e0e0e0; }
 
-    #songruler { height: 20px; flex: none; display: flex; background: var(--panel); border-top: 1px solid var(--sep); }
-    #songruler canvas { flex: 1; min-width: 0; height: 100%; }
-    #songruler .side { width: var(--hw); flex: none; display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 11px; }
+    #songruler { height: 23px; flex: none; display: flex; background: var(--sep); padding-top: 2px; }
+    #songruler canvas { flex: 1; min-width: 0; height: 21px; }
+    #songruler .side { width: var(--hw); height: 21px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 6px; background: var(--panel); border-left: 2px solid var(--sep); }
 
     /* ---------- Detail view (devices) ---------- */
     #detail { height: 214px; flex: none; margin: 4px 8px 0; display: flex; background: var(--sep); border-radius: 3px; overflow: hidden; }
@@ -147,68 +155,67 @@
 
     @media (max-width: 700px) {
       #controlbar .wide { display: none; }
-      :root { --hw: 168px !important; }
+      #app { --hw: 168px !important; }
       .theader .name { width: 72px; }
       #detail { height: 160px; }
     }
   </style>
 </head>
 <body>
-  <div id="app" style="--hw: 236px">
+  <div id="app">
     <div id="controlbar">
-      <span class="cb ghost wide" title="Show/hide Browser"><svg viewBox="0 0 14 14"><rect x="1" y="2" width="5" height="10" fill="#4a4a4a" stroke="none"/><rect x="7" y="2" width="6" height="10" fill="#4a4a4a" stroke="none"/></svg></span>
-      <span class="cb wide">Link</span>
-      <span class="cb">Tap</span>
-      <span class="cb num" id="cb-tempo">120.00</span>
-      <span class="cb wide" title="Nudge"><svg viewBox="0 0 14 14"><path d="M2 2v10M4 2v10M6 2v10M9 2v10"/></svg></span>
-      <span class="cb wide" title="Nudge"><svg viewBox="0 0 14 14"><path d="M5 2v10M8 2v10M10 2v10M12 2v10"/></svg></span>
-      <span class="cb num" id="cb-sig">4 / 4</span>
-      <span class="cb wide" title="Metronome">○●</span>
-      <span class="cb dd wide" id="cb-quant">1 Bar</span>
-      <span class="gap wide"></span>
-      <span class="cb wide" id="cb-scale-btn" title="Scale">♭♯</span>
-      <span class="cb dd wide" id="cb-root">C</span>
-      <span class="cb dd wide" id="cb-scale">Major</span>
-      <span class="gap wide"></span>
-      <span class="cb wide clickable" id="cb-follow" title="Follow">→‒</span>
-      <span class="cb num" id="cb-pos">1. 1. 1</span>
-      <span class="cb ghost clickable" id="cb-play" title="Play"><i class="play"></i></span>
-      <span class="cb ghost clickable" id="cb-stop" title="Stop"><i class="stop"></i></span>
-      <span class="cb ghost wide" title="Arrangement Record"><i class="rec"></i></span>
-      <span class="gap wide"></span>
-      <span class="cb ghost wide">+</span>
-      <span class="cb wide" title="Automation Arm">⟜</span>
-      <span class="cb ghost wide">◂</span>
-      <span class="cb ghost wide">⛶</span>
-      <span class="cb ghost wide">○</span>
-      <span class="gap wide"></span>
-      <span class="cb num wide" id="cb-loopstart">1. 1. 1</span>
-      <span class="cb wide" title="Punch-In">⌐</span>
-      <span class="cb clickable" id="cb-loop" title="Loop Switch">⟲</span>
-      <span class="cb wide" title="Punch-Out">¬</span>
-      <span class="cb num wide" id="cb-looplen">4. 0. 0</span>
+      <span class="cb ghost wide" style="width:18px;padding:0" title="Show/hide Browser"><svg viewBox="0 0 18 11" style="width:18px"><rect x="0" y="0" width="5" height="11" fill="#464646" stroke="none"/><rect x="7" y="0" width="10" height="11" fill="#464646" stroke="none"/></svg></span>
+      <span class="cb wide" style="width:43px;margin-left:22px">Link</span>
+      <span class="cb" style="width:27px">Tap</span>
+      <span class="cb num" id="cb-tempo" style="width:43px">120.00</span>
+      <span class="cb wide" style="width:17px;padding:0" title="Nudge Down"><svg viewBox="0 0 11 11"><path d="M2 1v9M4.5 1v9M7 1v9M9.5 1v9" stroke-width="1"/></svg></span>
+      <span class="cb wide" style="width:17px;padding:0" title="Nudge Up"><svg viewBox="0 0 11 11"><path d="M1.5 1v9M4 1v9M6.5 1v9M9 1v9" stroke-width="1"/></svg></span>
+      <span class="cb num" id="cb-sig" style="width:43px">4 / 4</span>
+      <span class="cb dd wide" style="width:39px" title="Metronome">○●</span>
+      <span class="cb dd wide" id="cb-quant" style="width:45px">1 Bar</span>
+      <span class="cb wide" id="cb-scale-btn" style="width:17px;padding:0;margin-left:19px" title="Scale">♭♯</span>
+      <span class="cb dd wide" id="cb-root" style="width:44px">C</span>
+      <span class="cb dd wide" id="cb-scale" style="width:70px">Major</span>
+      <span class="cb wide clickable" id="cb-follow" style="width:21px;padding:0;margin-left:19px" title="Follow"><svg viewBox="0 0 11 11"><path d="M0 5.5h5M3 3l2.5 2.5L3 8M7 5.5h1.5M10 5.5h1" /></svg></span>
+      <span class="cb num" id="cb-pos" style="width:82px">1. 1. 1</span>
+      <span class="cb ghost clickable" id="cb-play" style="width:20px;margin-left:16px" title="Play"><i class="play"></i></span>
+      <span class="cb ghost clickable" id="cb-stop" style="width:20px;margin-left:3px" title="Stop"><i class="stop"></i></span>
+      <span class="cb ghost wide" style="width:20px;margin-left:3px" title="Arrangement Record"><i class="rec"></i></span>
+      <span class="cb wide" style="width:17px;padding:0;margin-left:16px" title="MIDI Arrangement Overdub">+</span>
+      <span class="cb on wide" style="width:17px;padding:0" title="Automation Arm"><svg viewBox="0 0 11 11"><circle cx="2.5" cy="8.5" r="1.6"/><circle cx="8.5" cy="2.5" r="1.6"/><path d="M3.6 7.4l3.8-3.8"/></svg></span>
+      <span class="cb wide" style="width:17px;padding:0;color:#696969" title="Back to Arrangement">◂</span>
+      <span class="cb wide" style="width:17px;padding:0" title="Capture MIDI"><svg viewBox="0 0 11 11"><path d="M1 3V1h2M8 1h2v2M10 8v2H8M3 10H1V8"/></svg></span>
+      <span class="cb wide" style="width:17px;padding:0" title="Session Record"><svg viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="4"/></svg></span>
+      <span class="cb num wide" id="cb-loopstart" style="width:82px;margin-left:19px">1. 1. 1</span>
+      <span class="cb wide" style="width:21px;padding:0" title="Punch-In"><svg viewBox="0 0 11 11"><path d="M0 3h4l3 5h4"/></svg></span>
+      <span class="cb clickable" id="cb-loop" style="width:21px;padding:0" title="Loop Switch"><svg viewBox="0 0 11 11"><path d="M1 8V2h9v6H5M6.5 6.5L5 8l1.5 1.5"/></svg></span>
+      <span class="cb wide" style="width:21px;padding:0" title="Punch-Out"><svg viewBox="0 0 11 11"><path d="M0 8h4l3-5h4"/></svg></span>
+      <span class="cb num wide" id="cb-looplen" style="width:82px">4. 0. 0</span>
       <span class="flex"></span>
-      <span class="cb wide" title="Draw Mode">✎</span>
-      <span class="cb wide">Key</span>
-      <span class="cb wide">MIDI</span>
-      <span class="cb wide" id="cb-sr">44.1 kHz</span>
-      <span class="cb wide"><i id="cb-cpu-bar"></i>&nbsp;0 %</span>
-      <span class="cb clickable" id="cb-open" title="Open another Live Set (.zip)">Open</span>
+      <span class="cb wide" style="width:17px;padding:0" title="Draw Mode"><svg viewBox="0 0 11 11"><path d="M2 9l1-3 5-5 2 2-5 5zM1 10.5h9"/></svg></span>
+      <span class="cb wide" style="width:17px;padding:0" title="Computer MIDI Keyboard"><svg viewBox="0 0 11 11"><path d="M1 1h9v9H1zM3.5 1v5M5.5 1v5M7.5 1v5M3.5 6v4M5.5 6v4M7.5 6v4"/></svg></span>
+      <span class="cb wide" style="width:26px">Key</span>
+      <span class="cb wide" style="width:5px;min-width:5px;padding:0;background:transparent"></span>
+      <span class="cb wide" style="width:28px">MIDI</span>
+      <span class="cb wide" id="cb-sr" style="width:48px">44.1 kHz</span>
+      <span class="cb dd wide" style="width:55px"><i id="cb-cpu-bar"></i>0 %</span>
+      <span class="cb wide" style="width:28px"></span>
+      <span class="cb clickable" id="cb-open" style="width:34px;margin-left:12px" title="Open another Live Set (.zip)">Open</span>
     </div>
 
     <div id="arrangement">
       <div id="ruler-row">
         <div id="ruler"><canvas id="ruler-canvas"></canvas></div>
         <div id="ruler-side">
-          <div class="row"><span class="pill">Set</span><span class="sq">⤢</span><span class="sq">🔒︎</span></div>
-          <div class="row"><span class="circ">←</span><span class="circ">→</span></div>
+          <div class="row"><span class="pill">Set</span><span class="sq" style="margin-left:6px">⤢</span><span class="sq">⏏︎</span></div>
+          <div class="row"><span class="circ">←</span><span class="circ" style="margin-left:-1px">→</span></div>
         </div>
       </div>
       <div id="tracks-wrap">
         <div id="tracks" class="tscroll"><canvas class="lanes-canvas" id="lanes-canvas"></canvas><div class="rows" id="rows"></div></div>
         <div id="pinned" class="tscroll"><canvas class="lanes-canvas" id="pinned-canvas"></canvas><div class="rows" id="pinned-rows"></div></div>
       </div>
-      <div id="songruler"><canvas id="song-canvas"></canvas><div class="side"><span class="sq" style="width:22px">⦀</span><span class="sq" style="width:40px" id="zoom-label">1.00x</span><span class="sq" style="width:18px">H</span><span class="sq" style="width:18px">W</span></div></div>
+      <div id="songruler"><canvas id="song-canvas"></canvas><div class="side"><span class="sq" style="width:17px">⦀</span><span class="sq" style="width:30px" id="zoom-label">1.00x</span><span style="flex:1"></span><span class="sq" style="width:13px">H</span><span class="sq" style="width:13px">W</span></div></div>
 
       <div id="overlay">
         <div class="dialog" id="dialog"></div>
