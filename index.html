@@ -192,9 +192,12 @@
 
     // Clock (time over date)
     const clock = document.getElementById('clock');
+    // Real day, month and time, but the year always shows as 2014
+    const dateFmt = new Intl.DateTimeFormat();
     const tick = () => {
       const d = new Date();
-      clock.innerHTML = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '<br class="date"><span class="date">' + d.toLocaleDateString() + '</span>';
+      const date = dateFmt.formatToParts(d).map(p => p.type === 'year' ? '2014' : p.value).join('');
+      clock.innerHTML = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '<br class="date"><span class="date">' + date + '</span>';
     };
     tick(); setInterval(tick, 10000);
 
