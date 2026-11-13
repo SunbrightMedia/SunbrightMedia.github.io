@@ -34,15 +34,35 @@
       width: 76px; padding: 3px 2px 4px; text-align: center; color: #fff;
       border: 1px solid transparent; border-radius: 3px; text-shadow: 0 0 3px #000, 0 1px 2px #000;
     }
-    .icon:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.3); }
-    .icon.selected { background: rgba(130,190,255,.35); border-color: rgba(190,225,255,.7); }
-    .icon img { display: block; width: 48px; height: 48px; margin: 0 auto 3px; }
-    #icons[data-size=small] .icon img { width: 32px; height: 32px; }
+    /* Windows 7 desktop highlight: frosted white on hover, frosted blue when selected */
+    .icon:hover {
+      border-color: rgba(255,255,255,.38);
+      background: linear-gradient(rgba(255,255,255,.22), rgba(255,255,255,.07));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.14);
+    }
+    .icon.selected {
+      border-color: rgba(198,226,255,.82);
+      background: linear-gradient(rgba(172,212,255,.52), rgba(120,176,240,.34));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.28);
+    }
+    .icon.selected:hover { background: linear-gradient(rgba(190,224,255,.62), rgba(136,190,248,.42)); }
+    .icon .ico { position: relative; display: block; width: 48px; height: 48px; margin: 0 auto 3px; }
+    .icon .ico img { display: block; width: 100%; height: 100%; margin: 0; }
+    .icon .ico .arrow { position: absolute; left: 0; bottom: 0; width: 40%; height: 40%; }
+    #icons[data-size=small] .icon .ico { width: 32px; height: 32px; }
     #icons[data-size=large] .icon { width: 116px; }
-    #icons[data-size=large] .icon img { width: 96px; height: 96px; }
+    #icons[data-size=large] .icon .ico { width: 96px; height: 96px; }
+    /* desktop (not phone): icons sit on a grid and can be dragged */
+    #icons.free { display: block; inset: 0 0 40px 0; top: 0; left: 0; bottom: 40px; right: 0; }
+    #icons.free .icon { position: absolute; }
+    .icon-ghost { position: fixed; z-index: 9998; pointer-events: none; opacity: .55; margin: 0; }
+    #marquee { position: fixed; z-index: 9997; pointer-events: none; border: 1px solid rgba(51,153,255,.95); background: rgba(51,153,255,.28); }
+    #marquee[hidden] { display: none; }
 
     /* ---------- Windows: 7.css provides the look; these make them float, resize and snap ---------- */
-    .window.app { position: absolute; display: flex; flex-direction: column; min-width: 200px; min-height: 100px; }
+    .window.app { position: absolute; display: flex; flex-direction: column; min-width: 200px; min-height: 100px; border-radius: var(--w7-w-bdr, 6px) var(--w7-w-bdr, 6px) 0 0; }
+    /* Aero glass: the wallpaper and windows behind show through the frame, blurred */
+    .window.app { -webkit-backdrop-filter: blur(6px) saturate(1.25); backdrop-filter: blur(6px) saturate(1.25); }
     .window.app[hidden] { display: none; }
     .window.app .title-bar { touch-action: none; }
     .window.app .title-bar .title-icon { width: 16px; height: 16px; margin: 0 4px 0 1px; flex: none; }
@@ -114,7 +134,8 @@
     .ex-tree .node .tw { width: 0; height: 0; border-left: 5px solid #a6a6a6; border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin: 0 3px; opacity: 0; transition: opacity .3s; }
     .ex-tree:hover .node .tw { opacity: 1; }
     .ex-tree .node img { width: 16px; height: 16px; }
-    .ex-content { flex: 1; min-width: 0; overflow: auto; padding: 10px 14px; color: #000; }
+    .ex-content { flex: 1; min-width: 0; overflow: auto; padding: 10px 14px; color: #000; user-select: none; -webkit-user-select: none; }
+    .ex-tree, .ex-nav, .ex-cmd, .ex-details { user-select: none; -webkit-user-select: none; }
     .ex-content .lib-head { font-size: 13pt; color: #1e395b; margin: 2px 0 2px; }
     .ex-content .lib-sub { color: #444; margin-bottom: 14px; }
     .ex-content .tiles { display: flex; flex-wrap: wrap; gap: 4px 8px; }
@@ -419,11 +440,12 @@
 
   <div id="desktop">
     <div id="icons" data-size="medium">
-      <div class="icon" data-open="recycle-bin" data-menu="recycle-bin"><img src="images/desktop/recycle-bin.png" alt=""><span>Recycle Bin</span></div>
-      <div class="icon" data-href="ableton-live-12/"><img src="images/desktop/ableton-live-12.svg" alt=""><span>Ableton Live 12</span></div>
+      <div class="icon" data-id="recycle-bin" data-open="recycle-bin" data-menu="recycle-bin"><span class="ico"><img src="images/desktop/recycle-bin.png" alt=""></span><span>Recycle Bin</span></div>
+      <div class="icon" data-id="ableton-live-12" data-href="ableton-live-12/"><span class="ico"><img src="images/desktop/ableton-live-12.svg" alt=""></span><span>Ableton Live 12</span></div>
+      <div class="icon" data-id="pictures" data-href="https://www.instagram.com/sunbrightmedia?exln=Y3VqNGJqeGl2OXhv&amp;utm_source=qr"><span class="ico"><img src="images/startmenu/pictures.png" alt=""><img class="arrow" src="images/desktop/shortcut-arrow-24.png" alt=""></span><span>Pictures</span></div>
       <!--
         Desktop icon template. data-open is the id of the window it opens.
-        <div class="icon" data-open="win-example"><img src="images/icon.png" alt=""><span>Label</span></div>
+        <div class="icon" data-id="example" data-open="win-example"><span class="ico"><img src="images/icon.png" alt=""></span><span>Label</span></div>
       -->
     </div>
 
@@ -449,6 +471,7 @@
   </div>
 
   <div id="snap-preview" hidden></div>
+  <div id="marquee" hidden></div>
 
   <div id="startmenu" hidden>
     <div class="left">
@@ -497,8 +520,8 @@
           <li role="menuitem"><a data-size="large">Large icons</a></li>
           <li role="menuitem"><a data-size="medium" data-radio="on">Medium icons</a></li>
           <li role="menuitem" class="has-divider"><a data-size="small">Small icons</a></li>
-          <li role="menuitem"><a data-toggle data-check="off">Auto arrange icons</a></li>
-          <li role="menuitem" class="has-divider"><a data-toggle data-check="on">Align icons to grid</a></li>
+          <li role="menuitem"><a data-toggle data-action="auto-arrange" data-check="off">Auto arrange icons</a></li>
+          <li role="menuitem" class="has-divider"><a data-toggle data-action="align-grid" data-check="on">Align icons to grid</a></li>
           <li role="menuitem"><a data-action="toggle-icons" data-check="on">Show desktop icons</a></li>
           <li role="menuitem"><a data-toggle data-check="on">Show desktop gadgets</a></li>
         </ul>
@@ -734,11 +757,13 @@
       if (a.hasAttribute('data-check')) a.dataset.check = a.dataset.check === 'on' ? 'off' : 'on';
       if (a.dataset.size) {
         $$('#menu-desktop a[data-size]').forEach(o => o.removeAttribute('data-radio'));
-        a.dataset.radio = 'on'; $('#icons').dataset.size = a.dataset.size;
+        a.dataset.radio = 'on'; $('#icons').dataset.size = a.dataset.size; layoutIcons(true);
       }
       const act = a.dataset.action;
       if (act === 'toggle-icons') $('#icons').hidden = a.dataset.check !== 'on';
-      if (act === 'refresh') { const ic = $('#icons'); ic.style.visibility = 'hidden'; setTimeout(() => ic.style.visibility = '', 120); }
+      if (act === 'refresh') { const ic = $('#icons'); ic.style.visibility = 'hidden'; setTimeout(() => { ic.style.visibility = ''; layoutIcons(); }, 120); }
+      if (act === 'auto-arrange') { iconOpt.auto = a.dataset.check === 'on'; layoutIcons(true); }
+      if (act === 'align-grid') { iconOpt.align = a.dataset.check === 'on'; layoutIcons(true); }
       if (act === 'open-icon' && menuIcon) openIcon(menuIcon);
       if (act === 'open-explorer') launch('explorer');
       if (act === 'show-desktop') showDesktop();
@@ -1206,6 +1231,7 @@
     bindTip(showdesk, 'Show desktop');
 
     // ---------- Explorer windows (Recycle Bin, Libraries) ----------
+    const LINKS = { Pictures: 'https://www.instagram.com/sunbrightmedia?exln=Y3VqNGJqeGl2OXhv&utm_source=qr' };
     const SEARCH_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="#3a6ea5" stroke-width="1.8"/><path d="M10 10l4.2 4.2" stroke="#3a6ea5" stroke-width="2.2" stroke-linecap="round"/></svg>';
     const EXPLORERS = {
       'recycle-bin': { title: 'Recycle Bin', icon: 'images/explorer/recycle-bin.png', big: 'images/desktop/recycle-bin.png', cmds: [], items: [] },
@@ -1253,7 +1279,8 @@
           const t = document.createElement('div'); t.className = 'tile';
           t.innerHTML = `<img src="${img}" alt=""><div><span></span><small>Library</small></div>`;
           $('span', t).textContent = name;
-          t.addEventListener('click', () => { $$('.tile', w).forEach(o => o.classList.toggle('selected', o === t)); });
+          t.addEventListener('click', () => { $$('.tile', w).forEach(o => o.classList.toggle('selected', o === t)); if (singleTap() && LINKS[name]) window.open(LINKS[name], '_blank', 'noopener'); });
+          if (LINKS[name]) t.addEventListener('dblclick', () => { if (!singleTap()) window.open(LINKS[name], '_blank', 'noopener'); });
           tiles.append(t);
         });
         content.append(tiles);
@@ -1271,17 +1298,144 @@
       if (!w) return;
       w.dataset.open && !w.hidden ? focusWin(w) : openWin(w);
     }
-    $$('.icon').forEach(i => {
-      i.addEventListener('click', () => {
-        $$('.icon').forEach(o => o.classList.toggle('selected', o === i));
+    const iconsEl = $('#icons');
+    const iconOpt = { auto: false, align: true };
+    const CELL = { small: [78, 62], medium: [78, 80], large: [120, 132] };   // grid cell (px)
+    const G0 = 2;                                                              // grid origin
+    const cellWH = () => CELL[iconsEl.dataset.size] || CELL.medium;
+    const iconList = () => $$('.icon', iconsEl);
+    let iconPos = {};
+    try { iconPos = JSON.parse(localStorage.getItem('desktop-icons') || '{}') || {}; } catch (e) { iconPos = {}; }
+    const savePos = () => { try { localStorage.setItem('desktop-icons', JSON.stringify(iconPos)); } catch (e) {} };
+    const gridRows = () => Math.max(1, Math.floor((iconsEl.clientHeight - G0) / cellWH()[1]));
+    const gridCols = () => Math.max(1, Math.floor((iconsEl.clientWidth - G0) / cellWH()[0]));
+    const cellOf = (x, y) => { const [cw, ch] = cellWH(); return [clampN(Math.round((x - G0) / cw), 0, gridCols() - 1), clampN(Math.round((y - G0) / ch), 0, gridRows() - 1)]; };
+    const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
+    function nearestFree(c, r, used) {
+      // spiral out from (c, r) to the closest unused cell
+      for (let d = 0; d < 200; d++) for (let dc = -d; dc <= d; dc++) for (let dr = -d; dr <= d; dr++) {
+        if (Math.max(Math.abs(dc), Math.abs(dr)) !== d) continue;
+        const cc = c + dc, rr = r + dr;
+        if (cc < 0 || rr < 0 || rr >= gridRows() || cc >= gridCols()) continue;
+        if (!used.has(cc + ',' + rr)) return [cc, rr];
+      }
+      return [c, r];
+    }
+    function place(i, x, y) { i.style.left = Math.round(x) + 'px'; i.style.top = Math.round(y) + 'px'; }
+    // Lays the icons out like Windows 7: column by column from the top left, snapped to the grid
+    function layoutIcons(resnap) {
+      const free = !isPhone();
+      iconsEl.classList.toggle('free', free);
+      if (!free) { iconList().forEach(i => { i.style.left = i.style.top = ''; }); return; }
+      const [cw, ch] = cellWH(), used = new Set();
+      let list = iconList();
+      if (iconOpt.auto) {
+        // keep the order people arranged them in (by position), then fill columns
+        list.sort((a, b) => { const pa = iconPos[a.dataset.id], pb = iconPos[b.dataset.id];
+          if (!pa || !pb) return pa ? -1 : pb ? 1 : 0;
+          const ca = cellOf(pa[0], pa[1]), cb = cellOf(pb[0], pb[1]); return ca[0] - cb[0] || ca[1] - cb[1]; });
+        list.forEach((i, k) => { const x = G0 + Math.floor(k / gridRows()) * cw, y = G0 + (k % gridRows()) * ch; place(i, x, y); iconPos[i.dataset.id] = [x, y]; });
+        savePos(); return;
+      }
+      const pending = [];
+      for (const i of list) {
+        const p = iconPos[i.dataset.id];
+        if (!p) { pending.push(i); continue; }
+        let [x, y] = p;
+        x = clampN(x, 0, Math.max(0, iconsEl.clientWidth - cw)); y = clampN(y, 0, Math.max(0, iconsEl.clientHeight - ch));
+        if (iconOpt.align || resnap === 'grid') {
+          const [c, r] = nearestFree(...cellOf(x, y), used);
+          used.add(c + ',' + r); x = G0 + c * cw; y = G0 + r * ch;
+        } else used.add(cellOf(x, y).join(','));
+        place(i, x, y); iconPos[i.dataset.id] = [x, y];
+      }
+      for (const i of pending) {
+        let k = 0; while (used.has(Math.floor(k / gridRows()) + ',' + (k % gridRows()))) k++;
+        const c = Math.floor(k / gridRows()), r = k % gridRows();
+        used.add(c + ',' + r); place(i, G0 + c * cw, G0 + r * ch); iconPos[i.dataset.id] = [G0 + c * cw, G0 + r * ch];
+      }
+      if (resnap) savePos();
+    }
+
+    // Click, Ctrl+click, double-click
+    let justDragged = false;
+    iconList().forEach(i => {
+      i.addEventListener('click', e => {
+        if (justDragged) { justDragged = false; return; }
+        if (e.ctrlKey || e.metaKey) i.classList.toggle('selected');
+        else iconList().forEach(o => o.classList.toggle('selected', o === i));
         if (singleTap()) openIcon(i);
       });
       i.addEventListener('dblclick', () => { if (!singleTap()) openIcon(i); });
+
+      // Drag (desktop only): a see-through copy follows the pointer, the icons land on the grid
+      i.addEventListener('pointerdown', e => {
+        if (isPhone() || e.button !== 0 || e.pointerType === 'touch') return;
+        if (!i.classList.contains('selected') && !(e.ctrlKey || e.metaKey)) iconList().forEach(o => o.classList.toggle('selected', o === i));
+        const group = () => iconList().filter(o => o.classList.contains('selected') || o === i);
+        const sx = e.clientX, sy = e.clientY;
+        let ghosts = null, moving = [];
+        const move = ev => {
+          const dx = ev.clientX - sx, dy = ev.clientY - sy;
+          if (!ghosts) {
+            if (Math.hypot(dx, dy) < 5) return;
+            moving = group();
+            ghosts = moving.map(o => {
+              const r = o.getBoundingClientRect(), g = o.cloneNode(true);
+              g.classList.add('icon-ghost'); g.classList.remove('selected');
+              Object.assign(g.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px' });
+              document.body.append(g); return { g, x: r.left, y: r.top };
+            });
+          }
+          ghosts.forEach(o => { o.g.style.left = o.x + dx + 'px'; o.g.style.top = o.y + dy + 'px'; });
+        };
+        const up = ev => {
+          removeEventListener('pointermove', move); removeEventListener('pointerup', up);
+          if (!ghosts) return;
+          ghosts.forEach(o => o.g.remove());
+          justDragged = true; setTimeout(() => { justDragged = false; }, 0);
+          const dx = ev.clientX - sx, dy = ev.clientY - sy;
+          if (ev.clientY >= innerHeight - 40 || ev.clientY < 0 || ev.clientX < 0 || ev.clientX > innerWidth) return; // dropped off the desktop
+          const [cw, ch] = cellWH(), used = new Set();
+          iconList().filter(o => !moving.includes(o)).forEach(o => { const p = iconPos[o.dataset.id]; if (p) used.add(cellOf(p[0], p[1]).join(',')); });
+          for (const o of moving) {
+            let x = o.offsetLeft + dx, y = o.offsetTop + dy;
+            x = clampN(x, 0, iconsEl.clientWidth - cw); y = clampN(y, 0, iconsEl.clientHeight - ch);
+            if (iconOpt.align || iconOpt.auto) { const [c, r] = nearestFree(...cellOf(x, y), used); used.add(c + ',' + r); x = G0 + c * cw; y = G0 + r * ch; }
+            iconPos[o.dataset.id] = [x, y]; place(o, x, y);
+          }
+          if (iconOpt.auto) layoutIcons(true); else savePos();
+        };
+        addEventListener('pointermove', move); addEventListener('pointerup', up);
+      });
     });
-    $('#desktop').addEventListener('mousedown', e => {
-      if (!e.target.closest('.icon')) $$('.icon').forEach(o => o.classList.remove('selected'));
-      if (e.target === $('#desktop') || e.target.closest('#icons')) blurWins();
+
+    // Box select: drag on empty desktop (mouse only)
+    const marquee = $('#marquee');
+    $('#desktop').addEventListener('pointerdown', e => {
+      const onEmpty = e.target === $('#desktop') || e.target === iconsEl;
+      if (!onEmpty) return;
+      if (!(e.ctrlKey || e.metaKey)) iconList().forEach(o => o.classList.remove('selected'));
+      blurWins();
+      if (isPhone() || e.button !== 0 || e.pointerType === 'touch') return;
+      e.preventDefault();
+      const base = new Set(iconList().filter(o => o.classList.contains('selected')));
+      const sx = e.clientX, sy = e.clientY;
+      const move = ev => {
+        const x0 = Math.min(sx, ev.clientX), y0 = Math.min(sy, ev.clientY), x1 = Math.max(sx, ev.clientX), y1 = Math.max(sy, Math.min(ev.clientY, innerHeight - 40));
+        Object.assign(marquee.style, { left: x0 + 'px', top: y0 + 'px', width: x1 - x0 + 'px', height: y1 - y0 + 'px' });
+        marquee.hidden = x1 - x0 < 2 && y1 - y0 < 2;
+        for (const o of iconList()) {
+          const r = o.getBoundingClientRect();
+          const hit = r.right > x0 && r.left < x1 && r.bottom > y0 && r.top < y1;
+          o.classList.toggle('selected', hit || base.has(o));
+        }
+      };
+      const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); marquee.hidden = true; };
+      addEventListener('pointermove', move); addEventListener('pointerup', up);
     });
+    addEventListener('resize', () => layoutIcons());
+    layoutIcons();
 
     // Windows already in the page
     $$('.window.app').forEach(initWin);
