@@ -456,9 +456,6 @@
         <div class="list">
           <!-- Pinned programs (data-name is what the search box matches) -->
           <div class="pinned">
-            <a class="prog" data-name="Instagram" href="https://www.instagram.com/sunbrightmedia?exln=Y3VqNGJqeGl2OXhv&amp;utm_source=qr" target="_blank" rel="noopener">
-              <img src="images/instagram.svg" alt=""><span>Instagram</span>
-            </a>
             <a class="prog" data-name="Ableton Live 12" href="ableton-live-12/" target="_blank" rel="noopener">
               <img src="images/desktop/ableton-live-12.svg" alt=""><span>Ableton Live 12</span>
             </a>
@@ -477,7 +474,7 @@
       <div class="userpic"><div class="blank"></div><img alt="" hidden></div>
       <div class="place" data-icon="">SunbrightMedia</div>
       <div class="place" data-icon="images/startmenu/documents.png">Documents</div>
-      <div class="place" data-icon="images/startmenu/pictures.png">Pictures</div>
+      <div class="place" data-icon="images/startmenu/pictures.png" data-href="https://www.instagram.com/sunbrightmedia?exln=Y3VqNGJqeGl2OXhv&amp;utm_source=qr">Pictures</div>
       <div class="place" data-icon="images/startmenu/music.png">Music</div>
       <div class="rsep"></div>
       <div class="place" data-icon="images/startmenu/games.png">Games</div>
@@ -830,6 +827,7 @@
         if (pl.dataset.icon) { picImg.src = pl.dataset.icon; picImg.hidden = false; picBlank.hidden = true; }
       });
       pl.addEventListener('mouseleave', () => { picImg.hidden = true; picBlank.hidden = false; });
+      if (pl.dataset.href) pl.addEventListener('click', () => { window.open(pl.dataset.href, '_blank', 'noopener'); closeStart(); });
     });
 
     // Shut down arrow: Switch user / Log off / Lock / Restart / Sleep
