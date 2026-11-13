@@ -568,15 +568,141 @@ function warpBreaks(c, cb0, cb1) {
 }
 
 // ---------------------------------------------------------------------------
+// Theme colours (Live's own theme file, see themes.js) and the colours Live derives from them
+
+const T = window.THEME;
+const hexRGB = h => { const n = parseInt(h.slice(1, 7), 16); return [n >> 16, (n >> 8) & 255, n & 255, h.length > 7 ? parseInt(h.slice(7, 9), 16) / 255 : 1]; };
+const rgbHex = c => '#' + c.slice(0, 3).map(v => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('');
+// colour `top` (with its alpha) laid over opaque `base`
+const over = (base, top, round = Math.round) => { const b = hexRGB(base), t = hexRGB(top); return '#' + b.slice(0, 3).map((v, i) => round(clamp(v + (t[i] - v) * t[3], 0, 255)).toString(16).padStart(2, '0')).join(''); };
+const C = {};
+function themeColours() {
+  C.surface = T.SurfaceBackground; C.highlight = T.SurfaceHighlight; C.area = T.SurfaceArea;
+  C.tile = over(T.SurfaceBackground, T.ArrangerGridTiles);          // the darker of the alternating lane tiles
+  C.tileSel = over(T.SurfaceHighlight, T.ArrangerGridTiles);
+  C.ruler = T.ArrangementRulerMarkings; C.loop = T.LoopColor; C.insert = T.RangeDefault;
+}
+themeColours();
+// grid line colour over a given lane colour
+// Measured: Live draws the grid line on the plain lane colour (rounding down), then lays the tile shade over both.
+const gridLine = (sel, tiled) => { const l = over(sel ? T.SurfaceHighlight : T.SurfaceBackground, T.GridLineBase, Math.floor); return tiled ? over(l, T.ArrangerGridTiles) : l; };
+// a track's dark contrast colour on its own colour (fold button, name): the track colour at 26.7%
+const darkOf = hex => rgbHex(hexRGB(hex).slice(0, 3).map(v => v * 0.267));
+
+// ---------------------------------------------------------------------------
+// Icons traced from the reference screenshot (icons.js)
+
+function makeIcon(name) {
+  const d = ICONS[name];
+  if (!d) return null;
+  if (d[0] === 'rgb') {
+    const [, dx, dy, w, h, s] = d;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h; c.className = 'ic';
+    Object.assign(c.style, { left: dx + 'px', top: dy + 'px', width: w + 'px', height: h + 'px' });
+    const ctx = c.getContext('2d'), img = ctx.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) {
+      img.data[i * 4] = parseInt(s.substr(i * 6, 2), 16); img.data[i * 4 + 1] = parseInt(s.substr(i * 6 + 2, 2), 16);
+      img.data[i * 4 + 2] = parseInt(s.substr(i * 6 + 4, 2), 16); img.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    return c;
+  }
+  const [dx, dy, w, h, s] = d;
+  const paths = new Map();
+  for (let y = 0; y < h; y++) {
+    let x = 0;
+    while (x < w) {
+      const a = parseInt(s.substr((y * w + x) * 2, 2), 16);
+      let e = x + 1;
+      while (e < w && parseInt(s.substr((y * w + e) * 2, 2), 16) === a) e++;
+      if (a) paths.set(a, (paths.get(a) || '') + `M${x} ${y}h${e - x}v1h${x - e}z`);
+      x = e;
+    }
+  }
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'ic'); svg.setAttribute('width', w); svg.setAttribute('height', h); svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.style.left = dx + 'px'; svg.style.top = dy + 'px';
+  let html = '';
+  for (const [a, p] of paths) html += `<path fill="currentColor" fill-opacity="${(a / 255).toFixed(3)}" d="${p}"/>`;
+  svg.innerHTML = html;
+  return svg;
+}
+function applyIcons(root = document) {
+  for (const el of root.querySelectorAll('[data-ic]')) {
+    if (el._ic) continue;
+    el._ic = true;
+    if (el.tagName === 'I') Object.assign(el.style, { position: 'absolute', top: el.style.top || '0', width: '0', height: '0', overflow: 'visible' });
+    else if (!el.style.position && getComputedStyle(el).position === 'static') el.style.position = 'relative';
+    const ic = makeIcon(el.dataset.ic);
+    if (ic) el.append(ic);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Static parts: browser, info view
+
+const SIDEBAR = [
+  [0, 'cat', 'Collections'], [1, '', 'Favorites', 'sb_favorites'],
+  [3, 'cat', 'Library'], [4, 'sel', 'All', 'sb_all'], [5, '', 'Sounds', 'sb_sounds'], [6, '', 'Drums', 'sb_drums'], [7, '', 'Instruments', 'sb_instruments'],
+  [8, '', 'Audio Effects', 'sb_audioEffects'], [9, '', 'MIDI Effects', 'sb_midiEffects'], [10, '', 'Modulators', 'sb_modulators'], [11, '', 'Max for Live', 'sb_maxForLive'],
+  [12, '', 'Plug-Ins', 'sb_plugins'], [13, '', 'Clips', 'sb_clips'], [14, '', 'Samples', 'sb_samples'], [15, '', 'Grooves', 'sb_grooves'], [16, '', 'Tunings', 'sb_tunings'], [17, '', 'Templates', 'sb_templates'],
+  [19, 'cat', 'Places'], [20, '', 'Packs', 'sb_packs'], [21, 'dis', 'Cloud', 'sb_cloud'], [22, 'dis', 'Push', 'sb_push'], [23, '', 'User Library', 'sb_userLibrary'],
+  [24, '', 'Current Project', 'sb_currentProject'], [25, '', 'Add Folder…', 'sb_addFolder'],
+];
+const FILTERS = ['Content', 'Type', 'Sounds', 'Drums', 'Character', 'Devices', 'Function', 'Format', 'Clips', 'Genres', 'Key', 'Grooves', 'Tunings', 'Creator'];
+const INFO = {
+  'Track Title Bar': 'Click to select this track; choose ‘Rename’\nfrom the Edit menu to rename the track;\nchoose ‘Delete’ to delete the track. Drag this\ntrack above or below another to reorder\nthem.\n\n[Arrow Left/Right] Fold track display in/out',
+};
+function buildStatic() {
+  const sb = $('#sidebar');
+  for (const [k, cls, label, ic] of SIDEBAR) {
+    const r = document.createElement('div');
+    r.className = 'sbrow ' + cls; r.style.top = (1 + 19 * k) + 'px';
+    r.innerHTML = `<span class="l"></span>`;
+    r.firstChild.textContent = label;
+    if (ic) { const s = document.createElement('i'); s.dataset.ic = ic; s.style.left = '4px'; s.style.top = '0'; if (ic === 'sb_favorites') s.style.color = '#ff0505'; r.append(s); }
+    sb.append(r);
+  }
+  const f = $('#filters');
+  const head = document.createElement('div');
+  head.className = 'frow'; head.style.top = '0';
+  head.innerHTML = '<i data-ic="br_filters" style="left:2px;top:1px"></i><span class="l" style="left:19px">Filters</span><span id="br-edit"><i data-ic="br_editIcon" style="left:2px;top:0"></i><span class="abs" style="left:15px">Edit</span></span>';
+  f.append(head);
+  const sep0 = document.createElement('div'); sep0.className = 'frow line'; sep0.style.top = '19px'; sep0.style.background = 'var(--SurfaceArea)'; f.append(sep0);
+  FILTERS.forEach((n, i) => {
+    const r = document.createElement('div'); r.className = 'frow'; r.style.top = (20 + 20 * i) + 'px';
+    r.innerHTML = '<span class="l"></span>';
+    r.firstChild.textContent = n;
+    f.append(r);
+    const a = document.createElement('i'); a.dataset.ic = 'br_arrow'; a.style.top = '3px'; r.append(a);
+    r._arrow = a;
+    const ln = document.createElement('div'); ln.className = 'frow line'; ln.style.top = (39 + 20 * i) + 'px'; f.append(ln);
+  });
+  const ln2 = document.createElement('div'); ln2.className = 'frow line'; ln2.style.cssText = 'top:300px;height:2px;background:var(--SurfaceArea)'; f.append(ln2);
+  applyIcons();
+  // the arrow sits 3 px after each filter label
+  document.fonts.ready.then(() => { for (const r of f.querySelectorAll('.frow')) if (r._arrow) r._arrow.style.left = (7 + Math.round(r.firstChild.getBoundingClientRect().width)) + 'px'; });
+  showInfo('Track Title Bar');
+}
+function showInfo(title) {
+  $('#info-title').textContent = title;
+  $('#info-body').textContent = INFO[title] || '';
+}
+
+// ---------------------------------------------------------------------------
 // State
 
 let set = null, tempoMap = null;
 let rows = [];        // visible rows in the scrolling area: { track, y, h }
 let pinnedRows = [];  // returns and main
 let selected = null;
-const view = { beat0: 0, ppb: 8, insert: 0 };
-const H_W = () => parseFloat(getComputedStyle($('#app')).getPropertyValue('--hw')) || 226;
-const FONT = '"Ableton Sans", "Helvetica Neue", Helvetica, Arial, sans-serif';
+// Live's zoom for a new Set: one bar = 15.6896 px (fitted to all 84 grid lines of the reference screenshot:
+// 1314 px of lanes show 335 beats)
+const DEFAULT_PPB = 1314 / 335;
+const view = { beat0: 0, ppb: DEFAULT_PPB, insert: 0 };
+const HW = 292;  // track header width incl. its 2 px divider
+const FONT = '10px "Ableton Sans Small"';
 
 // ---------------------------------------------------------------------------
 // Layout of track rows
@@ -593,20 +719,21 @@ function buildRows() {
     if (!isVisible(t)) continue;
     const h = laneH(t);
     rows.push({ track: t, y, h });
-    rowsEl.append(makeRow(t, h));
+    rowsEl.append(makeRow(t, y, h, false));
     y += h;
   }
   rowsEl.style.height = y + 'px';
-  let py = 0;
+  let py = 3;
   for (const t of [...set.returns, set.main]) {
-    const h = t.type === 'main' ? FOLDED_H + SEP : laneH(t);
+    const h = FOLDED_H + SEP;
     pinnedRows.push({ track: t, y: py, h });
-    pinEl.append(makeRow(t, h));
+    pinEl.append(makeRow(t, py, h, true));
     py += h;
   }
   pinEl.style.height = py + 'px';
-  const pinned = $('#pinned');
-  pinned.style.height = Math.min(py, 160) + 'px';
+  const top = document.createElement('div'); top.className = 'trow'; top.style.cssText = 'top:0;height:3px;background:var(--SurfaceArea)'; pinEl.prepend(top);
+  $('#pinned').style.height = Math.min(py, 200) + 'px';
+  applyIcons($('#tracks-wrap'));
   layoutCanvases();
   drawAll();
 }
@@ -614,46 +741,78 @@ function buildRows() {
 function dbText(v, inf = '-inf') {
   if (v <= 0.000317) return inf;
   const db = 20 * Math.log10(v);
-  return (Math.abs(db) < 0.05 ? '0.0' : db.toFixed(1));
+  if (Math.abs(db) < 0.05) return '0';
+  return db.toFixed(1);
 }
 function panText(p) {
   const v = Math.round(p * 50);
   return v === 0 ? 'C' : v < 0 ? `${-v}L` : `${v}R`;
 }
+// Volume field fill. Measured in Live 12: 0 dB fills 37 of 44 px, -6 dB fills 31 of 44 px.
 function volFill(v) {
-  // Live's fader travel, roughly: -inf … +6 dB
-  // fitted to Live 12's volume field: linear in dB from +6 dB (full) to -18 dB, then tailing off
   if (v <= 0.000317) return 0;
   const db = 20 * Math.log10(v);
-  return db >= -18 ? clamp(1 + 0.026 * (db - 6), 0, 1) : 0.376 * Math.exp((db + 18) / 12);
+  return db >= -18 ? clamp(0.841 + 0.0227 * db, 0, 1) : 0.432 * Math.exp((db + 18) / 12);
 }
 
-function makeRow(t, h) {
+// a 13 px header control; x/w relative to the header, row = control row (17 px pitch)
+function hctl(hd, cls, x, y, w, text) {
+  const d = document.createElement('div');
+  d.className = 'btn ' + cls;
+  Object.assign(d.style, { left: x + 'px', top: y + 'px', width: w + 'px' });
+  if (text != null) { const s = document.createElement('span'); s.className = 'abs'; s.textContent = text; s.style.left = '0'; s.style.right = '0'; d.append(s); }
+  hd.append(d);
+  return d;
+}
+function dropdown(hd, x, y, w, text, textX, icon) {
+  const d = hctl(hd, 'field', x, y, w, null);
+  d.style.textAlign = 'left';
+  const s = document.createElement('span'); s.className = 'abs'; s.textContent = text;
+  Object.assign(s.style, { left: textX + 'px', width: (57 - textX) + 'px', overflow: 'hidden', whiteSpace: 'nowrap' });
+  d.append(s);
+  if (icon) { const i = document.createElement('i'); i.dataset.ic = icon; i.style.left = '0'; d.append(i); }
+  const tri = document.createElement('i'); tri.dataset.ic = 'hd_ddTri'; tri.style.left = '56px'; d.append(tri);
+  return d;
+}
+function fieldFill(d, frac, colour, text) {
+  d.innerHTML = '';
+  const f = document.createElement('i');
+  Object.assign(f.style, { position: 'absolute', left: '1px', top: '1px', bottom: '1px', width: Math.round(frac * (parseFloat(d.style.width) - 2)) + 'px', background: colour });
+  const s = document.createElement('span'); s.className = 'abs'; s.style.left = '0'; s.style.right = '0'; s.textContent = text;
+  d.append(f, s);
+}
+
+function makeRow(t, y, h, pinned) {
   const row = document.createElement('div');
-  row.className = 'trow'; row.style.height = h + 'px';
-  const lane = document.createElement('div'); lane.className = 'lane';
+  row.className = 'trow'; row.style.top = y + 'px'; row.style.height = h + 'px';
+  const ch = h - SEP;   // content height
   const hd = document.createElement('div');
-  hd.className = 'theader' + (t.type === 'group' ? ' group' : '') + (t.unfolded ? '' : ' folded') + (t.type === 'main' ? ' main' : '') + (t === selected ? ' sel' : '');
+  hd.className = 'theader' + (t === selected ? ' sel' : '');
   hd.style.height = h + 'px';
-  const nameBg = t.type === 'main' ? '#ffffff' : t.color;
-  const dark = luminance(nameBg) < 0.45;
-  hd.innerHTML = `
-    <div class="name" style="background:${nameBg};color:${dark ? '#f0f0f0' : '#1e1e1e'}"><i class="fold"${t.type === 'return' ? ' style="visibility:hidden"' : ''}></i><span></span></div>
-    <div class="ctrls"></div>
-    <div class="meter"><i><b></b></i><i><b></b></i></div>`;
-  $('.name span', hd).textContent = (t.type === 'return' ? t.label + ' ' : '') + t.name;
-  const ctrls = $('.ctrls', hd);
-  const cell = (cls, html) => { const d = document.createElement('div'); d.className = cls; if (html != null) d.innerHTML = html; ctrls.append(d); return d; };
-  const volHtml = v => `<i style="width:${volFill(v) * 100}%"></i><b>${dbText(v)}</b>`;
-  const rowsFit = Math.floor((h - SEP - 2 + 4) / 17);   // 13 px controls every 17 px
-  if (t.type === 'main') {
-    cell('vol', volHtml(t.mixer.volume)).title = 'Main Volume';
-    cell('vol2', '0').title = 'Cue Volume';
+  const isMain = t.type === 'main', isRet = t.type === 'return';
+  const nameBg = t.color;
+  const dark = darkOf(nameBg);
+  hd.innerHTML = `<div class="bg" style="height:${ch}px"></div>
+    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i data-ic="${pinned ? 'hd_foldRet' : 'hd_fold'}"></i><span></span></div>`;
+  $('.name span', hd).textContent = (isRet ? t.label + ' ' : '') + t.name;
+  if (isMain) $('.name span', hd).style.left = '26px';
+  const vsep = (x, w) => { const s = document.createElement('div'); s.className = 'vsep'; Object.assign(s.style, { left: x + 'px', width: w + 'px', height: ch + 'px' }); hd.append(s); };
+  const R = k => 2 + 17 * k;    // control row top
+  if (isMain) {
+    vsep(95, 5); vsep(174, 2); vsep(289, 3);
+    dropdown(hd, 102, R(0), 70, '1/2', 11, 'hd_mainMeterIcon');
+    const vol = hctl(hd, 'field', 178, R(0), 46, ''); vol.title = 'Main Volume';
+    fieldFill(vol, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
+    const cue = hctl(hd, 'field', 228, R(0), 46, ''); cue.title = 'Cue Volume';
+    fieldFill(cue, volFill(0.5012), 'var(--ChosenPreListen)', '-6.0');
+    meter(hd, t, 278, 2, ch - 4, false);
   } else {
-    const act = cell('act' + (t.mixer.on ? '' : ' off'), t.label);
+    vsep(95, 2); vsep(171, 2);
+    const act = hctl(hd, 'on', 175, R(0), 46, t.label);
     act.title = 'Track Activator';
-    act.addEventListener('mousedown', e => { e.stopPropagation(); t.mixer.on = !t.mixer.on; act.classList.toggle('off', !t.mixer.on); engine.updateMix(); });
-    const solo = cell('solo' + (t.mixer.solo ? ' on' : ''), 'S');
+    act.classList.toggle('on', t.mixer.on);
+    act.addEventListener('mousedown', e => { e.stopPropagation(); t.mixer.on = !t.mixer.on; act.classList.toggle('on', t.mixer.on); engine.updateMix(); });
+    const solo = hctl(hd, 'solo' + (t.mixer.solo ? ' on' : ''), 225, R(0), isRet ? 17 : 21, 'S');
     solo.title = 'Solo';
     solo.addEventListener('mousedown', e => {
       e.stopPropagation();
@@ -663,27 +822,64 @@ function makeRow(t, h) {
       document.querySelectorAll('.theader').forEach(x => x._t && x.querySelector('.solo')?.classList.toggle('on', x._t.mixer.solo));
       engine.updateMix();
     });
-    if (t.type === 'midi' || t.type === 'audio') cell('arm').title = 'Arm Recording';
-    if (rowsFit >= 2) {
-      cell('vol', volHtml(t.mixer.volume)).title = 'Track Volume';
-      cell('panv', panText(t.mixer.pan)).title = 'Track Panning';
-    }
-    if (rowsFit >= 3 && t.mixer.sends.length) {
-      const sd = cell('sends');
-      t.mixer.sends.slice(0, 2).forEach(v => { const e = document.createElement('span'); e.className = 'send'; e.textContent = dbText(v, '-∞'); sd.append(e); });
+    if (isRet) {
+      hctl(hd, 'flat', 99, R(0), 70, null);
+      hctl(hd, 'on', 246, R(0), 25, 'Post').title = 'Pre/Post';
+      meter(hd, t, 275, 2, ch - 4, false);
+    } else {
+      const audio = t.type === 'audio' || t.type === 'group';
+      if (t.type === 'midi' || t.type === 'audio') { const a = hctl(hd, '', 250, R(0), 21, null); a.title = 'Arm Recording'; a.dataset.ic = t.type === 'midi' ? 'hd_armMidi' : 'hd_armAudio'; }
+      const rowsFit = Math.floor((ch - 2 + 4) / 17);
+      // In/Out section
+      if (rowsFit >= 1) dropdown(hd, 99, R(0), 70, t.type === 'midi' ? 'All Ins' : t.type === 'group' ? '' : 'Ext. In', 2);
+      if (rowsFit >= 2 && t.type !== 'group') dropdown(hd, 99, R(1), 70, t.type === 'midi' ? 'All Channels' : String(1 + (Number(t.label) + 1) % 2), 11, t.type === 'midi' ? 'hd_chanMeter' : 'hd_inMeterEmpty');
+      if (rowsFit >= 3) {
+        const mon = t.type === 'midi' ? 1 : 2;
+        hctl(hd, mon === 0 ? 'on' : '', 99, R(2), 17, 'In');
+        hctl(hd, mon === 1 ? 'on' : '', 119, R(2), 27, 'Auto');
+        hctl(hd, mon === 2 ? 'on' : '', 149, R(2), 20, 'Off');
+      }
+      if (rowsFit >= 4) dropdown(hd, 99, R(3), 70, t.type === 'midi' && !t.devices.length ? 'No Output' : 'Main', 2);
+      if (rowsFit >= 5) hctl(hd, 'flat', 99, R(4), 70, null).style.background = 'transparent';
+      // mixer
+      if (audio && rowsFit >= 2) {
+        const vol = hctl(hd, 'field', 175, R(1), 46, ''); vol.title = 'Track Volume';
+        fieldFill(vol, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
+        hctl(hd, 'field', 225, R(1), 46, panText(t.mixer.pan)).title = 'Track Panning';
+      }
+      if (audio && rowsFit >= 3) t.mixer.sends.slice(0, 2).forEach((v, i) => hctl(hd, 'field', 175 + 33 * i, R(2), 30, dbText(v, '−∞')).title = 'Send');
+      if (audio || t.type === 'group') meter(hd, t, 275, 2, ch - 4, true);
+      else midiMeter(hd, ch);
     }
   }
   hd._t = t;
   hd.addEventListener('mousedown', e => {
-    if (e.target.closest('.fold')) {
-      if (t.type === 'return' || t.type === 'main') return;
-      t.unfolded = !t.unfolded; buildRows(); return;
-    }
+    if (e.target.closest('.name') && e.offsetX < 20 && !pinned) { t.unfolded = !t.unfolded; buildRows(); return; }
     select(t);
   });
-  t._meter = $('.meter', hd);
-  row.append(lane, hd);
+  hd.addEventListener('mouseover', e => { const i = e.target.closest('[data-info]'); if (i) showInfo(i.dataset.info); });
+  row.append(hd);
   return row;
+}
+// audio meter: two 3 px bars; the top tenth is the separate peak section
+function meter(hd, t, x, y, h, gapRow) {
+  const m = document.createElement('div'); m.className = 'meter';
+  Object.assign(m.style, { left: x + 'px', top: y + 'px', width: '7px', height: h + 'px' });
+  const top = Math.max(1, Math.round(h * 0.1));
+  for (const cx of [0, 4]) {
+    for (const [yy, hh] of [[0, top], [top + 1, h - top - 1]]) {
+      const b = document.createElement('i'); Object.assign(b.style, { left: cx + 'px', top: yy + 'px', height: hh + 'px' }); m.append(b);
+    }
+    const lv = document.createElement('b');
+    Object.assign(lv.style, { position: 'absolute', left: cx + 'px', width: '3px', bottom: '0', height: '0', background: 'linear-gradient(to top, var(--StandardVuMeter-Minimum, #00f758) 70%, #ffd100 88%, #ff0a0a)' });
+    m.append(lv);
+  }
+  t._meter = m;
+  hd.append(m);
+}
+function midiMeter(hd, ch) {
+  const n = Math.floor((ch - 5) / 8);
+  for (let k = 0; k < n; k++) { const i = document.createElement('i'); i.dataset.ic = 'hd_midiDot'; Object.assign(i.style, { left: '274px', top: (5 + 8 * k) + 'px', color: 'var(--MeterBackground)' }); hd.append(i); }
 }
 
 function allTracks() { return [...set.tracks, ...set.returns, set.main]; }
@@ -691,7 +887,7 @@ function allTracks() { return [...set.tracks, ...set.returns, set.main]; }
 function select(t) {
   selected = t;
   document.querySelectorAll('.theader').forEach(x => x.classList.toggle('sel', x._t === t));
-  $('#status-track').textContent = t ? t.name : '';
+  $('#status-track').textContent = t ? (t.type === 'return' || t.type === 'main' ? t.name : t.name.replace(/ /g, '-')) : '';
   renderDevices(t);
   drawAll();
 }
@@ -699,7 +895,7 @@ function select(t) {
 // ---------------------------------------------------------------------------
 // Drawing
 
-const lanesCanvas = $('#lanes-canvas'), pinCanvas = $('#pinned-canvas'), rulerCanvas = $('#ruler-canvas'), songCanvas = $('#song-canvas');
+const lanesCanvas = $('#lanes-canvas'), pinCanvas = $('#pinned-canvas'), rulerCanvas = $('#ruler-canvas'), songCanvas = $('#song-canvas'), ovCanvas = $('#overview');
 const DPR = () => window.devicePixelRatio || 1;
 function sizeCanvas(cv, w, h) {
   const d = DPR();
@@ -707,44 +903,55 @@ function sizeCanvas(cv, w, h) {
   cv.style.width = w + 'px'; cv.style.height = h + 'px';
   const ctx = cv.getContext('2d'); ctx.setTransform(d, 0, 0, d, 0, 0); return ctx;
 }
-function lanesWidth() { return Math.max(1, $('#tracks').clientWidth - H_W()); }
+function lanesWidth() { return Math.max(1, $('#arrangement').clientWidth - HW); }
 function layoutCanvases() {
   const w = lanesWidth();
-  const tr = $('#tracks'), pn = $('#pinned');
-  for (const [cv, sc] of [[lanesCanvas, tr], [pinCanvas, pn]]) {
+  for (const [cv, sc] of [[lanesCanvas, $('#tracks')], [pinCanvas, $('#pinned')]]) {
     const h = sc.clientHeight;
     sizeCanvas(cv, w, h);
     cv.style.marginBottom = -h + 'px';
   }
-  sizeCanvas(rulerCanvas, $('#ruler').clientWidth, $('#ruler').clientHeight);
-  sizeCanvas(songCanvas, songCanvas.parentElement.clientWidth - H_W(), 21);
+  $('#ruler').style.width = w + 'px';
+  sizeCanvas(rulerCanvas, w, 45);
+  sizeCanvas(songCanvas, w, 21);
+  sizeCanvas(ovCanvas, $('#arrangement').clientWidth, 14);
 }
 
 const xOf = b => (b - view.beat0) * view.ppb;
 const bOf = x => view.beat0 + x / view.ppb;
 const beatsPerBar = () => set ? set.sig.num * 4 / set.sig.den : 4;
 
+// Bar-number spacing: the smallest power-of-two number of bars at least 44 px apart
+// (Live 12 at the reference zoom: one bar = 15.7 px, a number every 4 bars).
 function barStep() {
   const bpb = beatsPerBar();
   for (const s of [1, 2, 4, 8, 16, 32, 64, 128, 256]) if (s * bpb * view.ppb >= 44) return s;
   return 512;
 }
-// grid line spacing in beats: the finest power-of-two step at least 12 px apart
+// grid line spacing in beats: the finest power-of-two step at least 12 px apart (reference: a line per bar at 15.7 px)
 function gridStep() {
-  const beat = 4 / set.sig.den;
-  for (const s of [0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]) if (s * beat * view.ppb >= 12) return s * beat;
+  const beat = 4 / (set ? set.sig.den : 4), bpb = beatsPerBar();
+  for (const s of [0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]) {
+    const b = s * beat;
+    if (b * view.ppb >= 12 && (b < bpb ? bpb % b < 1e-9 : b % bpb < 1e-9)) return b;
+  }
   return 2048;
 }
-const shade = (hex, f) => { const n = parseInt(hex.slice(1), 16); const c = v => Math.round(Math.min(255, v * f)).toString(16).padStart(2, '0'); return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255); };
-// Live's background: blocks of two numbered bar spans, alternating light/dark, with 1 px grid lines
-function drawZebra(ctx, w, y, h, lift = 0) {
-  const bpb = beatsPerBar(), block = 2 * barStep() * bpb;
-  const b1 = bOf(w);
+// Alternating background tiles: the smallest power-of-four number of bars at least 100 px wide
+// (reference screenshots: 16 bars at 15.7 px/bar, 4 bars at 26 px/bar).
+function tileBeats() {
+  const bpb = beatsPerBar();
+  for (let s = 1; s < 1e6; s *= 4) if (s * bpb * view.ppb >= 100) return s * bpb;
+  return 1e6;
+}
+// lane background: tiles (the first, from bar 1, darker) and grid lines
+function drawZebra(ctx, w, y, h, sel) {
+  const block = tileBeats(), b1 = bOf(w);
+  const light = sel ? C.highlight : C.surface, dark = sel ? C.tileSel : C.tile;
   for (let b = Math.floor(view.beat0 / block) * block; b < b1; b += block) {
     const k = Math.round(b / block);
     const x0 = Math.round(xOf(b)), x1 = Math.round(xOf(b + block));
-    const base = (k % 2 ? 0x36 : 0x32) + lift;
-    ctx.fillStyle = `rgb(${base},${base},${base})`;
+    ctx.fillStyle = (k % 2 === 0) ? dark : light;
     ctx.fillRect(Math.max(0, x0), y, Math.min(w, x1) - Math.max(0, x0), h);
   }
   const g = gridStep();
@@ -752,15 +959,11 @@ function drawZebra(ctx, w, y, h, lift = 0) {
     const x = Math.round(xOf(b));
     if (x < 0) continue;
     const k = Math.floor(b / block + 1e-9);
-    const base = (k % 2 ? 0x36 : 0x32) + lift;
-    const isBar = Math.abs(b / bpb - Math.round(b / bpb)) < 1e-6;
-    const v = isBar ? base - 7 : base - 4;
-    ctx.fillStyle = `rgb(${v},${v},${v})`;
+    ctx.fillStyle = gridLine(sel, ((k % 2) + 2) % 2 === 0);
     ctx.fillRect(x, y, 1, h);
   }
 }
-function drawGrid(ctx, w, y, h, col) {
-  // grid lines inside a clip body
+function drawGrid(ctx, w, y, h) {
   const bpb = beatsPerBar(), g = gridStep(), b1 = bOf(w);
   for (let b = Math.floor(view.beat0 / g) * g; b < b1; b += g) {
     const x = Math.round(xOf(b));
@@ -771,30 +974,41 @@ function drawGrid(ctx, w, y, h, col) {
   }
 }
 
-function drawLanes(ctx, list, scrollTop, viewH) {
+function drawLanes(ctx, list, scrollTop, viewH, pinned) {
   const w = lanesWidth();
   ctx.clearRect(0, 0, w, viewH);
-  drawZebra(ctx, w, 0, viewH);
+  drawZebra(ctx, w, 0, viewH, false);
+  let end = 0;
   for (const r of list) {
     const y = r.y - scrollTop;
+    end = Math.max(end, y + r.h);
     if (y > viewH || y + r.h < 0) continue;
     const t = r.track, h = r.h - SEP;
-    if (t === selected) drawZebra(ctx, w, y, h, 0x10);
+    if (t === selected) drawZebra(ctx, w, y, h, true);
     if (t.type === 'group') drawGroupSummary(ctx, t, y, h, w);
     else for (const c of t.clips) {
       const x0 = xOf(c.start), x1 = xOf(c.end);
       if (x1 < 0 || x0 > w) continue;
       drawClip(ctx, c, x0, x1, y, h, w);
     }
-    ctx.fillStyle = '#242424'; ctx.fillRect(0, y + h, w, SEP);
+    ctx.fillStyle = C.area; ctx.fillRect(0, y + h, w, SEP);
+    // the insert marker's cursor line in the selected track
+    if (t === selected && !engine.playing) { const x = Math.round(xOf(view.insert)); ctx.fillStyle = '#78dee8'; ctx.fillRect(x, y, 1, h); }
   }
-  // playhead / insert marker line
+  if (pinned) { ctx.fillStyle = C.area; ctx.fillRect(0, 0, w, 3); }
+  else if (viewH - end > 30) {
+    // centred hint on a SurfaceBackground plate that hides the grid (as measured)
+    const msg = 'Drop Files and Devices Here';
+    ctx.font = FONT; ctx.textBaseline = 'alphabetic';
+    const tw = Math.ceil(ctx.measureText(msg).width), tx = Math.round((w - tw) / 2), by = Math.round(end + (viewH - end) / 2) + 4;
+    ctx.fillStyle = C.surface; ctx.fillRect(tx - 1, by - 8, tw + 1, 11);
+    ctx.fillStyle = T.ControlForeground; ctx.fillText(msg, tx, by);
+  }
   const ph = engine.playing ? engine.beatNow() : null;
   if (ph != null) { const x = Math.round(xOf(ph)); if (x >= 0 && x <= w) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x, 0, 1, viewH); } }
 }
 
 function drawGroupSummary(ctx, g, y, h, w) {
-  // the clips of the tracks inside the group, as thin bars
   const kidsDeep = [];
   const walk = t => { for (const k of t.children) { kidsDeep.push(k); walk(k); } };
   walk(g);
@@ -806,24 +1020,24 @@ function drawGroupSummary(ctx, g, y, h, w) {
     for (const c of k.clips) {
       const x0 = xOf(c.start), x1 = xOf(c.end);
       if (x1 < 0 || x0 > w) continue;
-      ctx.fillStyle = c.disabled ? '#777' : c.color;
+      ctx.fillStyle = c.disabled ? T.MutedAuditionClip : c.color;
       ctx.fillRect(Math.max(0, x0), yy, Math.max(1, Math.min(w, x1) - Math.max(0, x0)), Math.max(1, slot - 1.5));
     }
   });
 }
 
 function drawClip(ctx, c, x0, x1, y, h, w) {
-  const col = c.disabled ? '#a0a0a0' : c.color;
+  const col = c.disabled ? T.MutedAuditionClip : c.color;
   const edge = shade(col, 0.53);
   const cx0 = Math.max(-2, Math.round(x0)), cx1 = Math.min(w + 2, Math.round(x1));
   const headH = h >= 30 ? 15 : h - 1;
   ctx.save();
   ctx.beginPath(); ctx.rect(cx0, y, cx1 - cx0, h); ctx.clip();
   ctx.fillStyle = col; ctx.fillRect(cx0, y, cx1 - cx0, h);
-  ctx.fillStyle = edge; ctx.fillRect(cx0, y, cx1 - cx0, 1);                 // top edge
+  ctx.fillStyle = edge; ctx.fillRect(cx0, y, cx1 - cx0, 1);
   const by = y + 1 + headH;
   if (h >= 30) {
-    ctx.fillStyle = edge; ctx.fillRect(cx0, by, cx1 - cx0, 1);              // header/body divider
+    ctx.fillStyle = edge; ctx.fillRect(cx0, by, cx1 - cx0, 1);
     const bodyY = by + 1, bodyH = y + h - bodyY;
     drawGrid(ctx, w, bodyY, bodyH);
     if (c.kind === 'midi') drawNotes(ctx, c, x0, x1, bodyY + 2, bodyH - 4, w);
@@ -834,17 +1048,16 @@ function drawClip(ctx, c, x0, x1, y, h, w) {
       for (let k = 0; k < 2000 && c.start + d < c.end - 1e-9; k++) { const x = Math.round(xOf(c.start + d)); if (x > w) break; if (x >= 0) ctx.fillRect(x, by, 1, h - (by - y)); d = nextWrap(c, d + 1e-9); }
     }
   }
-  // name
-  ctx.fillStyle = luminance(col) < 0.4 ? '#efefef' : '#1e1e1e';
-  ctx.font = '10px ' + FONT;
+  ctx.fillStyle = luminance(col) < 0.4 ? '#efefef' : T.ClipText;
+  ctx.font = FONT;
   ctx.textBaseline = 'middle';
   if (c.name && cx1 - cx0 > 12) ctx.fillText(c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5, Math.max(0, cx1 - Math.max(x0, 0) - 6));
   ctx.restore();
-  // left/right edges
   ctx.fillStyle = edge;
   if (x0 >= -1 && x0 <= w) ctx.fillRect(Math.round(x0), y, 1, h);
   if (x1 >= -1 && x1 <= w) ctx.fillRect(Math.round(x1) - 1, y, 1, h);
 }
+const shade = (hex, f) => { const n = parseInt(hex.slice(1, 7), 16); const c = v => Math.round(Math.min(255, v * f)).toString(16).padStart(2, '0'); return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255); };
 
 function drawNotes(ctx, c, x0, x1, y, h, w) {
   if (!c.notes.length || h < 2) return;
@@ -852,7 +1065,6 @@ function drawNotes(ctx, c, x0, x1, y, h, w) {
   const rowH = h / range, nh = clamp(rowH > 3 ? rowH - 1 : rowH, 1, 8);
   const len = c.end - c.start;
   ctx.fillStyle = '#1e1f23';
-  // walk the arrangement span piece by piece (loop iterations)
   let d = 0;
   for (let k = 0; k < 4000 && d < len; k++) {
     const cs = contentAt(c, d);
@@ -880,7 +1092,7 @@ function drawWave(ctx, c, x0, x1, y, h, w) {
   const pk = c.file ? peaks.get(c.file) : null;
   if (!pk) return;
   const chs = pk.ch, band = h / chs;
-  ctx.fillStyle = '#1f2027';
+  ctx.fillStyle = T.WaveformColor;
   const xs = Math.max(0, Math.floor(x0)), xe = Math.min(w, Math.ceil(x1));
   const clipStartSec = tempoMap.sec(c.start);
   for (let x = xs; x < xe; x++) {
@@ -888,7 +1100,7 @@ function drawWave(ctx, c, x0, x1, y, h, w) {
     let sa, sb;
     if (c.warped) { sa = warpSec(c, contentAt(c, ba)); sb = warpSec(c, contentAt(c, bb)); }
     else { sa = contentAt(c, tempoMap.sec(c.start + ba) - clipStartSec); sb = contentAt(c, tempoMap.sec(c.start + bb) - clipStartSec); }
-    if (sb < sa) sb = sa + (bb - ba) * 60 / tempoMap.tempoAt(c.start + ba); // loop wrapped inside this pixel
+    if (sb < sa) sb = sa + (bb - ba) * 60 / tempoMap.tempoAt(c.start + ba);
     let k0 = Math.floor(sa * pk.sr / PEAK_BLOCK), k1 = Math.ceil(sb * pk.sr / PEAK_BLOCK);
     if (k1 <= k0) k1 = k0 + 1;
     if (k0 >= pk.done || k1 <= 0) continue;
@@ -906,65 +1118,108 @@ function drawWave(ctx, c, x0, x1, y, h, w) {
   }
 }
 
+// Beat-time ruler: 22 px band with bar numbers, then 23 px of lane background with the loop brace and insert marker
 function drawRuler() {
-  const cv = rulerCanvas, w = cv.clientWidth, h = cv.clientHeight, ctx = cv.getContext('2d');
+  const cv = rulerCanvas, w = lanesWidth(), h = 45, ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#363636'; ctx.fillRect(0, 0, w, 17);
-  if (!set) { ctx.fillStyle = '#323232'; ctx.fillRect(0, 17, w, h - 17); return; }
-  drawZebra(ctx, w, 17, h - 17);
+  ctx.fillStyle = C.surface; ctx.fillRect(0, 0, w, 22);
+  if (!set) return;
+  drawZebra(ctx, w, 22, h - 22, false);
   const bpb = beatsPerBar(), step = barStep();
-  ctx.font = '10px ' + FONT;
-  ctx.textBaseline = 'alphabetic';
+  ctx.font = FONT; ctx.textBaseline = 'alphabetic';
   const firstBar = Math.floor(view.beat0 / bpb), lastBar = Math.ceil(bOf(w) / bpb);
   for (let bar = Math.floor(firstBar / step) * step; bar <= lastBar; bar += step) {
     const x = Math.round(xOf(bar * bpb));
-    ctx.fillStyle = '#646464';
-    ctx.fillRect(x, 11, 1, 6); ctx.fillRect(x, 11, 2, 1);
-    ctx.fillStyle = '#959595';
-    ctx.fillText(String(bar + 1), x + 4, 15);
+    ctx.fillStyle = T.RangeDisabledOff;
+    ctx.fillRect(x, 16, 1, 6); ctx.fillRect(x, 16, 2, 1);
+    ctx.fillStyle = C.ruler;
+    ctx.fillText(String(bar + 1), x + 5, 20);
   }
-  // loop brace
+  // loop brace (LoopColor frame; filled when the loop is on), drawn from the measured pixel pattern
   const lx0 = Math.round(xOf(set.loop.start)), lx1 = Math.round(xOf(set.loop.start + set.loop.length));
-  ctx.save();
-  ctx.lineWidth = 1;
-  if (set.loop.on) { ctx.fillStyle = '#8f8f8f'; ctx.fillRect(lx0, 22, lx1 - lx0, 8); }
-  ctx.strokeStyle = set.loop.on ? '#8f8f8f' : '#a0a0a0';
-  ctx.strokeRect(lx0 + 0.5, 22.5, lx1 - lx0 - 1, 7);
-  ctx.beginPath(); ctx.moveTo(lx0 + 1, 23); ctx.lineTo(lx0 + 7, 26); ctx.lineTo(lx0 + 1, 29); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(lx1 - 1, 23); ctx.lineTo(lx1 - 7, 26); ctx.lineTo(lx1 - 1, 29); ctx.stroke();
-  ctx.restore();
-  // locators
+  drawLoopBrace(ctx, lx0, lx1, set.loop.on);
   for (const l of set.locators) {
     const x = Math.round(xOf(l.time));
     if (x < -200 || x > w) continue;
-    ctx.fillStyle = '#c8c8c8';
-    ctx.beginPath(); ctx.moveTo(x, 18); ctx.lineTo(x + 6, 23); ctx.lineTo(x, 28); ctx.closePath(); ctx.fill();
-    if (l.name) { ctx.fillStyle = '#d6d6d6'; ctx.fillText(l.name, x + 8, 26); }
+    ctx.fillStyle = T.ControlForeground;
+    ctx.beginPath(); ctx.moveTo(x, 23); ctx.lineTo(x + 6, 28); ctx.lineTo(x, 33); ctx.closePath(); ctx.fill();
+    if (l.name) ctx.fillText(l.name, x + 8, 31);
   }
-  // insert marker
+  // insert / start marker: a 7 px wide downward triangle at the bottom
   const ix = Math.round(xOf(view.insert));
-  ctx.fillStyle = '#03c3d5';
-  ctx.beginPath(); ctx.moveTo(ix - 4, h - 5); ctx.lineTo(ix + 5, h - 5); ctx.lineTo(ix + 0.5, h); ctx.closePath(); ctx.fill();
-  if (engine.playing) { const px = Math.round(xOf(engine.beatNow())); ctx.fillStyle = '#ffffff'; ctx.fillRect(px, 17, 1, h - 17); }
+  ctx.fillStyle = C.insert;
+  for (let k = 0; k < 4; k++) ctx.fillRect(ix - 3 + k, 41 + k, 7 - 2 * k, 1);
+  if (engine.playing) { const px = Math.round(xOf(engine.beatNow())); ctx.fillStyle = '#ffffff'; ctx.fillRect(px, 22, 1, h - 22); }
+}
+// Left end of the loop brace, 10 x 11 px of LoopColor coverage measured from Live (the right end is its mirror image)
+const BRACE = [[0.91,0.95,1,1,1,1,1,1,1,1],[0.74,0.11,0.68,0.56,0.04,0,0,0,0,0],[0.74,0,0,0.31,0.78,0.31,0,0,0,0],[0.74,0,0,0,0.04,0.56,0.67,0.11,0,0],
+  [0.74,0,0,0,0,0,0.2,0.76,0.44,0.01],[0.74,0,0,0,0,0,0,0.02,0.78,0.6],[0.74,0,0,0,0,0,0.2,0.75,0.43,0.01],[0.74,0,0,0,0.04,0.56,0.67,0.11,0,0],
+  [0.74,0,0,0.32,0.78,0.31,0,0,0,0],[0.74,0.11,0.68,0.56,0.04,0,0,0,0,0],[0.91,0.95,1,1,1,1,1,1,1,1]];
+function drawLoopBrace(ctx, lx0, lx1, on) {
+  const fg = on ? C.surface : C.loop, bg = on ? C.loop : C.surface;
+  ctx.fillStyle = bg; ctx.fillRect(lx0, 22, lx1 - lx0 + 1, 11);
+  ctx.fillStyle = C.loop; ctx.fillRect(lx0 + 10, 22, lx1 - lx0 - 19, 1); ctx.fillRect(lx0 + 10, 32, lx1 - lx0 - 19, 1);
+  ctx.fillStyle = fg;
+  BRACE.forEach((row, y) => row.forEach((a, x) => {
+    if (!a) return;
+    ctx.globalAlpha = a;
+    const c = (x === 0 || y === 0 || y === 10) ? C.loop : fg;
+    ctx.fillStyle = c;
+    ctx.fillRect(lx0 + x, 22 + y, 1, 1); ctx.fillRect(lx1 - x, 22 + y, 1, 1);
+  }));
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = T.RangeDisabledOff; ctx.fillRect(lx0, 21, 1, 1); ctx.fillRect(lx1, 21, 1, 1);
 }
 
 function drawSongRuler() {
-  const cv = songCanvas, w = cv.clientWidth, h = 21, ctx = cv.getContext('2d');
+  const cv = songCanvas, w = lanesWidth(), h = 21, ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#363636'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = C.surface; ctx.fillRect(0, 0, w, h);
   if (!set) return;
   const s0 = tempoMap.sec(view.beat0), s1 = tempoMap.sec(bOf(w));
   const pxPerSec = w / Math.max(0.001, s1 - s0);
   let step = 1;
   for (const s of [1, 2, 5, 10, 15, 30, 60, 120, 300, 600]) { step = s; if (s * pxPerSec >= 50) break; }
-  ctx.font = '10px ' + FONT;
-  ctx.textBaseline = 'alphabetic';
+  ctx.font = FONT; ctx.textBaseline = 'alphabetic';
+  // measured tick colour of the time ruler (a little lighter than the beat ruler's)
+  const tick = '#6b6b6b';
+  ctx.fillStyle = tick;
+  const g = gridStep();
+  for (let b = Math.ceil(view.beat0 / g) * g; b < bOf(w); b += g) ctx.fillRect(Math.round(xOf(b)), 0, 1, 2);
   for (let s = Math.max(0, Math.floor(s0 / step) * step); s <= s1; s += step) {
     const x = Math.round(xOf(tempoMap.beat(s)));
-    ctx.fillStyle = '#646464'; ctx.fillRect(x, 4, 1, 13); ctx.fillRect(x, 4, 2, 1);
-    ctx.fillStyle = '#959595';
-    ctx.fillText(`${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`, x + 4, 14);
+    ctx.fillStyle = tick; ctx.fillRect(x, 0, 1, 8); ctx.fillRect(x, 7, 2, 1);
+    ctx.fillStyle = C.ruler;
+    ctx.fillText(`${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`, x + 3, 11);
   }
+  // insert marker, pointing up
+  const ix = Math.round(xOf(view.insert));
+  ctx.fillStyle = C.insert;
+  for (let k = 0; k < 4; k++) ctx.fillRect(ix - k, 1 + k, 2 * k + 1, 1);
+}
+
+// Overview strip above the ruler, framed in MainViewFocusIndicator grey
+const OV_ROWS = [0x36, 0x36, 0x29, 0x31, 0x36, 0x2d, 0x2d, 0x36, 0x31, 0x29, 0x36, 0x36];
+function drawOverview() {
+  const W = $('#arrangement').clientWidth, ctx = ovCanvas.getContext('2d');
+  const F = T.MainViewFocusIndicator;
+  ctx.clearRect(0, 0, W, 14);
+  OV_ROWS.forEach((v, y) => { ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(1, y, W - 2, 1); });
+  if (set) {
+    // clips, squeezed into the 12 px strip
+    const lw = lanesWidth(), all = set.tracks.filter(isVisible), total = Math.max(set.end + beatsPerBar(), bOf(lw));
+    all.forEach((t, i) => {
+      const y0 = 1 + Math.floor(i * 10 / all.length), y1 = 1 + Math.floor((i + 1) * 10 / all.length);
+      for (const c of t.clips) { ctx.fillStyle = c.color; ctx.fillRect(1 + c.start / total * (W - 2), y0, Math.max(1, (c.end - c.start) / total * (W - 2)), Math.max(1, y1 - y0)); }
+    });
+  }
+  ctx.fillStyle = F;
+  ctx.fillRect(0, 0, 1, 14); ctx.fillRect(W - 1, 0, 1, 14); ctx.fillRect(0, 12, W, 2);
+  // rounded inner corners, as measured
+  const px = (x, y, v) => { ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(x, y, 1, 1); };
+  px(1, 0, 0x61); px(2, 0, 0x3d); px(W - 2, 0, 0x61); px(W - 3, 0, 0x3e);
+  px(1, 11, 0x53); px(2, 11, 0x3a); px(W - 2, 11, 0x53); px(W - 3, 11, 0x3a);
+  px(0, 13, 0x3d); px(1, 13, 0x60); px(2, 13, 0x6f); px(W - 1, 13, 0x3d); px(W - 2, 13, 0x60); px(W - 3, 13, 0x6f);
 }
 
 let rafPending = false;
@@ -974,14 +1229,20 @@ function drawAll() {
   requestAnimationFrame(() => {
     rafPending = false;
     const tr = $('#tracks'), pn = $('#pinned');
-    drawLanes(lanesCanvas.getContext('2d'), rows, tr.scrollTop, tr.clientHeight);
-    drawLanes(pinCanvas.getContext('2d'), pinnedRows, pn.scrollTop, pn.clientHeight);
-    drawRuler(); drawSongRuler();
-    $('#zoom-label').textContent = (view.ppb / 8).toFixed(2) + 'x';
+    drawLanes(lanesCanvas.getContext('2d'), rows, tr.scrollTop, tr.clientHeight, false);
+    drawLanes(pinCanvas.getContext('2d'), pinnedRows, pn.scrollTop, pn.clientHeight, true);
+    drawRuler(); drawSongRuler(); drawOverview();
+    // grid size indicator in the bottom right corner of the lanes ("1/1" = one bar)
+    const g = gridStep() / beatsPerBar();
+    $('#oneone').textContent = g >= 1 ? (g === 1 ? '1/1' : `${g} Bars`) : `1/${Math.round(1 / g)}`;
+    const z = view.ppb / (DEFAULT_PPB);
+    $('#zoom-label').textContent = z.toFixed(2) + 'x';
+    $('#zoom-fill').style.width = Math.round(clamp(10 * z, 0, 33)) + 'px';
   });
 }
 
 // ---------------------------------------------------------------------------
+
 // Devices (Detail view)
 
 function renderDevices(t) {
@@ -1230,7 +1491,7 @@ const engine = {
   },
   updatePos() {
     const b = this.beatNow();
-    $('#cb-pos').textContent = fmtPos(b);
+    showPos('cb-pos', fmtPos(b));
     $('#cb-tempo').textContent = tempoMap.tempoAt(b).toFixed(2);
     // follow
     if (follow) {
@@ -1249,7 +1510,7 @@ const engine = {
     $('#cb-play').classList.remove('playing');
     cancelAnimationFrame(this.meterRaf);
     for (const t of set?.tracks || []) if (t._meter) t._meter.querySelectorAll('b').forEach(b => b.style.height = '0');
-    $('#cb-pos').textContent = fmtPos(view.insert);
+    showPos('cb-pos', fmtPos(view.insert));
     drawAll();
   },
   meters() {
@@ -1279,14 +1540,16 @@ function fmtPos(b) {
   const inBar = b - (bar - 1) * bpb;
   const beat = Math.floor(inBar / beatLen + 1e-9) + 1;
   const six = Math.floor((inBar - (beat - 1) * beatLen) / (beatLen / 4) + 1e-9) + 1;
-  return `${bar}.  ${beat}.  ${six}`;
+  return [bar, beat, six];
 }
 function fmtLen(b) {
   const bpb = beatsPerBar(), beatLen = 4 / set.sig.den;
   const bars = Math.floor(b / bpb + 1e-9), rest = b - bars * bpb;
   const beats = Math.floor(rest / beatLen + 1e-9), six = Math.round((rest - beats * beatLen) / (beatLen / 4));
-  return `${bars}.  ${beats}.  ${six}`;
+  return [bars, beats, six];
 }
+// the three right-aligned fields of a position display
+function showPos(id, parts) { parts.forEach((v, i) => { $(`#${id}-${i + 1}`).textContent = v; }); }
 
 // ---------------------------------------------------------------------------
 // Interaction
@@ -1380,7 +1643,7 @@ function snap(b) {
 }
 function setInsert(b) {
   view.insert = b;
-  $('#cb-pos').textContent = fmtPos(b);
+  showPos('cb-pos', fmtPos(b));
   if (engine.playing) engine.play(b);
   drawAll();
 }
@@ -1395,7 +1658,7 @@ function openDialog(msg) {
   dialog(`
     <h1>Ableton Live 12</h1>
     <p>${msg || 'Open a Live Project to view its Arrangement, devices and frozen audio.'}</p>
-    <div class="drop" id="drop">Drop a zipped Live Project folder here<br><span class="btn" id="choose">Choose .zip…</span></div>
+    <div class="drop" id="drop">Drop a zipped Live Project folder here<br><span class="btn2" id="choose">Choose .zip…</span></div>
     <p style="color:var(--text-dim);font-size:11px">In Live: freeze all tracks, File › Collect All and Save, then zip the whole Project folder. Everything stays in your browser.</p>`);
   $('#choose').addEventListener('click', () => $('#file-input').click());
   const drop = $('#drop');
@@ -1475,28 +1738,30 @@ function pickSet(list) {
 }
 
 function showSet() {
-  document.title = `${set.name} - Ableton Live 12`;
+  document.title = `${set.name} - Ableton Live 12 Suite`;
+  $('#win-title').textContent = document.title;
   $('#cb-tempo').textContent = set.tempo.toFixed(2);
-  $('#cb-sig').textContent = `${set.sig.num} / ${set.sig.den}`;
+  $('#cb-sig .r').textContent = set.sig.num; $('#cb-sig .t:last-child').textContent = set.sig.den;
   $('#cb-quant').textContent = set.quant;
   $('#cb-root').textContent = set.scale.root;
   $('#cb-scale').textContent = set.scale.name;
-  $('#cb-loopstart').textContent = fmtPos(set.loop.start);
-  $('#cb-looplen').textContent = fmtLen(set.loop.length);
+  showPos('cb-ls', fmtPos(set.loop.start));
+  showPos('cb-ll', fmtLen(set.loop.length));
   $('#cb-loop').classList.toggle('on', set.loop.on);
   view.insert = 0;
-  $('#cb-pos').textContent = fmtPos(0);
+  showPos('cb-pos', fmtPos(0));
   selected = null;
   buildRows();
-  // fit the song into the window
-  view.ppb = clamp(lanesWidth() / (set.end + beatsPerBar()), 0.05, 200);
+  // Live's default zoom; zoomed out further only if the song would not fit
+  view.ppb = Math.min(DEFAULT_PPB, clamp(lanesWidth() / (set.end + beatsPerBar()), 0.05, 200));
   view.beat0 = 0;
   // sample rate from the first frozen file
   const any = set.tracks.flatMap(t => t.freezeClips).find(c => c.file) || set.tracks.flatMap(t => t.clips).find(c => c.file);
   if (any) getSource(any.file).then(s => { if (s) $('#cb-sr').textContent = (s.sr / 1000).toFixed(1).replace(/\.0$/, '') + ' kHz'; });
   const frozen = set.tracks.filter(t => t.frozen).length;
   const missing = set.tracks.flatMap(t => [...t.clips, ...t.freezeClips]).filter(c => c.kind === 'audio' && !c.file).length;
-  status(`${set.name}: ${set.tracks.length} tracks (${frozen} frozen), ${set.returns.length} return track${set.returns.length === 1 ? '' : 's'}` + (missing ? ` · ${missing} audio file${missing === 1 ? '' : 's'} missing from the zip` : '') + (set.creator ? ` · ${set.creator}` : ''));
+  $('#status-text').title = (`${set.name}: ${set.tracks.length} tracks (${frozen} frozen), ${set.returns.length} return track${set.returns.length === 1 ? '' : 's'}` + (missing ? ` · ${missing} audio file${missing === 1 ? '' : 's'} missing from the zip` : '') + (set.creator ? ` · ${set.creator}` : ''));
+  status('');
   select(set.tracks[0] || null);
   drawAll();
 }
@@ -1518,7 +1783,8 @@ async function loadWaveforms() {
 
 setupInteraction();
 $('#file-input').addEventListener('change', e => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ''; });
-$('#cb-open').addEventListener('click', () => openDialog());
+$('#menu-file').addEventListener('click', () => openDialog());
+buildStatic();
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f && /\.zip$/i.test(f.name)) loadFile(f); });
 
@@ -1532,7 +1798,7 @@ document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTra
   if (pick) {
     try { await loadUrl(pick.parts || [pick.file], pick.name); } catch (e) { openDialog(`<span class="err">${String(e.message || e)}</span>`); }
   } else if (list.length > 1) {
-    dialog(`<h1>Ableton Live 12</h1><p>Choose a project</p><div class="list"></div><p><span class="btn" id="choose2">Open a .zip…</span></p>`);
+    dialog(`<h1>Ableton Live 12</h1><p>Choose a project</p><div class="list"></div><p><span class="btn2" id="choose2">Open a .zip…</span></p>`);
     for (const p of list) {
       const d = document.createElement('div'); d.textContent = p.name;
       d.addEventListener('click', () => loadUrl(p.parts || [p.file], p.name).catch(e => openDialog(`<span class="err">${String(e.message || e)}</span>`)));
@@ -1540,6 +1806,21 @@ document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTra
     }
     $('#choose2').addEventListener('click', () => $('#file-input').click());
   } else {
-    openDialog();
+    // like Live itself: start with a new, empty Set (File opens a zipped project)
+    await loadDefaultSet();
   }
 })();
+
+async function loadDefaultSet() {
+  try {
+    const r = await fetch('projects/Untitled.als');
+    if (!r.ok) throw new Error('no default Set');
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    indexFiles({ 'Untitled.als': bytes });
+    set = parseSet(await gunzipText(bytes), 'Untitled.als');
+    set.name = 'Untitled';
+    tempoMap = new TempoMap(set.tempo, set.tempoEvents, set.end);
+    showSet();
+    closeDialog();
+  } catch (e) { openDialog(); }
+}

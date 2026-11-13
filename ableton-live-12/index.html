@@ -3,235 +3,305 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ableton Live 12</title>
-  <link rel="icon" href="../images/desktop/live-12-app.png">
+  <title>Untitled - Ableton Live 12 Suite</title>
+  <link rel="icon" href="images/live-app-32.png">
+  <script src="themes.js"></script>
+  <script>
+    // Every UI colour comes from Live's own theme file (default: the Live 12 default theme,
+    // "Default Dark Neutral Medium"). ?theme=<name> picks another of Live's 18 themes.
+    (function () {
+      var want = new URLSearchParams(location.search).get('theme');
+      var name = want && LIVE_THEMES[want] ? want : 'Default Dark Neutral Medium';
+      var t = LIVE_THEMES[name], s = document.documentElement.style;
+      for (var k in t) if (typeof t[k] === 'string' && t[k][0] === '#') s.setProperty('--' + k, t[k]);
+      window.THEME = t; window.THEME_NAME = name;
+    })();
+  </script>
   <style>
-    /* Live 12 default theme colours, sampled from Ableton's Live 12 screenshots */
-    :root {
-      --bg: #2a2a2a;         /* window background */
-      --panel: #363636;      /* buttons, rulers, header controls */
-      --lane: #323232;       /* empty arrangement lane */
-      --lane-sel: #404040;   /* selected track lane */
-      --sep: #242424;        /* separators */
-      --dark: #1e1e1e;       /* solo/arm buttons, displays */
-      --text: #b5b5b5;
-      --text-hi: #e0e0e0;
-      --text-dim: #7a7a7a;
-      --orange: #ffad56;     /* track activator, device on */
-      --teal: #027383;       /* volume field */
-      --cyan: #03c3d5;       /* insert marker */
-      --pan: #636363;
-      --font: "Ableton Sans", "Ableton Sans Medium", "Helvetica Neue", Helvetica, Arial, sans-serif;
-    }
+    @font-face { font-family: "Ableton Sans Small"; src: url(fonts/AbletonSansSmall-Regular.ttf); }
+    @font-face { font-family: "Ableton Sans Small"; font-weight: bold; src: url(fonts/AbletonSansSmall-Bold.ttf); }
+    @font-face { font-family: "Ableton Sans Small"; font-style: italic; src: url(fonts/AbletonSansSmall-RegularItalic.ttf); }
+    @font-face { font-family: "Ableton Sans Light"; src: url(fonts/AbletonSans-Light.ttf); }
+    @font-face { font-family: "Segoe UI Live"; src: url(../fonts/segoeui.ttf); }
+    :root { --font: "Ableton Sans Small", sans-serif; }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font: 10px/1.2 var(--font); user-select: none; -webkit-user-select: none; -webkit-font-smoothing: antialiased; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--Desktop); color: var(--ControlForeground);
+      font: 10px/1 var(--font); user-select: none;
+      /* Live draws text with ClearType on Windows, which inks glyphs ~13% heavier than Chromium's greyscale
+         antialiasing; a 0.15 px stroke matches the measured ink weight. */
+      -webkit-text-stroke: 0.15px currentColor; -webkit-user-select: none; }
     button { font: inherit; color: inherit; }
+    .abs { position: absolute; }
+    /* icons traced from the reference screenshot (icons.js), drawn as crisp SVG / canvas */
+    .ic { position: absolute; left: 0; top: 0; pointer-events: none; }
+    svg.ic { shape-rendering: crispEdges; overflow: visible; }
 
-    /* Geometry measured from Ableton's Live 12 screenshots at 1x (1440 px wide window) */
-    #app { position: fixed; inset: 0; display: flex; flex-direction: column; --hw: 226px; }
+    /* Geometry: measured from a 1920×1041 Live 12 window (Windows, 100% scale, default theme). */
+    #app { position: fixed; inset: 0; min-width: 1100px; min-height: 600px; }
 
-    /* ---------- Control bar: 47 px tall, 17 px controls ---------- */
-    #controlbar { height: 47px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 12px; background: var(--bg); white-space: nowrap; overflow: hidden; }
-    .cb { height: 17px; min-width: 17px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; background: var(--panel); color: var(--text); flex: none; font-size: 10px; }
-    .cb.num { font-variant-numeric: tabular-nums; letter-spacing: .04em; white-space: pre; }
-    #cb-follow.on { background: var(--panel); color: var(--text); }
-    .cb.on { background: var(--orange); color: #1e1e1e; }
-    .cb.dd { justify-content: space-between; }
-    .cb.dd::after { content: ""; border-top: 3.5px solid currentColor; border-left: 3px solid transparent; border-right: 3px solid transparent; margin-left: 3px; }
+    /* ---------- Windows title bar + Live's menu bar ---------- */
+    #titlebar { position: absolute; left: 0; right: 0; top: 0; height: 23px; background: #000; color: #fff; font: 12px/23px "Segoe UI Live", "Segoe UI", sans-serif; }
+    #titlebar img { position: absolute; left: 3px; top: 4px; width: 15px; height: 15px; }
+    #win-title { position: absolute; left: 23px; top: 0; white-space: nowrap; }
+    #titlebar .tbb { position: absolute; top: 0; width: 46px; height: 23px; color: #fff; }
+    #menubar { position: absolute; left: 0; right: 0; top: 23px; height: 20px; background: #fff; color: #000; font: 12px/18px "Segoe UI Live", "Segoe UI", sans-serif; border-bottom: 1px solid #f0f0f0; box-shadow: inset 0 -2px 0 #f2f2f2; }
+    #menubar span { position: absolute; top: 0; }
+
+    /* ---------- Control bar ---------- */
+    #controlbar { position: absolute; left: 0; right: 0; top: 43px; height: 45px; }
+    #controlbar .grp { position: absolute; top: 0; height: 45px; }
+    .cb { position: absolute; top: 15px; height: 17px; background: var(--TransportOffBackground); color: var(--TransportOffForeground); line-height: 17px; white-space: pre; }
     .cb.ghost { background: transparent; }
-    .cb svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.2; }
-    .cb .play { width: 0; height: 0; border-left: 12px solid #05d38c; border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
-    .cb.playing .play { border-left-color: #2bf3a8; }
-    .cb .stop { width: 13px; height: 13px; background: #b5b5b5; }
-    .cb .rec { width: 13px; height: 13px; flex: none; border-radius: 50%; background: #b5b5b5; }
-    .cb .stop, .cb .play { flex: none; }
-    .flex { flex: 1; }
-    #cb-scale-btn { background: #b595fc; color: #1e1e1e; font-size: 9px; }
-    #cb-cpu-bar { width: 7px; height: 17px; margin-left: -5px; background: var(--orange); }
-    .cb.clickable:hover { filter: brightness(1.15); }
+    .cb.on { background: var(--ChosenDefault); color: var(--ControlOnForeground); }
+    .cb.dim { color: var(--ControlOffDisabledForeground); }
+    .cb.c { text-align: center; }
+    .cb .t { position: absolute; top: 0; }
+    .cb .r { position: absolute; top: 0; text-align: right; }
+    .cb.half { height: 8px; }
+    #cb-scale-btn { background: var(--ScaleAwareness); color: var(--ControlOnForeground); }
+    .clickable { cursor: default; }
+
+    /* ---------- Panels ---------- */
+    .panel { position: absolute; background: var(--SurfaceBackground); border-radius: 3px; overflow: hidden; }
+    #browser { left: 9px; top: 90px; width: 287px; bottom: 235px; }
+    #arrangement { left: 305px; right: 9px; top: 90px; bottom: 235px; outline: 2px solid var(--MainViewFocusIndicator); border-radius: 3px; overflow: visible; }
+    #info { left: 9px; width: 210px; bottom: 38px; height: 188px; }
+    #detail { left: 228px; right: 9px; bottom: 38px; height: 188px; }
+    #splitter { position: absolute; left: 221px; bottom: 76px; width: 4px; height: 107px; }
+
+    /* ---------- Browser ---------- */
+    #browser .bar { position: absolute; left: 0; right: 0; top: 0; height: 21px; }
+    #browser .sep { position: absolute; background: var(--SurfaceArea); }
+    #browser .hint { position: absolute; left: 49px; top: 0; line-height: 21px; color: var(--BrowserBarOverlayHintTextColor); }
+    #sidebar { position: absolute; left: 0; top: 23px; width: 100px; bottom: 0; }
+    .sbrow { position: absolute; left: 0; width: 100px; height: 18px; line-height: 18px; white-space: nowrap; overflow: hidden; }
+    .sbrow .l { position: absolute; left: 25px; top: 0; }
+    .sbrow.cat .l { left: 5px; color: var(--TreeRowCategoryForeground); }
+    .sbrow.sel { background: var(--StandbySelectionBackground); color: var(--StandbySelectionForeground); }
+    .sbrow.dis { color: var(--BrowserDisabledItem); }
+    #filters { position: absolute; left: 102px; right: 0; top: 23px; }
+    .frow { position: absolute; left: 0; right: 0; height: 19px; line-height: 19px; }
+    .frow .l { position: absolute; left: 5px; top: 0; white-space: nowrap; }
+    .frow.line { height: 1px; background: var(--Desktop); }
+    #br-edit { position: absolute; left: 144px; top: 3px; width: 39px; height: 13px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); line-height: 13px; }
+    #br-namehead { position: absolute; left: 102px; right: 0; height: 19px; background: var(--TreeColumnHeadBackground); color: var(--TreeColumnHeadForeground); line-height: 19px; }
+    #br-namehead .bar1 { position: absolute; right: 10px; top: 4px; width: 1px; height: 11px; background: var(--TreeColumnHeadControl); }
 
     /* ---------- Arrangement ---------- */
-    #arrangement { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 9px; background: var(--sep); overflow: hidden; position: relative; }
-    #ruler-row { height: 42px; flex: none; display: flex; background: var(--sep); }
-    #ruler { flex: 1; min-width: 0; height: 40px; position: relative; }
-    #ruler canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-    #ruler-side { width: var(--hw); height: 40px; flex: none; display: flex; flex-direction: column; gap: 4px; padding: 5px 0 0 6px; overflow: hidden; background: var(--panel); border-left: 2px solid var(--sep); }
-    #ruler-side .row { display: flex; gap: 4px; align-items: center; }
-    .pill { height: 13px; padding: 0 7px; display: inline-flex; align-items: center; border-radius: 7px; background: var(--dark); color: var(--text); }
-    .sq { height: 13px; width: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--dark); color: var(--text); font-size: 9px; }
-    .circ { width: 12px; height: 12px; border-radius: 50%; background: var(--dark); display: inline-flex; align-items: center; justify-content: center; font-size: 8px; color: var(--text); }
-
-    #tracks-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    #overview { position: absolute; left: 0; top: 0; }
+    #ruler { position: absolute; left: 0; top: 14px; height: 45px; }
+    #ruler canvas { position: absolute; left: 0; top: 0; }
+    #ruler-side { position: absolute; right: 0; top: 14px; height: 45px; width: 292px; background: var(--SurfaceBackground); }
+    #ruler-side .sidesep { position: absolute; left: 0; bottom: 0; width: 1px; height: 0; }
+    .pill { position: absolute; height: 13px; border-radius: 6.5px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); text-align: center; line-height: 13px; }
+    .btn { position: absolute; height: 13px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); text-align: center; line-height: 13px; white-space: nowrap; overflow: hidden; }
+    .btn > span.abs { top: 1px; }
+    .btn.on { background: var(--ChosenDefault); color: var(--ControlOnForeground); }
+    .btn.field { background: var(--ControlTextBack); }
+    .btn.flat { background: var(--SurfaceBackground); }
+    #tracks-wrap { position: absolute; left: 0; right: 0; top: 59px; border-top: 2px solid var(--SurfaceArea); bottom: 21px; display: flex; flex-direction: column; }
     .tscroll { position: relative; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
     .tscroll::-webkit-scrollbar { display: none; }
-    #tracks { flex: 1; min-height: 0; background: var(--panel); }
-    #pinned { flex: none; border-top: 2px solid var(--sep); }
+    #tracks { flex: 1; min-height: 0; background: linear-gradient(to right, transparent calc(100% - 292px), var(--SurfaceArea) calc(100% - 292px), var(--SurfaceArea) calc(100% - 290px), transparent calc(100% - 290px)); }
+    #pinned { flex: none; }
     .lanes-canvas { position: sticky; top: 0; left: 0; display: block; }
     .rows { position: relative; }
-    .trow { display: flex; }
-    .trow .lane { flex: 1; min-width: 0; }
+    .trow { position: absolute; left: 0; right: 0; }
+    .theader { position: absolute; right: 0; top: 0; width: 292px; background: var(--SurfaceArea); overflow: hidden; }
+    .theader .bg { position: absolute; left: 2px; right: 0; top: 0; background: var(--SurfaceBackground); }
+    .theader.sel .bg { background: var(--SurfaceHighlight); }
+    .theader .name { position: absolute; left: 2px; top: 0; width: 93px; overflow: hidden; }
+    .theader .name span { position: absolute; left: 23px; top: 3px; height: 13px; line-height: 13px; font-weight: bold; white-space: nowrap; }
+    .theader .vsep { position: absolute; top: 0; width: 2px; background: var(--SurfaceArea); }
+    .theader .meter { position: absolute; }
+    .meter i { position: absolute; width: 3px; background: var(--MeterBackground); }
+    .theader .midimeter { position: absolute; width: 8px; }
+    #pinned-top { height: 3px; background: var(--SurfaceArea); }
 
-    /* Track header: 2 px divider, 103 px name, 2 px divider, controls (46/21/21 px, 13 px rows every 17 px), meter */
-    .theader { width: var(--hw); flex: none; display: flex; background: var(--sep); padding-left: 2px; padding-bottom: 2px; }
-    .theader .name { width: 103px; flex: none; display: flex; align-items: flex-start; padding: 2px 0 0 3px; color: #1e1e1e; overflow: hidden; }
-    .theader .name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px; font-weight: 600; line-height: 12px; margin: 1px 0 0 8px; }
-    .theader .fold { width: 12.5px; height: 12.5px; flex: none; border-radius: 50%; border: 1.1px solid currentColor; display: grid; place-items: center; }
-    .theader .fold::after { content: ""; border-top: 4px solid currentColor; border-left: 3px solid transparent; border-right: 3px solid transparent; margin-top: 1px; }
-    .theader.folded .fold::after { border-top: 3px solid transparent; border-bottom: 3px solid transparent; border-left: 4px solid currentColor; border-right: 0; margin: 0 0 0 1.5px; }
-    .theader.group .fold::after, .theader.group.folded .fold::after { content: ""; width: 5.5px; height: 1.2px; border: 0; margin: 0; background: currentColor; box-shadow: 0 -2.4px 0 currentColor, 0 2.4px 0 currentColor; }
-    .theader .ctrls { width: 98px; flex: none; margin-left: 2px; display: grid; grid-template-columns: 46px 21px 21px; grid-auto-rows: 13px; gap: 4px 4px; padding: 2px 0 0 2px; align-content: start; background: var(--panel); }
-    .theader .ctrls > div { border: 1px solid #111; font-size: 10px; display: flex; align-items: center; justify-content: center; }
-    .theader .act { background: var(--orange); color: #1e1e1e; font-weight: 600; }
-    .theader .act.off { background: #5f5f5f; color: #b5b5b5; }
-    .theader .solo, .theader .arm { background: var(--dark); color: var(--text); }
-    .theader .solo.on { background: #2f8ff6; color: #fff; }
-    .theader .arm::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #5a5a5a; }
-    .theader .vol { grid-column: 1; position: relative; background: var(--sep); color: #e0e0e0; overflow: hidden; }
-    .theader .vol i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--teal); }
-    .theader .vol b { position: relative; font-weight: normal; }
-    .theader .panv { grid-column: 2 / span 2; background: var(--sep); }
-    .theader .sends { grid-column: 1 / span 3; border: 0 !important; justify-content: flex-start !important; gap: 3.5px; }
-    .theader .send { width: 29.5px; height: 13px; border: 1px solid #111; background: var(--sep); display: flex; align-items: center; justify-content: center; color: var(--text); font-size: 10px; }
-    .theader .meter { width: 21px; flex: none; display: flex; gap: 1px; padding: 2px 10px 2px 4px; background: var(--panel); }
-    .theader .meter i { width: 3px; flex: none; background: #181818; position: relative; overflow: hidden; }
-    .theader .meter i b { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: linear-gradient(to top, #02f757, #02f757 70%, #e6d83a 88%, #f2502e); }
-    .theader.sel .ctrls, .theader.sel .meter { background: #464646; }
-    .theader.main .name { color: #1e1e1e; }
-    .theader.main .vol2 { grid-column: 2 / span 2; background: #3c6ab6; color: #e0e0e0; }
+    #songruler { position: absolute; left: 0; right: 0; bottom: 0; height: 21px; }
+    #songruler canvas { position: absolute; left: 0; top: 0; }
+    #songruler .side { position: absolute; right: 0; top: 0; width: 292px; height: 21px; background: var(--SurfaceBackground); }
+    #oneone { position: absolute; right: 294px; bottom: 22px; color: var(--MainViewFocusIndicator); font: 18px/18px "Ableton Sans Light"; -webkit-text-stroke: 0.3px currentColor; pointer-events: none; }
 
-    #songruler { height: 23px; flex: none; display: flex; background: var(--sep); padding-top: 2px; }
-    #songruler canvas { flex: 1; min-width: 0; height: 21px; }
-    #songruler .side { width: var(--hw); height: 21px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 6px; background: var(--panel); border-left: 2px solid var(--sep); }
-
-    /* ---------- Detail view (devices) ---------- */
-    #detail { height: 214px; flex: none; margin: 4px 8px 0; display: flex; background: var(--sep); border-radius: 3px; overflow: hidden; }
-    #devices { flex: 1; min-width: 0; display: flex; gap: 3px; padding: 3px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #555 transparent; }
-    #devices .empty { margin: auto; color: var(--text-dim); }
-    .device { flex: none; display: flex; flex-direction: column; background: var(--panel); border-radius: 2px; min-width: 150px; max-width: 620px; }
+    /* ---------- Info view / Detail view / status bar ---------- */
+    #info .title { position: absolute; left: 0; right: 0; top: 0; height: 17px; background: var(--SurfaceHighlight); line-height: 17px; padding-left: 5px; font-weight: bold; }
+    #info .body { position: absolute; font-size: 9px; left: 6px; right: 4px; top: 17px; line-height: 15px; padding-top: 2px; white-space: pre; }
+    #devices { position: absolute; inset: 0; display: flex; gap: 3px; padding: 3px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+    #devices .empty { position: absolute; left: 0; right: 0; top: 89px; text-align: center; line-height: 10px; pointer-events: none; }
+    .device { flex: none; display: flex; flex-direction: column; background: var(--DetailViewBackground); border-radius: 3px; min-width: 150px; max-width: 620px; }
     .device.off { opacity: .55; }
-    .device .dtitle { height: 20px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 6px; background: #2e2e2e; border-bottom: 1px solid var(--sep); color: var(--text-hi); white-space: nowrap; }
-    .device .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--orange); flex: none; }
-    .device.off .dot { background: #5a5a5a; }
-    .device .dname { overflow: hidden; text-overflow: ellipsis; }
-    .device .dkind { margin-left: auto; color: var(--text-dim); font-size: 10px; padding-left: 8px; }
+    .device .dtitle { height: 17px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 6px; background: var(--SurfaceHighlight); border-radius: 3px 3px 0 0; white-space: nowrap; }
+    .device .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ChosenDefault); flex: none; }
+    .device.off .dot { background: var(--ViewControlOff); }
+    .device .dname { overflow: hidden; text-overflow: ellipsis; font-weight: bold; }
+    .device .dkind { margin-left: auto; color: var(--TextDisabled); padding-left: 8px; }
     .device .dbody { flex: 1; min-height: 0; display: flex; }
     .device .params { display: grid; grid-auto-flow: column; grid-template-rows: repeat(6, 1fr); grid-auto-columns: 92px; gap: 2px 8px; padding: 6px 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #555 transparent; }
-    .device .param { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
-    .device .param .pn { font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .device .param .pv { font-size: 11px; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .device .chains { width: 150px; flex: none; border-right: 1px solid var(--sep); overflow-y: auto; padding: 4px; scrollbar-width: thin; scrollbar-color: #555 transparent; }
-    .device .chain { height: 18px; display: flex; align-items: center; gap: 5px; padding: 0 5px; border-radius: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .device .chain.sel { background: #4b4b4b; color: var(--text-hi); }
-    .device .chain i { width: 8px; height: 8px; flex: none; border-radius: 1px; }
-    .device .nested { display: flex; gap: 3px; padding: 4px; background: #2b2b2b; overflow-x: auto; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+    .device .param { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+    .device .param .pn { color: var(--TextDisabled); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .device .param .pv { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .device .chains { width: 150px; flex: none; border-right: 1px solid var(--SurfaceArea); overflow-y: auto; padding: 4px; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+    .device .chain { height: 17px; display: flex; align-items: center; gap: 5px; padding: 0 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .device .chain.sel { background: var(--SurfaceHighlight); }
+    .device .chain i { width: 8px; height: 8px; flex: none; }
+    .device .nested { display: flex; gap: 3px; padding: 4px; background: var(--SurfaceArea); overflow-x: auto; scrollbar-width: thin; scrollbar-color: #555 transparent; }
     .device .nested .device { min-width: 130px; }
     .device .macros { display: grid; grid-template-columns: repeat(4, 64px); grid-auto-rows: 38px; gap: 4px; padding: 6px; }
     .device .macro { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-    .device .knob { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #5a5a5a; position: relative; }
-    .device .knob::after { content: ""; position: absolute; left: 50%; top: 1px; width: 2px; height: 7px; margin-left: -1px; background: var(--orange); transform-origin: 50% 8px; transform: rotate(var(--r, 0deg)); }
+    .device .knob { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--ControlFillHandle); position: relative; }
+    .device .knob::after { content: ""; position: absolute; left: 50%; top: 1px; width: 2px; height: 7px; margin-left: -1px; background: var(--ChosenDefault); transform-origin: 50% 8px; transform: rotate(var(--r, 0deg)); }
 
-    /* ---------- Status bar ---------- */
-    #statusbar { height: 26px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px; }
-    #statusbar .info { width: 15px; height: 15px; border-radius: 50%; background: #4a4a4a; color: #222; font: bold 10px/15px var(--font); text-align: center; }
-    #status-text { flex: 1; min-width: 0; height: 18px; padding: 0 8px; display: flex; align-items: center; background: var(--panel); border-radius: 2px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #status-track { color: var(--text-hi); padding: 0 6px; }
+    #statusbar { position: absolute; left: 0; right: 0; bottom: 10px; height: 19px; }
+    #status-text { position: absolute; left: 42px; right: 359px; top: 0; height: 19px; padding-left: 6px; background: var(--SurfaceBackground); border-radius: 3px; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #status-play { position: absolute; right: 130px; top: 0; width: 220px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; }
+    #status-play .div { position: absolute; left: 19px; top: 0; width: 1px; height: 19px; background: var(--SurfaceArea); }
+    #status-trk { position: absolute; right: 56px; top: 0; width: 65px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; overflow: hidden; }
+    #status-trk .up { position: absolute; left: 0; top: 0; width: 19px; height: 19px; background: var(--ChosenDefault); color: var(--ControlOnForeground); }
+    #status-trk .div { position: absolute; left: 19px; top: 0; width: 1px; height: 19px; background: var(--SurfaceArea); }
+    #status-track { position: absolute; left: 20px; right: 0; top: 0; line-height: 19px; text-align: center; white-space: nowrap; }
 
     /* ---------- Open / loading overlay ---------- */
     #overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(30,30,30,.55); z-index: 10; }
     #overlay[hidden] { display: none; }
-    .dialog { width: min(460px, calc(100vw - 32px)); padding: 22px; background: var(--panel); border: 1px solid #4a4a4a; border-radius: 4px; text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
-    .dialog h1 { margin: 0 0 6px; font-size: 16px; color: var(--text-hi); font-weight: 600; }
-    .dialog p { margin: 6px 0; line-height: 1.45; }
-    .dialog .drop { margin-top: 14px; padding: 26px 12px; border: 1.5px dashed #6a6a6a; border-radius: 4px; color: var(--text-hi); }
-    .dialog .drop.over { border-color: var(--orange); background: rgba(255,173,86,.08); }
-    .dialog .btn { display: inline-block; margin-top: 12px; padding: 5px 14px; border-radius: 2px; background: var(--orange); color: #1e1e1e; }
-    .dialog .bar { height: 6px; margin-top: 14px; background: var(--dark); border-radius: 3px; overflow: hidden; }
-    .dialog .bar i { display: block; height: 100%; width: 0; background: var(--orange); transition: width .15s; }
-    .dialog .err { color: #ff8a7a; }
+    .dialog { width: min(460px, calc(100vw - 32px)); padding: 22px; background: var(--SurfaceBackground); border: 1px solid var(--SurfaceHighlight); border-radius: 4px; text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,.5); line-height: 1.45; }
+    .dialog h1 { margin: 0 0 6px; font-size: 16px; font-weight: bold; }
+    .dialog p { margin: 6px 0; }
+    .dialog .drop { margin-top: 14px; padding: 26px 12px; border: 1.5px dashed var(--ControlFillHandle); border-radius: 4px; }
+    .dialog .drop.over { border-color: var(--ChosenDefault); }
+    .dialog .btn2 { display: inline-block; margin-top: 12px; padding: 5px 14px; border-radius: 2px; background: var(--ChosenDefault); color: var(--ControlOnForeground); }
+    .dialog .bar { height: 6px; margin-top: 14px; background: var(--ControlBackground); border-radius: 3px; overflow: hidden; }
+    .dialog .bar i { display: block; height: 100%; width: 0; background: var(--ChosenDefault); transition: width .15s; }
+    .dialog .err { color: var(--Alert); }
     .dialog .list { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; text-align: left; }
-    .dialog .list div { padding: 5px 8px; background: var(--dark); border-radius: 2px; }
-    .dialog .list div:hover { background: #4b4b4b; }
+    .dialog .list div { padding: 5px 8px; background: var(--ControlBackground); border-radius: 2px; }
+    .dialog .list div:hover { background: var(--SurfaceHighlight); }
     #file-input { display: none; }
 
+    /* Small screens (a proper mobile layout comes later): keep the Arrangement, transport and devices usable */
     @media (max-width: 700px) {
-      #controlbar .wide { display: none; }
-      #app { --hw: 168px !important; }
-      .theader .name { width: 72px; }
-      #detail { height: 160px; }
+      #app { min-width: 0; }
+      #browser, #info, #splitter, #status-play, #controlbar .grp:first-child, #controlbar .grp:last-child { display: none; }
+      #cb-center { left: 4px !important; }
+      #cb-center > span:nth-child(n+6) { display: none; }
+      #arrangement { left: 6px; right: 6px; bottom: 197px; }
+      #detail { left: 6px; right: 6px; height: 150px; }
+      #status-text { right: 130px; }
     }
   </style>
 </head>
 <body>
   <div id="app">
+    <div id="titlebar"><img src="images/live-app-32.png" alt=""><span id="win-title">Untitled - Ableton Live 12 Suite</span>
+      <span class="tbb" style="right:94px" data-ic="tb_min"></span><span class="tbb" style="right:48px" data-ic="tb_max"></span><span class="tbb" style="right:2px" data-ic="tb_close"></span></div>
+    <div id="menubar"><span id="menu-file" style="left:7px" title="Open a Live Set (.zip)">File</span><span style="left:39px">Edit</span><span style="left:73px">Create</span><span style="left:121px">Playback</span><span style="left:181px">View</span><span style="left:221px">Navigate</span><span style="left:282px">Options</span><span style="left:338px">Help</span></div>
+
     <div id="controlbar">
-      <span class="cb ghost wide" style="width:18px;padding:0" title="Show/hide Browser"><svg viewBox="0 0 18 11" style="width:18px"><rect x="0" y="0" width="5" height="11" fill="#464646" stroke="none"/><rect x="7" y="0" width="10" height="11" fill="#464646" stroke="none"/></svg></span>
-      <span class="cb wide" style="width:43px;margin-left:22px">Link</span>
-      <span class="cb" style="width:27px">Tap</span>
-      <span class="cb num" id="cb-tempo" style="width:43px">120.00</span>
-      <span class="cb wide" style="width:17px;padding:0" title="Nudge Down"><svg viewBox="0 0 11 11"><path d="M2 1v9M4.5 1v9M7 1v9M9.5 1v9" stroke-width="1"/></svg></span>
-      <span class="cb wide" style="width:17px;padding:0" title="Nudge Up"><svg viewBox="0 0 11 11"><path d="M1.5 1v9M4 1v9M6.5 1v9M9 1v9" stroke-width="1"/></svg></span>
-      <span class="cb num" id="cb-sig" style="width:43px">4 / 4</span>
-      <span class="cb dd wide" style="width:39px" title="Metronome">○●</span>
-      <span class="cb dd wide" id="cb-quant" style="width:45px">1 Bar</span>
-      <span class="cb wide" id="cb-scale-btn" style="width:17px;padding:0;margin-left:19px" title="Scale">♭♯</span>
-      <span class="cb dd wide" id="cb-root" style="width:44px">C</span>
-      <span class="cb dd wide" id="cb-scale" style="width:70px">Major</span>
-      <span class="cb wide clickable" id="cb-follow" style="width:21px;padding:0;margin-left:19px" title="Follow"><svg viewBox="0 0 11 11"><path d="M0 5.5h5M3 3l2.5 2.5L3 8M7 5.5h1.5M10 5.5h1" /></svg></span>
-      <span class="cb num" id="cb-pos" style="width:82px">1. 1. 1</span>
-      <span class="cb ghost clickable" id="cb-play" style="width:20px;margin-left:16px" title="Play"><i class="play"></i></span>
-      <span class="cb ghost clickable" id="cb-stop" style="width:20px;margin-left:3px" title="Stop"><i class="stop"></i></span>
-      <span class="cb ghost wide" style="width:20px;margin-left:3px" title="Arrangement Record"><i class="rec"></i></span>
-      <span class="cb wide" style="width:17px;padding:0;margin-left:16px" title="MIDI Arrangement Overdub">+</span>
-      <span class="cb on wide" style="width:17px;padding:0" title="Automation Arm"><svg viewBox="0 0 11 11"><circle cx="2.5" cy="8.5" r="1.6"/><circle cx="8.5" cy="2.5" r="1.6"/><path d="M3.6 7.4l3.8-3.8"/></svg></span>
-      <span class="cb wide" style="width:17px;padding:0;color:#696969" title="Back to Arrangement">◂</span>
-      <span class="cb wide" style="width:17px;padding:0" title="Capture MIDI"><svg viewBox="0 0 11 11"><path d="M1 3V1h2M8 1h2v2M10 8v2H8M3 10H1V8"/></svg></span>
-      <span class="cb wide" style="width:17px;padding:0" title="Session Record"><svg viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="4"/></svg></span>
-      <span class="cb num wide" id="cb-loopstart" style="width:82px;margin-left:19px">1. 1. 1</span>
-      <span class="cb wide" style="width:21px;padding:0" title="Punch-In"><svg viewBox="0 0 11 11"><path d="M0 3h4l3 5h4"/></svg></span>
-      <span class="cb clickable" id="cb-loop" style="width:21px;padding:0" title="Loop Switch"><svg viewBox="0 0 11 11"><path d="M1 8V2h9v6H5M6.5 6.5L5 8l1.5 1.5"/></svg></span>
-      <span class="cb wide" style="width:21px;padding:0" title="Punch-Out"><svg viewBox="0 0 11 11"><path d="M0 8h4l3-5h4"/></svg></span>
-      <span class="cb num wide" id="cb-looplen" style="width:82px">4. 0. 0</span>
-      <span class="flex"></span>
-      <span class="cb wide" style="width:17px;padding:0" title="Draw Mode"><svg viewBox="0 0 11 11"><path d="M2 9l1-3 5-5 2 2-5 5zM1 10.5h9"/></svg></span>
-      <span class="cb wide" style="width:17px;padding:0" title="Computer MIDI Keyboard"><svg viewBox="0 0 11 11"><path d="M1 1h9v9H1zM3.5 1v5M5.5 1v5M7.5 1v5M3.5 6v4M5.5 6v4M7.5 6v4"/></svg></span>
-      <span class="cb wide" style="width:26px">Key</span>
-      <span class="cb wide" style="width:5px;min-width:5px;padding:0;background:transparent"></span>
-      <span class="cb wide" style="width:28px">MIDI</span>
-      <span class="cb wide" id="cb-sr" style="width:48px">44.1 kHz</span>
-      <span class="cb dd wide" style="width:55px"><i id="cb-cpu-bar"></i>0 %</span>
-      <span class="cb wide" style="width:28px"></span>
-      <span class="cb clickable" id="cb-open" style="width:34px;margin-left:12px" title="Open another Live Set (.zip)">Open</span>
+      <div class="grp" style="left:0;width:460px">
+        <span class="cb ghost" style="left:12px;width:17px;color:var(--ViewControlOn)" data-ic="browserToggle" title="Show/Hide Browser"></span>
+        <span class="cb ghost" style="left:31px;width:12px;color:var(--ViewControlOff)" data-ic="ddTriangleDim"></span>
+        <span class="cb c" style="left:54px;width:26px">Tap</span>
+        <span class="cb c" id="cb-tempo" style="left:82px;width:42px">120.00</span>
+        <span class="cb" style="left:126px;width:17px" data-ic="nudgeDown"></span>
+        <span class="cb" style="left:145px;width:17px" data-ic="nudgeUp"></span>
+        <span class="cb" id="cb-sig" style="left:164px;width:42px"><span class="r" style="right:29px">4</span><span class="t" style="left:19px">/</span><span class="t" style="left:29px">4</span></span>
+        <span class="cb" style="left:208px;width:39px" data-ic="metronome"><i data-ic="ddTriangle" style="left:25px"></i></span>
+        <span class="cb" id="cb-quant-box" style="left:249px;width:45px"><span class="t" id="cb-quant" style="left:4px">1 Bar</span><i data-ic="ddTriangle" style="left:31px"></i></span>
+        <span class="cb" id="cb-scale-btn" style="left:315px;width:17px" data-ic="scaleAware" title="Scale"></span>
+        <span class="cb" style="left:334px;width:44px"><span class="t" id="cb-root" style="left:4px">C</span><i data-ic="ddTriangle" style="left:30px"></i></span>
+        <span class="cb" style="left:380px;width:70px"><span class="t" id="cb-scale" style="left:4px">Major</span><i data-ic="ddTriangle" style="left:56px"></i></span>
+      </div>
+      <div class="grp" id="cb-center" style="left:calc(50% - 245px);width:560px">
+        <span class="cb on clickable" id="cb-follow" style="left:0;width:21px" data-ic="follow" title="Follow"></span>
+        <span class="cb" id="cb-pos-box" style="left:23px;width:82px"><span class="r" id="cb-pos-1" style="right:53px">1</span><span class="t" style="left:32px">.</span><span class="r" id="cb-pos-2" style="right:29px">1</span><span class="t" style="left:56px">.</span><span class="r" id="cb-pos-3" style="right:5px">1</span></span>
+        <span class="cb ghost clickable" id="cb-play" style="left:121px;width:21px" data-ic="play" title="Play"></span>
+        <span class="cb ghost clickable" id="cb-stop" style="left:143px;width:22px" data-ic="stop" title="Stop"></span>
+        <span class="cb ghost" style="left:166px;width:22px" data-ic="record" title="Arrangement Record"></span>
+        <span class="cb" style="left:203px;width:17px" data-ic="overdub" title="MIDI Arrangement Overdub"></span>
+        <span class="cb on" style="left:222px;width:17px" data-ic="automationArm" title="Automation Arm"></span>
+        <span class="cb dim" style="left:241px;width:17px" data-ic="backToArr" title="Back to Arrangement"></span>
+        <span class="cb dim" style="left:260px;width:17px" data-ic="captureMidi" title="Capture MIDI"></span>
+        <span class="cb" style="left:279px;width:17px" data-ic="sessionRec" title="Session Record"></span>
+        <span class="cb" id="cb-ls-box" style="left:317px;width:82px"><span class="r" id="cb-ls-1" style="right:53px">3</span><span class="t" style="left:32px">.</span><span class="r" id="cb-ls-2" style="right:29px">1</span><span class="t" style="left:56px">.</span><span class="r" id="cb-ls-3" style="right:5px">1</span></span>
+        <span class="cb" style="left:401px;width:21px" data-ic="punchIn" title="Punch-In"></span>
+        <span class="cb clickable" id="cb-loop" style="left:424px;width:21px" data-ic="loop" title="Loop Switch"></span>
+        <span class="cb" style="left:447px;width:21px" data-ic="punchOut" title="Punch-Out"></span>
+        <span class="cb" id="cb-ll-box" style="left:470px;width:82px"><span class="r" id="cb-ll-1" style="right:53px">4</span><span class="t" style="left:32px">.</span><span class="r" id="cb-ll-2" style="right:29px">0</span><span class="t" style="left:56px">.</span><span class="r" id="cb-ll-3" style="right:5px">0</span></span>
+      </div>
+      <div class="grp" style="right:0;width:316px">
+        <span class="cb" style="left:0;width:17px" data-ic="draw" title="Draw Mode"></span>
+        <span class="cb on" style="left:19px;width:17px" data-ic="keyboard" title="Computer MIDI Keyboard"></span>
+        <span class="cb c" style="left:38px;width:26px">Key</span>
+        <span class="cb half" style="left:66px;width:8px"></span><span class="cb half" style="left:66px;width:8px;top:24px"></span>
+        <span class="cb c" style="left:76px;width:28px">MIDI</span>
+        <span class="cb c" id="cb-sr" style="left:106px;width:48px">44.1 kHz</span>
+        <span class="cb" style="left:156px;width:56px"><span class="t" id="cb-cpu" style="left:14px">1 %</span><i data-ic="ddTriangle" style="left:42px"></i></span>
+        <span class="cb" style="left:214px;width:28px"></span>
+        <span class="cb half" style="left:244px;width:8px"></span><span class="cb half" style="left:244px;width:8px;top:24px"></span>
+        <span class="cb ghost" style="left:254px;width:30px;color:var(--ViewControlOff)" data-ic="bars3"></span>
+        <span class="cb ghost" style="left:288px;width:20px;color:var(--ViewControlOn)" data-ic="hamburger"></span>
+      </div>
     </div>
 
-    <div id="arrangement">
-      <div id="ruler-row">
-        <div id="ruler"><canvas id="ruler-canvas"></canvas></div>
-        <div id="ruler-side">
-          <div class="row"><span class="pill">Set</span><span class="sq" style="margin-left:6px">⤢</span><span class="sq">⏏︎</span></div>
-          <div class="row"><span class="circ">←</span><span class="circ" style="margin-left:-1px">→</span></div>
-        </div>
+    <div class="panel" id="browser">
+      <div class="bar">
+        <span class="abs" style="left:3px;top:2px;width:14px;height:18px;color:var(--ControlOffDisabledForeground)" data-ic="br_back"></span>
+        <span class="sep" style="left:19px;top:3px;width:1px;height:15px"></span>
+        <span class="abs" style="left:21px;top:2px;width:16px;height:18px;color:var(--ControlOffDisabledForeground)" data-ic="br_fwd"></span>
+        <span class="sep" style="left:39px;top:0;width:2px;height:23px"></span>
+        <span class="hint">Search (Ctrl + F)</span>
+      </div>
+      <span class="sep" style="left:0;right:0;top:21px;height:2px"></span>
+      <span class="sep" style="left:100px;top:23px;width:2px;bottom:0"></span>
+      <div id="sidebar"></div>
+      <div id="filters"></div>
+      <div id="br-namehead" style="top:325px"><span class="abs" style="left:3px;top:1px">Name</span><i data-ic="br_nameTri" style="left:161px;top:3px"></i><span class="bar1"></span></div>
+      <span class="sep" style="left:102px;right:0;top:694px;height:1px"></span>
+      <span class="abs" style="left:104px;top:696px;width:17px;height:17px" data-ic="br_preview"></span>
+    </div>
+
+    <div class="panel" id="arrangement">
+      <canvas id="overview"></canvas>
+      <div id="ruler"><canvas id="ruler-canvas"></canvas></div>
+      <div id="ruler-side">
+        <span class="pill" style="left:4px;top:10px;width:29px">Set</span>
+        <span class="btn" style="left:44px;top:10px;width:23px" data-ic="rs_expand"></span>
+        <span class="btn" style="left:71px;top:10px;width:23px" data-ic="rs_lock"></span>
+        <span class="abs" style="left:3px;top:27px;width:32px;height:16px" data-ic="rs_arrows"></span>
       </div>
       <div id="tracks-wrap">
         <div id="tracks" class="tscroll"><canvas class="lanes-canvas" id="lanes-canvas"></canvas><div class="rows" id="rows"></div></div>
         <div id="pinned" class="tscroll"><canvas class="lanes-canvas" id="pinned-canvas"></canvas><div class="rows" id="pinned-rows"></div></div>
       </div>
-      <div id="songruler"><canvas id="song-canvas"></canvas><div class="side"><span class="sq" style="width:17px">⦀</span><span class="sq" style="width:30px" id="zoom-label">1.00x</span><span style="flex:1"></span><span class="sq" style="width:13px">H</span><span class="sq" style="width:13px">W</span></div></div>
+      <div id="songruler"><canvas id="song-canvas"></canvas>
+        <div class="side">
+          <span class="btn on" style="left:2px;top:4px;width:15px" data-ic="sr_wave"></span>
+          <span class="btn field" style="left:20px;top:4px;width:35px;overflow:hidden"><i id="zoom-fill" style="position:absolute;left:1px;top:1px;bottom:1px;width:10px;background:var(--RangeEditField)"></i><span id="zoom-label" style="position:relative">1.00x</span></span>
+          <span class="btn" style="left:61px;top:4px;width:15px">H</span>
+          <span class="btn" style="left:79px;top:4px;width:15px">W</span>
+        </div>
+      </div>
+      <span id="oneone"></span>
 
       <div id="overlay">
         <div class="dialog" id="dialog"></div>
       </div>
     </div>
 
-    <div id="detail"><div id="devices"><div class="empty">Select a track to see its devices</div></div></div>
+    <div class="panel" id="info"><div class="title" id="info-title">Track Title Bar</div><div class="body" id="info-body"></div></div>
+    <span id="splitter" data-ic="sp_dots"></span>
+    <div class="panel" id="detail"><div id="devices"><div class="empty">Drop an Instrument or Sample Here</div></div></div>
 
     <div id="statusbar">
-      <span class="info">i</span>
+      <span class="abs" style="left:9px;top:0;width:19px;height:19px" data-ic="st_info"></span>
       <span id="status-text"></span>
-      <span id="status-track"></span>
+      <span id="status-play"><span class="abs" style="left:0;top:0;width:19px;height:19px" data-ic="st_play"></span><span class="div"></span></span>
+      <span id="status-trk"><span class="up" data-ic="st_up"></span><span class="div"></span><span id="status-track"></span></span>
+      <span class="abs" style="right:5px;top:0;width:45px;height:19px;color:var(--ViewControlOff)" data-ic="st_meter"></span>
     </div>
   </div>
   <input type="file" id="file-input" accept=".zip,application/zip">
 
+  <script src="icons.js"></script>
   <script src="vendor/fflate.js"></script>
   <script src="viewer.js"></script>
 </body>
