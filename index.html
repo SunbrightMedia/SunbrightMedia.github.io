@@ -87,6 +87,8 @@
       box-shadow: 0 0 0 1px rgba(255,255,255,.4);
     }
     #startmenu .items { flex: 1; padding: 4px; }
+    #startmenu .items a { display: flex; align-items: center; gap: 8px; padding: 3px 6px; color: #000; }
+    #startmenu .items a img { width: 32px; height: 32px; flex: none; }
     #startmenu .search { margin: 6px; }
     #startmenu .search input { width: 100%; }
     #startmenu .right { flex: 1; display: flex; flex-direction: column; padding: 4px 0; color: #fff; text-shadow: 0 0 3px #000; }
@@ -168,7 +170,11 @@
 
   <div id="startmenu" hidden>
     <div class="left">
-      <div class="items"></div>
+      <div class="items">
+        <a href="https://www.instagram.com/sunbrightmedia?exln=Y3VqNGJqeGl2OXhv&amp;utm_source=qr" target="_blank" rel="noopener">
+          <img src="images/instagram.svg" alt=""><span>Instagram</span>
+        </a>
+      </div>
       <div class="search"><input type="search" aria-label="Search"></div>
     </div>
     <div class="right"></div>
@@ -206,6 +212,7 @@
 
     // Start menu
     const start = document.getElementById('start'), menu = document.getElementById('startmenu');
+    menu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => { menu.hidden = true; start.classList.remove('open'); }));
     start.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; start.classList.toggle('open', !menu.hidden); };
     document.addEventListener('mousedown', e => {
       if (!menu.hidden && !menu.contains(e.target) && e.target !== start) { menu.hidden = true; start.classList.remove('open'); }
