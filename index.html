@@ -7,9 +7,19 @@
   <!-- 7.css by Khang Nguyen Duy, MIT License (see css/7.css.LICENSE) -->
   <link rel="stylesheet" href="css/7.css">
   <style>
+    /* Segoe UI (the Windows 7 system font) for visitors who don't have it installed */
+    @font-face { font-family: "Segoe UI"; src: local("Segoe UI"), url("fonts/segoeui.ttf") format("truetype"); font-weight: 400; }
+
+    /* Windows 7 mouse pointers: arrow everywhere, hand on web links, I-beam in text boxes */
+    :root { --arrow: url("cursors/arrow.png") 0 0, default; --hand: url("cursors/link.png") 5 0, pointer; }
+    *, *::before, *::after { cursor: var(--arrow) !important; }
+    a[href]:not(#startmenu a), a[href]:not(#startmenu a) * { cursor: var(--hand) !important; }
+    input[type=text], input[type=search], textarea { cursor: text !important; }
+
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; overflow: hidden; }
-    body { font: 9pt "Segoe UI", Tahoma, sans-serif; background: #1a6fc9; user-select: none; }
+    body { font: 9pt "Segoe UI", Tahoma, sans-serif; background: #1a6fc9; user-select: none; -webkit-user-select: none; }
+    img { -webkit-user-drag: none; }
 
     /* ---------- Desktop ---------- */
     #desktop {
@@ -19,19 +29,102 @@
 
     /* Desktop icons (add your own in #icons) */
     #icons { position: absolute; top: 4px; left: 4px; bottom: 44px; display: flex; flex-direction: column; flex-wrap: wrap; align-content: flex-start; gap: 2px; }
+    #icons[hidden] { display: none; }
     .icon {
-      width: 76px; padding: 4px 2px; text-align: center; color: #fff; cursor: default;
+      width: 76px; padding: 3px 2px 4px; text-align: center; color: #fff;
       border: 1px solid transparent; border-radius: 3px; text-shadow: 0 0 3px #000, 0 1px 2px #000;
     }
     .icon:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.3); }
     .icon.selected { background: rgba(130,190,255,.35); border-color: rgba(190,225,255,.7); }
     .icon img { display: block; width: 48px; height: 48px; margin: 0 auto 3px; }
+    #icons[data-size=small] .icon img { width: 32px; height: 32px; }
+    #icons[data-size=large] .icon { width: 116px; }
+    #icons[data-size=large] .icon img { width: 96px; height: 96px; }
 
-    /* Windows: 7.css provides the look; these just make them float on the desktop */
+    /* ---------- Windows: 7.css provides the look; these make them float, resize and snap ---------- */
     .window.app { position: absolute; display: flex; flex-direction: column; min-width: 200px; min-height: 100px; }
     .window.app[hidden] { display: none; }
-    .window.app .title-bar { cursor: default; touch-action: none; }
-    .window.app .window-body { flex: 1; overflow: auto; user-select: text; }
+    .window.app .title-bar { touch-action: none; }
+    .window.app .title-bar .title-icon { width: 16px; height: 16px; margin: 0 4px 0 1px; flex: none; }
+    .window.app .title-bar-text { display: flex; align-items: center; }
+    .window.app .window-body { flex: 1; overflow: auto; user-select: text; -webkit-user-select: text; }
+    .window.app[data-snap=max] { border-radius: 0; }
+    .rz { position: absolute; z-index: 5; }
+    .rz.n, .rz.s { left: 8px; right: 8px; height: 8px; } .rz.n { top: -4px; } .rz.s { bottom: -4px; }
+    .rz.e, .rz.w { top: 8px; bottom: 8px; width: 8px; } .rz.e { right: -4px; } .rz.w { left: -4px; }
+    .rz.ne, .rz.nw, .rz.se, .rz.sw { width: 12px; height: 12px; }
+    .rz.ne { top: -4px; right: -4px; } .rz.nw { top: -4px; left: -4px; } .rz.se { bottom: -4px; right: -4px; } .rz.sw { bottom: -4px; left: -4px; }
+    .rz.n, .rz.s { cursor: ns-resize !important; } .rz.e, .rz.w { cursor: ew-resize !important; }
+    .rz.ne, .rz.sw { cursor: nesw-resize !important; } .rz.nw, .rz.se { cursor: nwse-resize !important; }
+    .window.app[data-snap=max] .rz { display: none; }
+
+    /* Aero Snap preview */
+    #snap-preview {
+      position: fixed; z-index: 9000; pointer-events: none; border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.8); background: rgba(190,220,255,.25);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.25), 0 0 20px rgba(0,0,0,.3);
+      -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); transition: all .15s;
+    }
+    #snap-preview[hidden] { display: none; }
+
+    /* Aero Peek: other windows turn into clear glass outlines */
+    body.peek .window.app:not(.peek-keep) { background: transparent; box-shadow: inset 0 0 0 1px rgba(255,255,255,.7), 0 0 0 1px rgba(0,0,0,.35); }
+    body.peek .window.app:not(.peek-keep)::before { opacity: .12; }
+    body.peek .window.app:not(.peek-keep) > * { visibility: hidden; }
+
+    /* ---------- Explorer windows (Recycle Bin, Libraries) ---------- */
+    .window.explorer .window-body { margin: 0 6px 6px; padding: 0; display: flex; flex-direction: column; overflow: hidden; background: #fff; }
+    .ex-nav { display: flex; align-items: center; gap: 6px; height: 32px; margin: 0 6px 4px; }
+    .ex-arrows { display: flex; flex: none; }
+    .ex-arrows span {
+      width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; margin-right: 1px;
+      border: 1px solid rgba(0,0,0,.4); opacity: .55;
+      background: radial-gradient(circle at 50% 30%, #fff, #c3d1e3 60%, #9fb2cc);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.7);
+    }
+    .ex-arrows span::after { content: ""; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+    .ex-arrows .back::after { border-right: 7px solid #3b5d86; margin-right: 2px; }
+    .ex-arrows .fwd::after { border-left: 7px solid #3b5d86; margin-left: 2px; }
+    .ex-address, .ex-search { height: 24px; display: flex; align-items: center; background: #fff; border: 1px solid #8e9fb3; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,.4); }
+    .ex-address { flex: 1; min-width: 0; padding-left: 4px; gap: 4px; white-space: nowrap; overflow: hidden; }
+    .ex-address img { width: 16px; height: 16px; }
+    .ex-address .chev { width: 0; height: 0; border-left: 4px solid #333; border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent; margin: 0 4px; }
+    .ex-address .fill { flex: 1; }
+    .ex-address .drop { width: 18px; height: 100%; display: grid; place-items: center; border-left: 1px solid transparent; }
+    .ex-address .drop::after { content: ""; border-top: 4px solid #333; border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; }
+    .ex-address .refresh { width: 22px; height: 100%; border-left: 1px solid #c5d2e3; display: grid; place-items: center; }
+    .ex-address .refresh::after { content: ""; width: 8px; height: 8px; border: 2px solid #2f6eb5; border-right-color: transparent; border-radius: 50%; }
+    .ex-search { width: 34%; max-width: 220px; min-width: 110px; padding: 0 6px; }
+    .ex-search input { all: unset; flex: 1; min-width: 0; font: italic 9pt "Segoe UI", Tahoma, sans-serif; color: #000; }
+    .ex-search input::placeholder { color: #6d6d6d; opacity: 1; }
+    .ex-search svg { width: 13px; height: 13px; flex: none; }
+    .ex-cmd {
+      height: 32px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px; color: #1e395b;
+      background: linear-gradient(#f5faff, #e8f0fa 50%, #dce7f5 50%, #e5eefa); border-bottom: 1px solid #a0afc3;
+    }
+    .ex-cmd .btn { height: 24px; padding: 0 8px; display: flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 3px; }
+    .ex-cmd .btn:hover { border-color: #7da2ce; background: linear-gradient(rgba(255,255,255,.8), rgba(220,235,252,.8)); }
+    .ex-cmd .btn.dd::after { content: ""; border-top: 4px solid #1e395b; border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; }
+    .ex-cmd .fill { flex: 1; }
+    .ex-cmd img { width: 16px; height: 16px; }
+    .ex-main { flex: 1; min-height: 0; display: flex; }
+    .ex-tree { width: 180px; flex: none; padding: 8px 0; border-right: 1px solid #d6e5f5; overflow: auto; color: #000; }
+    .ex-tree .node { display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 6px 0 4px; margin: 0 4px 10px; border: 1px solid transparent; border-radius: 2px; }
+    .ex-tree .node:hover { border-color: #b8d6fb; background: linear-gradient(#fafbfd, #ebf3fd); }
+    .ex-tree .node .tw { width: 0; height: 0; border-left: 5px solid #a6a6a6; border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin: 0 3px; opacity: 0; transition: opacity .3s; }
+    .ex-tree:hover .node .tw { opacity: 1; }
+    .ex-tree .node img { width: 16px; height: 16px; }
+    .ex-content { flex: 1; min-width: 0; overflow: auto; padding: 10px 14px; color: #000; }
+    .ex-content .lib-head { font-size: 13pt; color: #1e395b; margin: 2px 0 2px; }
+    .ex-content .lib-sub { color: #444; margin-bottom: 14px; }
+    .ex-content .tiles { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+    .ex-content .tile { width: 240px; display: flex; align-items: center; gap: 8px; padding: 4px; border: 1px solid transparent; border-radius: 3px; }
+    .ex-content .tile:hover { border-color: #b8d6fb; background: linear-gradient(#fafbfd, #ebf3fd); }
+    .ex-content .tile.selected { border-color: #7da2ce; background: linear-gradient(#dcebfc, #c1dbfc); }
+    .ex-content .tile img { width: 48px; height: 48px; }
+    .ex-content .tile small { display: block; color: #6d6d6d; font-size: 9pt; }
+    .ex-details { height: 50px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 14px; color: #1e395b; border-top: 1px solid #c5d2e3; background: linear-gradient(#f4f8fd, #e6eef9); }
+    .ex-details img { width: 32px; height: 32px; }
 
     /* ---------- Taskbar ---------- */
     #taskbar {
@@ -42,35 +135,146 @@
       box-shadow: inset 0 1px 0 rgba(0,0,0,.45), inset 0 2px 0 rgba(255,255,255,.08);
     }
     #start {
-      width: 54px; height: 54px; flex: none; margin: -14px 2px 0 2px; padding: 0; border: 0; cursor: pointer;
+      width: 54px; height: 54px; flex: none; margin: -14px 2px 0 2px; padding: 0; border: 0;
       background: url("images/start-orb.png") 0 0 / 54px 162px no-repeat;
     }
     #start:hover { background-position: 0 -54px; }
     #start:active, #start.open { background-position: 0 -108px; }
 
-    .task { display: flex; align-items: center; cursor: default; }
-    #tasks { flex: 1; display: flex; gap: 3px; height: 100%; padding: 2px 4px; overflow: hidden; }
-    .task {
-      width: 160px; min-width: 0; padding: 0 10px; border: 1px solid rgba(0,0,0,.55); border-radius: 3px;
-      color: #fff; font: 9pt "Segoe UI", sans-serif; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      text-shadow: 0 0 3px #000;
-      background: linear-gradient(rgba(255,255,255,.22), rgba(255,255,255,.08) 50%, rgba(255,255,255,.02) 50%, rgba(255,255,255,.12));
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.3);
+    /* Taskbar buttons: icon only, glow follows the mouse in the icon's colour */
+    #tasks { flex: 1; min-width: 0; display: flex; gap: 2px; height: 100%; padding: 1px 2px 1px 4px; overflow: hidden; }
+    .tb {
+      --glow: 120, 190, 255; --mx: 50%;
+      position: relative; width: 60px; flex: none; height: 38px; display: grid; place-items: center;
+      border: 1px solid transparent; border-radius: 3px;
     }
-    .task:hover { background: linear-gradient(rgba(255,255,255,.35), rgba(255,255,255,.15) 50%, rgba(255,255,255,.08) 50%, rgba(255,255,255,.25)); }
-    .task.active { background: linear-gradient(rgba(255,255,255,.4), rgba(255,255,255,.2) 50%, rgba(140,200,255,.15) 50%, rgba(140,200,255,.35)); }
+    .tb img { width: 32px; height: 32px; pointer-events: none; }
+    .tb.running {
+      border-color: rgba(0,0,0,.55);
+      background: linear-gradient(rgba(255,255,255,.22), rgba(255,255,255,.08) 45%, rgba(255,255,255,.03) 45%, rgba(255,255,255,.12));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.28);
+    }
+    .tb.running.multi::before { content: ""; position: absolute; inset: -1px -4px -1px auto; width: 3px; border: 1px solid rgba(0,0,0,.5); border-left: 0; border-radius: 0 3px 3px 0; background: rgba(255,255,255,.15); }
+    .tb:hover {
+      border-color: rgba(0,0,0,.6);
+      background:
+        radial-gradient(circle at var(--mx) 110%, rgba(var(--glow), .85), rgba(var(--glow), .25) 45%, transparent 70%),
+        linear-gradient(rgba(255,255,255,.3), rgba(255,255,255,.1) 45%, rgba(255,255,255,.04) 45%, rgba(255,255,255,.14));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.4);
+    }
+    .tb.active {
+      border-color: rgba(0,0,0,.6);
+      background:
+        radial-gradient(circle at 50% 110%, rgba(var(--glow), .55), transparent 70%),
+        linear-gradient(rgba(255,255,255,.42), rgba(255,255,255,.22) 45%, rgba(255,255,255,.12) 45%, rgba(255,255,255,.3));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.5), inset 0 0 6px rgba(0,0,0,.3);
+    }
 
-    #tray { display: flex; align-items: center; height: 100%; color: #fff; text-shadow: 0 0 3px #000; }
-    #trayicons { display: flex; align-items: center; gap: 6px; padding-left: 6px; }
+    #tray { display: flex; align-items: center; height: 100%; color: #fff; text-shadow: 0 0 3px #000; flex: none; }
+    #tray-arrow { width: 18px; height: 30px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 3px; }
+    #tray-arrow::after { content: ""; border-bottom: 5px solid #fff; border-left: 4px solid transparent; border-right: 4px solid transparent; filter: drop-shadow(0 0 1px #000); }
+    #trayicons { display: flex; align-items: center; gap: 0; }
     #trayicons img { width: 16px; height: 16px; display: block; }
-    #trayicons img[hidden] { display: none; }
-    #clock { padding: 0 10px; text-align: center; line-height: 1.35; }
+    #trayicons .ti { width: 24px; height: 30px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 3px; }
+    #trayicons .ti[hidden] { display: none; }
+    #tray-arrow:hover, #trayicons .ti:hover, #clock:hover {
+      border-color: rgba(0,0,0,.5); background: linear-gradient(rgba(255,255,255,.3), rgba(255,255,255,.08) 50%, rgba(255,255,255,.02) 50%, rgba(255,255,255,.15));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
+    }
+    #clock { height: 36px; padding: 0 8px; margin: 0 2px; display: flex; flex-direction: column; justify-content: center; text-align: center; line-height: 1.35; border: 1px solid transparent; border-radius: 3px; }
     #showdesk {
       width: 15px; height: 100%; margin-left: 4px; padding: 0; border: 0; border-left: 1px solid rgba(0,0,0,.5);
       background: linear-gradient(90deg, rgba(255,255,255,.25), rgba(255,255,255,.08));
-      box-shadow: inset 1px 0 0 rgba(255,255,255,.3); cursor: pointer;
+      box-shadow: inset 1px 0 0 rgba(255,255,255,.3);
     }
     #showdesk:hover { background: linear-gradient(90deg, rgba(255,255,255,.5), rgba(255,255,255,.2)); }
+
+    /* ---------- Tooltip (Windows 7 style) ---------- */
+    #tooltip {
+      position: fixed; z-index: 20000; max-width: 300px; padding: 2px 7px 3px; pointer-events: none; white-space: pre-line;
+      color: #575757; font: 9pt "Segoe UI", Tahoma, sans-serif;
+      background: linear-gradient(#fff, #e4e5f0); border: 1px solid #767676; border-radius: 2px;
+      box-shadow: 2px 2px 3px rgba(0,0,0,.25);
+    }
+    #tooltip[hidden] { display: none; }
+
+    /* ---------- Taskbar thumbnails ---------- */
+    #thumbs {
+      position: fixed; bottom: 44px; z-index: 10002; display: flex; gap: 6px; padding: 8px;
+      border: 1px solid rgba(0,0,0,.7); border-radius: 6px;
+      background: linear-gradient(rgba(60,100,150,.55), rgba(25,45,80,.8));
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.4), 0 0 10px rgba(0,0,0,.5);
+    }
+    #thumbs[hidden] { display: none; }
+    .thumb { position: relative; width: 200px; padding: 4px 6px 8px; border: 1px solid transparent; border-radius: 4px; }
+    .thumb:hover { border-color: rgba(0,0,0,.6); background: linear-gradient(rgba(255,255,255,.35), rgba(255,255,255,.1)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.45); }
+    .thumb .head { display: flex; align-items: center; gap: 5px; height: 20px; padding-right: 20px; color: #000; text-shadow: 0 0 8px #fff, 0 0 8px #fff, 0 0 4px #fff; }
+    .thumb .head img { width: 16px; height: 16px; }
+    .thumb .head span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .thumb .x { position: absolute; top: 4px; right: 5px; width: 18px; height: 16px; display: none; place-items: center; border-radius: 3px; border: 1px solid rgba(0,0,0,.6); color: #fff; font: bold 9px/1 "Segoe UI", sans-serif; background: linear-gradient(#e8a493, #c2452c 50%, #d8765b); }
+    .thumb:hover .x { display: grid; }
+    .thumb .pv { height: 110px; display: grid; place-items: center; overflow: hidden; margin-top: 4px; pointer-events: none; }
+    .thumb .pv > div { flex: none; transform-origin: center; }
+
+    /* ---------- Flyouts (clock, Action Center, network, hidden icons) ---------- */
+    .flyout {
+      position: fixed; bottom: 46px; z-index: 10003; padding: 6px;
+      border: 1px solid rgba(0,0,0,.7); border-radius: 6px;
+      background: linear-gradient(rgba(60,100,150,.55), rgba(25,45,80,.8));
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.4), 0 0 10px rgba(0,0,0,.5);
+    }
+    .flyout[hidden] { display: none; }
+    .flyout .panel { background: #fff; border: 1px solid rgba(0,0,0,.5); border-radius: 3px; color: #000; overflow: hidden; }
+    .flyout .inner { padding: 10px 14px; }
+    .flyout .foot { padding: 8px 14px; background: linear-gradient(#f1f5fb, #e4ecf7); border-top: 1px solid #dfe9f5; text-align: center; }
+    .flyout .link { color: #0066cc; }
+    .flyout .link:hover { text-decoration: underline; color: #3399ff; }
+    #calendar .panel { width: 236px; }
+    #calendar .longdate { display: block; text-align: center; padding: 10px 6px 6px; }
+    #calendar .nav { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; color: #1e395b; }
+    #calendar .nav .arrow { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 2px; }
+    #calendar .nav .arrow:hover { background: #e3eefb; }
+    #calendar .nav .prev::after { content: ""; border-right: 5px solid #444; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+    #calendar .nav .next::after { content: ""; border-left: 5px solid #444; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+    #calendar table { border-collapse: separate; border-spacing: 0; margin: 0 auto 8px; box-shadow: none; border: 0; background: none; }
+    #calendar th, #calendar td { background: none; box-shadow: none; }
+    #calendar th { border: 0; border-bottom: 1px solid #dfe9f5; text-align: center; }
+    #calendar th { font-weight: normal; color: #1e395b; padding: 2px 0 4px; width: 30px; }
+    #calendar td { text-align: center; height: 21px; border: 1px solid transparent; border-radius: 2px; }
+    #calendar td.other { color: #a0a0a0; }
+    #calendar td:hover { border-color: #b8d6fb; background: #e3eefb; }
+    #calendar td.today { border-color: #3399ff; color: #000; }
+    #calendar td.sel { background: #cde4fc; border-color: #7da2ce; }
+    #trayflyout .panel { min-width: 90px; }
+    #netflyout .panel, #acflyout .panel { width: 260px; }
+    #netflyout .conn { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+    #netflyout .conn img { width: 32px; height: 32px; }
+    #netflyout .muted, #acflyout .muted { color: #575757; }
+
+    /* ---------- Context menus (7.css [role=menu]) ---------- */
+    .ctx { position: fixed; z-index: 20001; }
+    .ctx[hidden] { display: none; }
+    ul[role=menu] { font: 9pt "Segoe UI", Tahoma, sans-serif; }
+    ul[role=menu] [role=menuitem] > a { position: relative; color: #000; }
+    ul[role=menu] [role=menuitem] > a > img { position: absolute; left: 6px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); }
+    ul[role=menu] [role=menuitem] > a.default { font-weight: bold; }
+    ul[role=menu] [role=menuitem] > a[data-check=on]::before { content: "✓"; position: absolute; left: 10px; }
+    ul[role=menu] [role=menuitem] > a[data-radio=on]::before { content: ""; position: absolute; left: 12px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: #000; }
+    ul[role=menu] [aria-haspopup=true] > ul[role=menu] { position: absolute; }
+
+    /* Jump list (right-click a taskbar button) */
+    #jumplist { position: fixed; bottom: 44px; z-index: 20001; width: 250px; padding: 8px;
+      border: 1px solid rgba(0,0,0,.7); border-radius: 6px;
+      background: linear-gradient(rgba(60,100,150,.55), rgba(25,45,80,.8));
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.4), 0 0 10px rgba(0,0,0,.5); color: #fff; }
+    #jumplist[hidden] { display: none; }
+    #jumplist .ji { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border: 1px solid transparent; border-radius: 3px; text-shadow: 0 0 6px #000, 0 0 2px #000; }
+    #jumplist .ji:hover { border-color: rgba(0,0,0,.6); background: linear-gradient(rgba(255,255,255,.4), rgba(255,255,255,.15) 50%, rgba(255,255,255,.05) 50%, rgba(255,255,255,.2)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.45); }
+    #jumplist .ji img { width: 16px; height: 16px; }
+    #jumplist .ji .pin { width: 16px; height: 16px; }
 
     /* ---------- Start menu (Windows 7 layout) ---------- */
     #startmenu {
@@ -96,7 +300,7 @@
     #startmenu .sep { height: 1px; margin: 4px 8px; background: linear-gradient(90deg, transparent, #d5dfe9 15%, #d5dfe9 85%, transparent); }
     #startmenu .prog {
       display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 6px; color: #000;
-      border: 1px solid transparent; border-radius: 3px; cursor: default;
+      border: 1px solid transparent; border-radius: 3px;
     }
     #startmenu .prog img { width: 32px; height: 32px; flex: none; }
     #startmenu .prog:hover, #startmenu .allprogs:hover {
@@ -107,7 +311,7 @@
     #startmenu .noresults { padding: 8px; color: #6d6d6d; }
     #startmenu .allprogs {
       display: flex; align-items: center; gap: 8px; height: 30px; margin: 0 4px 4px; padding: 0 8px; color: #000;
-      border: 1px solid transparent; border-radius: 3px; cursor: default;
+      border: 1px solid transparent; border-radius: 3px;
     }
     #startmenu .allprogs .arrow { width: 0; height: 0; border-left: 5px solid #2b2b2b; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
     #startmenu .allprogs .mag { display: none; width: 12px; height: 12px; }
@@ -135,9 +339,10 @@
     #startmenu .userpic img { display: block; width: 48px; height: 48px; border-radius: 2px; }
     #startmenu .userpic img[hidden] { display: none; }
     #startmenu .userpic .blank { width: 48px; height: 48px; border-radius: 2px; background: linear-gradient(#e8f1fb, #b9d2ee); box-shadow: inset 0 0 0 1px rgba(0,0,0,.2); }
+    #startmenu .userpic .blank[hidden] { display: none; }
     #startmenu .place {
       display: block; height: 31px; line-height: 29px; padding: 0 10px; margin-right: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      border: 1px solid transparent; border-radius: 3px; cursor: default; text-shadow: 0 0 6px #000, 0 0 2px #000;
+      border: 1px solid transparent; border-radius: 3px; text-shadow: 0 0 6px #000, 0 0 2px #000;
     }
     #startmenu .place:hover {
       border-color: rgba(0,0,0,.6);
@@ -146,9 +351,9 @@
     }
     #startmenu .rsep { height: 1px; margin: 3px 8px 3px 4px; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.3) 20%, rgba(255,255,255,.3) 80%, rgba(255,255,255,0)); box-shadow: 0 -1px 0 rgba(0,0,0,.25); }
     #startmenu .spacer { flex: 1; }
-    #startmenu .shutdown { display: flex; height: 24px; margin: 0 6px 0 4px; align-self: flex-start; }
-    #startmenu .shutdown div {
-      display: flex; align-items: center; justify-content: center; color: #fff; cursor: default; text-shadow: 0 0 4px #000;
+    #startmenu .shutdown { position: relative; display: flex; height: 24px; margin: 0 6px 0 4px; align-self: flex-start; }
+    #startmenu .shutdown > div {
+      display: flex; align-items: center; justify-content: center; color: #fff; text-shadow: 0 0 4px #000;
       border: 1px solid rgba(0,0,0,.7);
       background: linear-gradient(rgba(255,255,255,.35), rgba(255,255,255,.12) 50%, rgba(0,0,0,.1) 50%, rgba(255,255,255,.15));
       box-shadow: inset 0 0 0 1px rgba(255,255,255,.4);
@@ -156,13 +361,14 @@
     #startmenu .shutdown .main { padding: 0 14px; border-radius: 3px 0 0 3px; }
     #startmenu .shutdown .more { width: 22px; border-left: 0; border-radius: 0 3px 3px 0; }
     #startmenu .shutdown .more::after { content: ""; border-left: 4px solid #fff; border-top: 4px solid transparent; border-bottom: 4px solid transparent; filter: drop-shadow(0 0 1px #000); }
-    #startmenu .shutdown div:hover { background: linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.25) 50%, rgba(120,190,255,.25) 50%, rgba(160,220,255,.5)); }
+    #startmenu .shutdown > div:hover, #startmenu .shutdown .more.open { background: linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.25) 50%, rgba(120,190,255,.25) 50%, rgba(160,220,255,.5)); }
+
     /* ---------- Notification balloon (7.css [role=tooltip], tail pointing down at the tray) ---------- */
     #notify {
       position: fixed; right: 10px; bottom: 58px; z-index: 10001; max-width: calc(100vw - 20px);
       display: flex; align-items: center; gap: 10px; padding: 12px 34px 12px 12px;
       font: 9pt "Segoe UI", Tahoma, sans-serif; color: #000;
-      opacity: 1; transition: opacity .4s; cursor: default;
+      opacity: 1; transition: opacity .4s;
     }
     #notify[hidden] { display: none; }
     #notify::before { right: var(--tail, 12px); }
@@ -171,13 +377,13 @@
     #notify .text { font-weight: bold; }
     #notify .close {
       position: absolute; top: 5px; right: 5px; width: 18px; height: 18px; border: 1px solid transparent; border-radius: 3px;
-      display: grid; place-items: center; cursor: default; color: #666; font: 13px/1 "Segoe UI", Tahoma, sans-serif;
+      display: grid; place-items: center; color: #666; font: 13px/1 "Segoe UI", Tahoma, sans-serif;
     }
     #notify .close:hover { color: #000; border-color: #b8b8b8; background: linear-gradient(#fff, #e3e3e3); }
     #notify .close:active { background: linear-gradient(#e3e3e3, #f5f5f5); }
 
-    #start, .task, #showdesk, .icon, #notify .close { -webkit-tap-highlight-color: transparent; outline: none; }
-    #start:focus-visible, .task:focus-visible, #showdesk:focus-visible, .icon:focus-visible { outline: 1px dotted #fff; }
+    #start, .tb, #showdesk, .icon, #notify .close, #tray-arrow, .ti, #clock { -webkit-tap-highlight-color: transparent; outline: none; }
+    #start:focus-visible, .tb:focus-visible, #showdesk:focus-visible, .icon:focus-visible { outline: 1px dotted #fff; }
     #notify .close:focus-visible { outline: 1px dotted #000; }
 
     /* ---------- Mobile ---------- */
@@ -186,13 +392,19 @@
       .window.app { left: 0 !important; top: 0 !important; width: 100% !important; height: calc(100% - 40px) !important; min-width: 0; }
       .window.app .title-bar-controls button[aria-label="Maximize"],
       .window.app .title-bar-controls button[aria-label="Restore"] { display: none; }
+      .rz { display: none; }
+      .ex-tree { display: none; }
+      .ex-search { display: none; }
 
       /* Bigger tap targets for icons */
       #icons { gap: 8px; top: 8px; left: 8px; }
       .icon { width: 84px; padding: 6px 2px; }
 
-      /* Taskbar: buttons share the space */
-      .task { width: auto; flex: 1 1 0; max-width: 140px; padding: 0 8px; }
+      /* Taskbar: narrower buttons */
+      .tb { width: 44px; }
+      .tb img { width: 28px; height: 28px; }
+      #trayicons .ti { width: 20px; }
+      #clock { padding: 0 4px; }
       #showdesk { width: 12px; }
 
       /* Start menu spans the screen */
@@ -206,7 +418,8 @@
 <body>
 
   <div id="desktop">
-    <div id="icons">
+    <div id="icons" data-size="medium">
+      <div class="icon" data-open="recycle-bin" data-menu="recycle-bin"><img src="images/desktop/recycle-bin.png" alt=""><span>Recycle Bin</span></div>
       <!--
         Desktop icon template. data-open is the id of the window it opens.
         <div class="icon" data-open="win-example"><img src="images/icon.png" alt=""><span>Label</span></div>
@@ -215,9 +428,10 @@
 
     <!--
       Window template (styled by 7.css). Give it an id, a position and a size.
+      data-icon is the 16px/32px icon used in the title bar and on the taskbar.
       Add `hidden` to keep it closed until its icon is double-clicked.
 
-      <div class="window glass active app" id="win-example" style="left:120px; top:60px; width:460px; height:320px">
+      <div class="window glass active app" id="win-example" data-icon="images/icon.png" style="left:120px; top:60px; width:460px; height:320px">
         <div class="title-bar">
           <div class="title-bar-text">Title</div>
           <div class="title-bar-controls">
@@ -232,6 +446,8 @@
       </div>
     -->
   </div>
+
+  <div id="snap-preview" hidden></div>
 
   <div id="startmenu" hidden>
     <div class="left">
@@ -254,7 +470,7 @@
       </div>
     </div>
     <div class="right">
-      <div class="userpic"><div class="blank" data-default></div><img alt="" hidden></div>
+      <div class="userpic"><div class="blank"></div><img alt="" hidden></div>
       <div class="place" data-icon="">SunbrightMedia</div>
       <div class="place" data-icon="images/startmenu/documents.png">Documents</div>
       <div class="place" data-icon="images/startmenu/pictures.png">Pictures</div>
@@ -272,6 +488,144 @@
     </div>
   </div>
 
+  <!-- Right-click menus -->
+  <div class="ctx" id="menu-desktop" hidden>
+    <ul role="menu" class="can-hover">
+      <li role="menuitem" tabindex="0" aria-haspopup="true">View
+        <ul role="menu">
+          <li role="menuitem"><a data-size="large">Large icons</a></li>
+          <li role="menuitem"><a data-size="medium" data-radio="on">Medium icons</a></li>
+          <li role="menuitem" class="has-divider"><a data-size="small">Small icons</a></li>
+          <li role="menuitem"><a data-toggle data-check="off">Auto arrange icons</a></li>
+          <li role="menuitem" class="has-divider"><a data-toggle data-check="on">Align icons to grid</a></li>
+          <li role="menuitem"><a data-action="toggle-icons" data-check="on">Show desktop icons</a></li>
+          <li role="menuitem"><a data-toggle data-check="on">Show desktop gadgets</a></li>
+        </ul>
+      </li>
+      <li role="menuitem" tabindex="0" aria-haspopup="true">Sort by
+        <ul role="menu">
+          <li role="menuitem"><a>Name</a></li>
+          <li role="menuitem"><a>Size</a></li>
+          <li role="menuitem"><a>Item type</a></li>
+          <li role="menuitem"><a>Date modified</a></li>
+        </ul>
+      </li>
+      <li role="menuitem" class="has-divider"><a data-action="refresh">Refresh</a></li>
+      <li role="menuitem" aria-disabled="true"><a>Paste</a></li>
+      <li role="menuitem" class="has-divider" aria-disabled="true"><a>Paste shortcut</a></li>
+      <li role="menuitem" tabindex="0" aria-haspopup="true" class="has-divider">New
+        <ul role="menu">
+          <li role="menuitem"><a>Folder</a></li>
+          <li role="menuitem" class="has-divider"><a>Shortcut</a></li>
+          <li role="menuitem"><a>Briefcase</a></li>
+          <li role="menuitem"><a>Bitmap image</a></li>
+          <li role="menuitem"><a>Contact</a></li>
+          <li role="menuitem"><a>Journal Document</a></li>
+          <li role="menuitem"><a>Rich Text Document</a></li>
+          <li role="menuitem"><a>Text Document</a></li>
+          <li role="menuitem"><a>Compressed (zipped) Folder</a></li>
+        </ul>
+      </li>
+      <li role="menuitem"><a><img src="images/menu/screen-resolution.png" alt="">Screen resolution</a></li>
+      <li role="menuitem"><a><img src="images/menu/gadgets.png" alt="">Gadgets</a></li>
+      <li role="menuitem"><a><img src="images/menu/personalize.png" alt="">Personalize</a></li>
+    </ul>
+  </div>
+
+  <div class="ctx" id="menu-recycle-bin" hidden>
+    <ul role="menu">
+      <li role="menuitem"><a class="default" data-action="open-icon">Open</a></li>
+      <li role="menuitem" class="has-divider" aria-disabled="true"><a>Empty Recycle Bin</a></li>
+      <li role="menuitem"><a>Create shortcut</a></li>
+      <li role="menuitem" class="has-divider"><a>Rename</a></li>
+      <li role="menuitem"><a>Properties</a></li>
+    </ul>
+  </div>
+
+  <div class="ctx" id="menu-icon" hidden>
+    <ul role="menu">
+      <li role="menuitem" class="has-divider"><a class="default" data-action="open-icon">Open</a></li>
+      <li role="menuitem"><a>Cut</a></li>
+      <li role="menuitem" class="has-divider"><a>Copy</a></li>
+      <li role="menuitem"><a>Create shortcut</a></li>
+      <li role="menuitem"><a>Delete</a></li>
+      <li role="menuitem" class="has-divider"><a>Rename</a></li>
+      <li role="menuitem"><a>Properties</a></li>
+    </ul>
+  </div>
+
+  <div class="ctx" id="menu-taskbar" hidden>
+    <ul role="menu" class="can-hover">
+      <li role="menuitem" tabindex="0" aria-haspopup="true" class="has-divider">Toolbars
+        <ul role="menu">
+          <li role="menuitem"><a data-toggle data-check="off">Address</a></li>
+          <li role="menuitem"><a data-toggle data-check="off">Links</a></li>
+          <li role="menuitem"><a data-toggle data-check="off">Tablet PC Input Panel</a></li>
+          <li role="menuitem"><a data-toggle data-check="off">Desktop</a></li>
+          <li role="menuitem"><a>New toolbar...</a></li>
+        </ul>
+      </li>
+      <li role="menuitem"><a data-action="cascade">Cascade windows</a></li>
+      <li role="menuitem"><a data-action="stack">Show windows stacked</a></li>
+      <li role="menuitem" class="has-divider"><a data-action="side-by-side">Show windows side by side</a></li>
+      <li role="menuitem" class="has-divider"><a data-action="show-desktop">Show the desktop</a></li>
+      <li role="menuitem" class="has-divider"><a>Start Task Manager</a></li>
+      <li role="menuitem"><a data-toggle data-check="on">Lock the taskbar</a></li>
+      <li role="menuitem"><a>Properties</a></li>
+    </ul>
+  </div>
+
+  <div class="ctx" id="menu-start" hidden>
+    <ul role="menu">
+      <li role="menuitem"><a>Properties</a></li>
+      <li role="menuitem"><a data-action="open-explorer">Open Windows Explorer</a></li>
+    </ul>
+  </div>
+
+  <div class="ctx" id="menu-shutdown" hidden>
+    <ul role="menu">
+      <li role="menuitem"><a>Switch user</a></li>
+      <li role="menuitem"><a>Log off</a></li>
+      <li role="menuitem" class="has-divider"><a>Lock</a></li>
+      <li role="menuitem"><a>Restart</a></li>
+      <li role="menuitem"><a>Sleep</a></li>
+    </ul>
+  </div>
+
+  <div id="jumplist" hidden></div>
+  <div id="thumbs" hidden></div>
+  <div id="tooltip" hidden></div>
+
+  <!-- Clock flyout -->
+  <div class="flyout" id="calendar" hidden>
+    <div class="panel">
+      <a class="link longdate"></a>
+      <div class="nav"><span class="arrow prev"></span><span class="title"></span><span class="arrow next"></span></div>
+      <table><thead><tr></tr></thead><tbody></tbody></table>
+      <div class="foot"><a class="link">Change date and time settings...</a></div>
+    </div>
+  </div>
+
+  <!-- Notification area flyouts -->
+  <div class="flyout" id="trayflyout" hidden>
+    <div class="panel"><div class="foot"><a class="link">Customize...</a></div></div>
+  </div>
+  <div class="flyout" id="acflyout" hidden>
+    <div class="panel">
+      <div class="inner"><span class="muted">No current issues detected</span></div>
+      <div class="foot"><a class="link">Open Action Center</a></div>
+    </div>
+  </div>
+  <div class="flyout" id="netflyout" hidden>
+    <div class="panel">
+      <div class="inner">
+        <div class="muted">Currently connected to:</div>
+        <div class="conn"><img src="images/startmenu/computer.png" alt=""><div><b>Network</b><br><span class="muted">Internet access</span></div></div>
+      </div>
+      <div class="foot"><a class="link">Open Network and Sharing Center</a></div>
+    </div>
+  </div>
+
   <!-- Mobile-only notification (shown by the script below) -->
   <div id="notify" role="tooltip" class="is-top is-left" hidden>
     <img src="images/info.png" alt="">
@@ -281,54 +635,165 @@
 
   <div id="taskbar">
     <div id="start" tabindex="0" aria-label="Start"></div>
-    <div id="tasks"></div>
-    <div id="tray"><div id="trayicons"><img id="notify-icon" src="images/info-small.png" alt="" hidden></div><div id="clock"></div><div id="showdesk" tabindex="0" aria-label="Show desktop"></div></div>
+    <div id="tasks">
+      <!-- Pinned programs (Windows 7 defaults). data-glow is the colour of the hover glow. -->
+      <div class="tb pinned" data-app="ie" data-name="Internet Explorer" data-glow="64, 160, 255" tabindex="0"><img src="images/taskbar/ie.png" alt=""></div>
+      <div class="tb pinned" data-app="explorer" data-name="Windows Explorer" data-glow="250, 200, 70" tabindex="0"><img src="images/taskbar/explorer.png" alt=""></div>
+      <div class="tb pinned" data-app="wmp" data-name="Windows Media Player" data-glow="255, 150, 40" tabindex="0"><img src="images/taskbar/wmp.png" alt=""></div>
+    </div>
+    <div id="tray">
+      <div id="tray-arrow" tabindex="0" aria-label="Show hidden icons"></div>
+      <div id="trayicons">
+        <div class="ti" id="notify-icon" hidden><img src="images/info-small.png" alt=""></div>
+        <div class="ti" id="ac-icon"><img src="images/tray/action-center.png" alt=""></div>
+        <div class="ti" id="net-icon"><img src="images/tray/network.png" alt=""></div>
+      </div>
+      <div id="clock"></div>
+      <div id="showdesk" tabindex="0" aria-label="Show desktop"></div>
+    </div>
   </div>
 
   <script>
+    const $ = (s, r = document) => r.querySelector(s);
+    const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+    // Phone layout (matches the CSS breakpoint); touch devices open icons with one tap
+    const isPhone = () => matchMedia('(max-width: 640px)').matches;
+    const singleTap = () => matchMedia('(max-width: 640px), (pointer: coarse)').matches;
+    const canHover = () => matchMedia('(hover: hover)').matches;
+
     // Taskbar items are plain divs (7.css restyles buttons and [role=button]); make Enter/Space click them
     document.addEventListener('keydown', e => {
-      if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('#start, .task, #showdesk, #notify .close')) { e.preventDefault(); e.target.click(); }
+      if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('#start, .tb, #showdesk, #notify .close, #tray-arrow')) { e.preventDefault(); e.target.click(); }
+      if (e.key === 'Escape') closeAllPopups();
     });
 
-    // Clock (time over date)
-    const clock = document.getElementById('clock');
-    // Real day, month and time, but the year always shows as 2014
+    // ---------- Tooltips ----------
+    const tip = $('#tooltip'); let tipTimer;
+    function hideTip() { clearTimeout(tipTimer); tip.hidden = true; }
+    function bindTip(el, text) {
+      el.addEventListener('mouseenter', () => {
+        if (!canHover()) return;
+        clearTimeout(tipTimer);
+        tipTimer = setTimeout(() => {
+          const t = typeof text === 'function' ? text() : text;
+          if (!t) return;
+          tip.textContent = t; tip.hidden = false;
+          const r = el.getBoundingClientRect();
+          const x = Math.max(2, Math.min(innerWidth - tip.offsetWidth - 2, r.left + r.width / 2 - tip.offsetWidth / 2));
+          tip.style.left = x + 'px';
+          tip.style.top = (el.closest('#taskbar') ? r.top - tip.offsetHeight - 6 : r.bottom + 4) + 'px';
+        }, 500);
+      });
+      el.addEventListener('mouseleave', hideTip);
+      el.addEventListener('mousedown', hideTip);
+    }
+
+    // ---------- Clock: real day, month and time, but the year always shows as 2014 ----------
+    const clock = $('#clock');
     const dateFmt = new Intl.DateTimeFormat();
+    const longFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const in2014 = d => new Date(2014, d.getMonth(), d.getDate());
+    const as2014 = (fmt, d) => fmt.formatToParts(d.getMonth() === 1 && d.getDate() === 29 ? d : in2014(d)).map(p => p.type === 'year' ? '2014' : p.value).join('');
     const tick = () => {
       const d = new Date();
-      const date = dateFmt.formatToParts(d).map(p => p.type === 'year' ? '2014' : p.value).join('');
-      clock.innerHTML = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '<br class="date"><span class="date">' + date + '</span>';
+      clock.innerHTML = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '<br><span>' + as2014(dateFmt, d) + '</span>';
     };
     tick(); setInterval(tick, 10000);
+    bindTip(clock, () => as2014(longFmt, new Date()));
 
-    // Start menu
-    const start = document.getElementById('start'), menu = document.getElementById('startmenu');
-    const pinned = menu.querySelector('.pinned'), results = menu.querySelector('.results');
-    const allBtn = menu.querySelector('.allprogs'), allLabel = allBtn.querySelector('.label');
-    const search = menu.querySelector('.searchbox input');
+    // ---------- Popups (menus, flyouts, jump lists, thumbnails) ----------
+    const start = $('#start'), menu = $('#startmenu');
+    function closeMenus() { $$('.ctx').forEach(m => m.hidden = true); $('#jumplist').hidden = true; $('.shutdown .more').classList.remove('open'); }
+    function closeFlyouts() { $$('.flyout').forEach(f => f.hidden = true); }
+    function closeAllPopups() { closeMenus(); closeFlyouts(); hideThumbs(true); if (!menu.hidden) closeStart(); }
+    function placeAt(el, x, y) {
+      el.hidden = false;
+      const w = el.offsetWidth, h = el.offsetHeight;
+      el.style.left = Math.max(0, Math.min(x, innerWidth - w)) + 'px';
+      el.style.top = Math.max(0, Math.min(y, innerHeight - h)) + 'px';
+    }
+    function openMenu(id, x, y) {
+      closeMenus(); hideTip();
+      const m = $('#' + id);
+      placeAt(m, x, y);
+      // open submenus to the left if there's no room on the right
+      $$('[aria-haspopup=true] > ul[role=menu]', m).forEach(sub => {
+        const right = m.getBoundingClientRect().right + 200 > innerWidth;
+        sub.style.left = right ? 'auto' : ''; sub.style.right = right ? '100%' : '';
+      });
+      return m;
+    }
+    document.addEventListener('mousedown', e => {
+      if (!e.target.closest('.ctx, #jumplist')) closeMenus();
+      if (!e.target.closest('.flyout, #clock, #tray-arrow, .ti')) closeFlyouts();
+    });
+    // Menu items: ticks, radio choices and actions
+    $$('.ctx a').forEach(a => a.addEventListener('click', () => {
+      if (a.closest('[aria-disabled]')) return;
+      if (a.hasAttribute('data-check')) a.dataset.check = a.dataset.check === 'on' ? 'off' : 'on';
+      if (a.dataset.size) {
+        $$('#menu-desktop a[data-size]').forEach(o => o.removeAttribute('data-radio'));
+        a.dataset.radio = 'on'; $('#icons').dataset.size = a.dataset.size;
+      }
+      const act = a.dataset.action;
+      if (act === 'toggle-icons') $('#icons').hidden = a.dataset.check !== 'on';
+      if (act === 'refresh') { const ic = $('#icons'); ic.style.visibility = 'hidden'; setTimeout(() => ic.style.visibility = '', 120); }
+      if (act === 'open-icon' && menuIcon) openIcon(menuIcon);
+      if (act === 'open-explorer') launch('explorer');
+      if (act === 'show-desktop') showDesktop();
+      if (act === 'cascade' || act === 'stack' || act === 'side-by-side') arrange(act);
+      closeMenus();
+    }));
+
+    // Right-click: Windows 7 menus instead of the browser's
+    let menuIcon = null;
+    document.addEventListener('contextmenu', e => {
+      const t = e.target;
+      if (t.closest('input, textarea')) return;
+      e.preventDefault();
+      closeFlyouts(); hideThumbs(true);
+      const icon = t.closest('.icon'), tb = t.closest('.tb');
+      if (icon) {
+        $$('.icon').forEach(o => o.classList.toggle('selected', o === icon));
+        menuIcon = icon;
+        openMenu(icon.dataset.menu === 'recycle-bin' ? 'menu-recycle-bin' : 'menu-icon', e.clientX, e.clientY);
+      } else if (t.closest('#start')) openMenu('menu-start', e.clientX, e.clientY);
+      else if (tb) openJumpList(tb);
+      else if (t.closest('#taskbar')) openMenu('menu-taskbar', e.clientX, e.clientY);
+      else if (t.closest('#startmenu, .window, .flyout, #notify')) closeMenus();
+      else if (t.closest('#desktop')) { $$('.icon').forEach(o => o.classList.remove('selected')); openMenu('menu-desktop', e.clientX, e.clientY); }
+    });
+
+    // ---------- Start menu ----------
+    const pinnedProgs = $('.pinned', menu), results = $('.results', menu);
+    const allBtn = $('.allprogs', menu), allLabel = $('.label', allBtn);
+    const search = $('.searchbox input', menu);
     function resetMenu() {
       menu.classList.remove('all', 'searching'); allLabel.textContent = 'All Programs';
-      search.value = ''; results.hidden = true; pinned.hidden = false;
+      search.value = ''; results.hidden = true; pinnedProgs.hidden = false;
     }
-    function closeMenu() { menu.hidden = true; start.classList.remove('open'); resetMenu(); }
-    start.onclick = e => {
-      e.stopPropagation();
-      if (menu.hidden) { menu.hidden = false; start.classList.add('open'); } else closeMenu();
-    };
+    function closeStart() { menu.hidden = true; start.classList.remove('open'); resetMenu(); closeMenus(); }
+    function openStart() {
+      closeFlyouts(); hideThumbs(true);
+      menu.hidden = false; start.classList.add('open');
+      menu.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120 });
+      if (!singleTap()) search.focus();
+    }
+    start.onclick = e => { e.stopPropagation(); menu.hidden ? openStart() : closeStart(); };
+    bindTip(start, 'Start');
     document.addEventListener('mousedown', e => {
-      if (!menu.hidden && !menu.contains(e.target) && e.target !== start) closeMenu();
+      if (!menu.hidden && !menu.contains(e.target) && e.target !== start && !e.target.closest('.ctx')) closeStart();
     });
-    menu.querySelectorAll('a.prog').forEach(a => a.addEventListener('click', closeMenu));
+    $$('a.prog', menu).forEach(a => a.addEventListener('click', closeStart));
 
     // All Programs: lists every program A-Z, then becomes "Back"
-    const progs = () => [...pinned.querySelectorAll('a.prog')];
+    const progs = () => $$('a.prog', pinnedProgs);
     function showList(items, head) {
       results.innerHTML = '';
       if (head) { const h = document.createElement('div'); h.className = 'results-head'; h.textContent = head; results.append(h); }
       if (!items.length) { const n = document.createElement('div'); n.className = 'noresults'; n.textContent = 'No items match your search.'; results.append(n); }
-      items.forEach(a => { const c = a.cloneNode(true); c.addEventListener('click', closeMenu); results.append(c); });
-      pinned.hidden = true; results.hidden = false;
+      items.forEach(a => { const c = a.cloneNode(true); c.addEventListener('click', closeStart); results.append(c); });
+      pinnedProgs.hidden = true; results.hidden = false;
     }
     allBtn.addEventListener('click', () => {
       if (menu.classList.contains('searching')) return; // "See more results"
@@ -345,34 +810,40 @@
       menu.classList.remove('all');
       menu.classList.toggle('searching', !!q);
       allLabel.textContent = q ? 'See more results' : 'All Programs';
-      if (!q) { results.hidden = true; pinned.hidden = false; return; }
+      if (!q) { results.hidden = true; pinnedProgs.hidden = false; return; }
       const found = progs().filter(a => a.dataset.name.toLowerCase().includes(q));
       showList(found, found.length ? `Programs (${found.length})` : '');
     });
     search.addEventListener('keydown', e => {
-      if (e.key === 'Escape') closeMenu();
+      if (e.key === 'Escape') closeStart();
       if (e.key === 'Enter') results.querySelector('a.prog')?.click();
     });
 
     // Hovering a link on the right shows its icon in the user picture frame
-    const picImg = menu.querySelector('.userpic img'), picBlank = menu.querySelector('.userpic .blank');
-    menu.querySelectorAll('.place').forEach(pl => {
+    const picImg = $('.userpic img', menu), picBlank = $('.userpic .blank', menu);
+    $$('.place', menu).forEach(pl => {
       pl.addEventListener('mouseenter', () => {
         if (pl.dataset.icon) { picImg.src = pl.dataset.icon; picImg.hidden = false; picBlank.hidden = true; }
       });
       pl.addEventListener('mouseleave', () => { picImg.hidden = true; picBlank.hidden = false; });
     });
 
-    // Phone layout (matches the CSS breakpoint); touch devices open icons with one tap
-    const isPhone = () => matchMedia('(max-width: 640px)').matches;
-    const singleTap = () => matchMedia('(max-width: 640px), (pointer: coarse)').matches;
+    // Shut down arrow: Switch user / Log off / Lock / Restart / Sleep
+    const sdMore = $('.shutdown .more', menu);
+    sdMore.addEventListener('click', e => {
+      e.stopPropagation();
+      if (!$('#menu-shutdown').hidden) { closeMenus(); return; }
+      const r = sdMore.getBoundingClientRect();
+      openMenu('menu-shutdown', r.right + 2, r.top);
+      const m = $('#menu-shutdown'); m.style.top = Math.max(0, r.bottom - m.offsetHeight) + 'px';
+      sdMore.classList.add('open');
+    });
 
-    // Mobile notification: appears shortly after load, closes after 5 seconds,
-    // on its close button, or when any other button is pressed
-    const notify = document.getElementById('notify');
+    // ---------- Mobile notification ----------
+    // Appears shortly after load, closes after 5 seconds, on its close button,
+    // when the balloon is clicked, or when any other button is pressed
+    const notify = $('#notify'), notifyIcon = $('#notify-icon');
     let notifyTimer;
-    const notifyIcon = document.getElementById('notify-icon');
-    // Like Windows 7, the balloon comes from a (temporary) tray icon and its tail points at it
     function aimNotify() {
       const r = notifyIcon.getBoundingClientRect();
       const want = innerWidth - (r.left + r.width / 2) - 12;            // right offset that puts the tail on the icon
@@ -395,83 +866,424 @@
       }, 800);
     }
     addEventListener('resize', () => { if (!notify.hidden) aimNotify(); });
-    // Clicking anywhere on the balloon dismisses it, as in Windows 7
     notify.addEventListener('click', hideNotify);
     document.addEventListener('pointerdown', e => {
       if (!notify.hidden && !notify.contains(e.target) &&
-          e.target.closest('button, a, input, #start, .task, #showdesk, .icon')) hideNotify();
+          e.target.closest('button, a, input, #start, .tb, #showdesk, .icon, #tray-arrow, .ti, #clock')) hideNotify();
     }, true);
 
-    // Windows
-    const tasks = document.getElementById('tasks');
-    let z = 10;
-    function focusWin(w) {
-      document.querySelectorAll('.window.app').forEach(o => o.classList.toggle('active', o === w));
-      document.querySelectorAll('.task').forEach(t => t.classList.toggle('active', t._win === w));
-      w.style.zIndex = ++z;
+    // ---------- Notification area flyouts ----------
+    function toggleFlyout(id, anchor) {
+      const f = $('#' + id), wasOpen = !f.hidden;
+      closeFlyouts(); closeMenus(); hideTip();
+      if (wasOpen) return;
+      f.hidden = false;
+      const r = anchor.getBoundingClientRect();
+      f.style.left = Math.max(4, Math.min(innerWidth - f.offsetWidth - 4, r.left + r.width / 2 - f.offsetWidth / 2)) + 'px';
+      f.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120 });
     }
-    function taskFor(w) {
-      if (w._task) return w._task;
-      const t = document.createElement('div');
-      t.className = 'task'; t._win = w; t.tabIndex = 0;
-      t.textContent = w.querySelector('.title-bar-text')?.textContent.trim() || '';
-      t.onclick = () => {
-        if (w.hidden) { w.hidden = false; focusWin(w); }
-        else if (t.classList.contains('active')) { w.hidden = true; t.classList.remove('active'); }
-        else focusWin(w);
-      };
-      tasks.appendChild(t);
-      return (w._task = t);
-    }
-    function openWin(w) { w.hidden = false; taskFor(w); focusWin(w); }
+    $('#tray-arrow').addEventListener('click', e => toggleFlyout('trayflyout', e.currentTarget));
+    $('#ac-icon').addEventListener('click', e => toggleFlyout('acflyout', e.currentTarget));
+    $('#net-icon').addEventListener('click', e => toggleFlyout('netflyout', e.currentTarget));
+    bindTip($('#net-icon'), 'Network\nInternet access');
 
-    document.querySelectorAll('.window.app').forEach(w => {
-      if (!w.hidden) taskFor(w);
+    // Calendar flyout (year shown as 2014, like the clock)
+    let calMonth;
+    const cal = $('#calendar');
+    function renderCal() {
+      const today = new Date(), t14 = in2014(today);
+      $('.longdate', cal).textContent = as2014(longFmt, today);
+      $('.title', cal).textContent = calMonth.toLocaleDateString(undefined, { month: 'long' }) + ', ' + calMonth.getFullYear();
+      const head = $('thead tr', cal);
+      if (!head.children.length) for (let i = 0; i < 7; i++) {
+        const th = document.createElement('th');
+        th.textContent = new Date(2014, 5, 1 + i).toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 2);
+        head.append(th);
+      }
+      const body = $('tbody', cal); body.innerHTML = '';
+      const first = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1);
+      let d = new Date(first); d.setDate(1 - first.getDay());
+      for (let w = 0; w < 6; w++) {
+        const tr = document.createElement('tr');
+        for (let i = 0; i < 7; i++) {
+          const td = document.createElement('td');
+          td.textContent = d.getDate();
+          if (d.getMonth() !== calMonth.getMonth()) td.className = 'other';
+          if (d.getTime() === t14.getTime()) td.classList.add('today');
+          td.addEventListener('click', () => { $$('td', cal).forEach(x => x.classList.remove('sel')); td.classList.add('sel'); });
+          tr.append(td); d.setDate(d.getDate() + 1);
+        }
+        body.append(tr);
+      }
+    }
+    $('.prev', cal).addEventListener('click', () => { calMonth.setMonth(calMonth.getMonth() - 1); renderCal(); });
+    $('.next', cal).addEventListener('click', () => { calMonth.setMonth(calMonth.getMonth() + 1); renderCal(); });
+    clock.addEventListener('click', () => {
+      if (cal.hidden) { const t = in2014(new Date()); calMonth = new Date(t.getFullYear(), t.getMonth(), 1); renderCal(); }
+      toggleFlyout('calendar', clock);
+      cal.style.left = ''; cal.style.right = '4px';
+    });
+
+    // ---------- Windows ----------
+    const tasks = $('#tasks');
+    const wins = [];
+    let z = 10, activeWin = null;
+    const groupKey = w => w.dataset.app || w.id;
+    const winIcon = w => w.dataset.icon || 'images/desktop/app.png';
+    const winTitle = w => w.dataset.title || $('.title-bar-text', w)?.textContent.trim() || '';
+    const openWins = key => wins.filter(w => groupKey(w) === key && w.dataset.open);
+
+    function btnFor(w) {
+      const key = groupKey(w);
+      let b = $$('.tb', tasks).find(x => x.dataset.app === key);
+      if (!b) {
+        b = document.createElement('div');
+        b.className = 'tb'; b.tabIndex = 0; b.dataset.app = key; b.dataset.name = winTitle(w);
+        b.innerHTML = `<img src="${winIcon(w)}" alt="">`;
+        tasks.append(b); initBtn(b);
+      }
+      return b;
+    }
+    function refreshBtns() {
+      $$('.tb', tasks).forEach(b => {
+        const ws = openWins(b.dataset.app);
+        b.classList.toggle('running', ws.length > 0);
+        b.classList.toggle('multi', ws.length > 1);
+        b.classList.toggle('active', !!activeWin && ws.includes(activeWin) && !activeWin.hidden);
+        if (!ws.length && !b.classList.contains('pinned')) b.remove();
+      });
+    }
+    function focusWin(w) {
+      activeWin = w;
+      wins.forEach(o => o.classList.toggle('active', o === w));
+      w.style.zIndex = ++z;
+      refreshBtns();
+    }
+    function blurWins() { activeWin = null; wins.forEach(o => o.classList.remove('active')); refreshBtns(); }
+    function openWin(w) {
+      const wasHidden = w.hidden;
+      w.hidden = false; w.dataset.open = '1'; btnFor(w); focusWin(w);
+      if (wasHidden) w.animate([{ opacity: 0, transform: 'scale(.92)' }, { opacity: 1, transform: 'none' }], { duration: 160, easing: 'ease-out' });
+    }
+    function toButton(w) {
+      const b = btnFor(w).getBoundingClientRect(), r = w.getBoundingClientRect();
+      return `translate(${b.left + b.width / 2 - (r.left + r.width / 2)}px, ${b.top - (r.top + r.height / 2)}px) scale(.15)`;
+    }
+    function minimizeWin(w) {
+      if (w.hidden) return;
+      const a = w.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: toButton(w) }], { duration: 200, easing: 'ease-in' });
+      a.onfinish = () => { w.hidden = true; if (activeWin === w) blurWins(); else refreshBtns(); };
+    }
+    function restoreWin(w) {
+      w.hidden = false; focusWin(w);
+      w.animate([{ opacity: 0, transform: toButton(w) }, { opacity: 1, transform: 'none' }], { duration: 200, easing: 'ease-out' });
+    }
+    function closeWin(w) {
+      const a = w.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.92)' }], { duration: 140, easing: 'ease-in' });
+      a.onfinish = () => {
+        w.hidden = true; delete w.dataset.open;
+        if (activeWin === w) activeWin = null;
+        refreshBtns();
+      };
+    }
+
+    // Snap and maximize
+    const snapPrev = $('#snap-preview');
+    const snapRect = s => s === 'max' ? { left: 0, top: 0, width: innerWidth, height: innerHeight - 40 }
+      : { left: s === 'left' ? 0 : innerWidth / 2, top: 0, width: innerWidth / 2, height: innerHeight - 40 };
+    function setSnap(w, s) {
+      const maxBtn = $('.title-bar-controls button[aria-label="Maximize"], .title-bar-controls button[aria-label="Restore"]', w);
+      if (s) {
+        if (!w.dataset.snap) w.dataset.restore = w.style.cssText;
+        w.dataset.snap = s;
+        const r = snapRect(s);
+        Object.assign(w.style, s === 'max'
+          ? { left: 0, top: 0, width: '100%', height: 'calc(100% - 40px)' }
+          : { left: s === 'left' ? 0 : '50%', top: 0, width: '50%', height: 'calc(100% - 40px)' });
+        maxBtn?.setAttribute('aria-label', s === 'max' ? 'Restore' : 'Maximize');
+      } else if (w.dataset.snap) {
+        const z0 = w.style.zIndex;
+        w.style.cssText = w.dataset.restore || ''; w.style.zIndex = z0;
+        delete w.dataset.snap; delete w.dataset.restore;
+        maxBtn?.setAttribute('aria-label', 'Maximize');
+      }
+    }
+
+    function initWin(w) {
+      if (w._init) return; w._init = true;
+      wins.push(w);
+      // title-bar icon
+      if (w.dataset.icon && !w.classList.contains('explorer')) {
+        const t = $('.title-bar-text', w);
+        if (t && !$('.title-icon', t)) t.insertAdjacentHTML('afterbegin', `<img class="title-icon" src="${w.dataset.icon}" alt="">`);
+      }
+      // resize edges
+      ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].forEach(dir => {
+        const h = document.createElement('div'); h.className = 'rz ' + dir; w.append(h);
+        h.addEventListener('pointerdown', e => {
+          if (isPhone()) return;
+          e.preventDefault(); e.stopPropagation(); focusWin(w);
+          if (w.dataset.snap) { const r = w.getBoundingClientRect(); delete w.dataset.snap; delete w.dataset.restore; Object.assign(w.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' }); }
+          const s = { x: e.clientX, y: e.clientY, l: w.offsetLeft, t: w.offsetTop, w: w.offsetWidth, h: w.offsetHeight };
+          const minW = parseFloat(getComputedStyle(w).minWidth) || 200, minH = parseFloat(getComputedStyle(w).minHeight) || 100;
+          const move = ev => {
+            const dx = ev.clientX - s.x, dy = ev.clientY - s.y;
+            if (dir.includes('e')) w.style.width = Math.max(minW, s.w + dx) + 'px';
+            if (dir.includes('s')) w.style.height = Math.max(minH, s.h + dy) + 'px';
+            if (dir.includes('w')) { const nw = Math.max(minW, s.w - dx); w.style.width = nw + 'px'; w.style.left = s.l + s.w - nw + 'px'; }
+            if (dir.includes('n')) { const nh = Math.max(minH, s.h - dy); w.style.height = nh + 'px'; w.style.top = Math.max(0, s.t + s.h - nh) + 'px'; }
+          };
+          const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+          addEventListener('pointermove', move); addEventListener('pointerup', up);
+        });
+      });
       w.addEventListener('mousedown', () => focusWin(w));
-      const bar = w.querySelector('.title-bar');
-      const btn = l => w.querySelector(`.title-bar-controls button[aria-label="${l}"]`);
+      const bar = $('.title-bar', w);
+      const btn = l => $(`.title-bar-controls button[aria-label="${l}"]`, w);
+      // drag, with Aero Snap at the screen edges
       bar.addEventListener('pointerdown', e => {
-        if (e.target.closest('button') || w.dataset.max || isPhone()) return;
-        const dx = e.clientX - w.offsetLeft, dy = e.clientY - w.offsetTop;
-        const move = ev => { w.style.left = ev.clientX - dx + 'px'; w.style.top = Math.max(0, ev.clientY - dy) + 'px'; };
-        const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+        if (e.target.closest('button') || isPhone() || e.button !== 0) return;
+        const sx = e.clientX, sy = e.clientY;
+        let dx = e.clientX - w.offsetLeft, dy = e.clientY - w.offsetTop, moved = false, snap = null;
+        const move = ev => {
+          if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return;
+          if (!moved && w.dataset.snap) {
+            // dragging a maximized/snapped window restores it under the pointer
+            const ratio = (sx - w.getBoundingClientRect().left) / w.offsetWidth;
+            setSnap(w, null);
+            dx = w.offsetWidth * ratio; dy = 12;
+          }
+          moved = true;
+          w.style.left = ev.clientX - dx + 'px';
+          w.style.top = Math.max(0, ev.clientY - dy) + 'px';
+          snap = ev.clientY <= 0 ? 'max' : ev.clientX <= 0 ? 'left' : ev.clientX >= innerWidth - 1 ? 'right' : null;
+          if (snap) { const r = snapRect(snap); Object.assign(snapPrev.style, { left: r.left + 4 + 'px', top: r.top + 4 + 'px', width: r.width - 8 + 'px', height: r.height - 8 + 'px' }); snapPrev.hidden = false; }
+          else snapPrev.hidden = true;
+        };
+        const up = () => {
+          removeEventListener('pointermove', move); removeEventListener('pointerup', up);
+          snapPrev.hidden = true;
+          if (snap) setSnap(w, snap);
+        };
         addEventListener('pointermove', move); addEventListener('pointerup', up);
       });
-      btn('Minimize')?.addEventListener('click', () => { w.hidden = true; w._task?.classList.remove('active'); });
-      btn('Close')?.addEventListener('click', () => { w.hidden = true; w._task?.remove(); w._task = null; });
-      const toggleMax = () => {
-        const m = btn('Maximize') || btn('Restore');
-        if (w.dataset.max) { w.style.cssText = w.dataset.max; delete w.dataset.max; m?.setAttribute('aria-label', 'Maximize'); }
-        else {
-          w.dataset.max = w.style.cssText;
-          Object.assign(w.style, { left: 0, top: 0, width: '100%', height: 'calc(100% - 40px)' });
-          m?.setAttribute('aria-label', 'Restore');
-        }
-        focusWin(w);
-      };
+      btn('Minimize')?.addEventListener('click', e => { e.stopPropagation(); minimizeWin(w); });
+      btn('Close')?.addEventListener('click', e => { e.stopPropagation(); closeWin(w); });
+      const toggleMax = () => { setSnap(w, w.dataset.snap === 'max' ? null : 'max'); focusWin(w); };
       (btn('Maximize') || btn('Restore'))?.addEventListener('click', toggleMax);
       bar.addEventListener('dblclick', e => { if (!e.target.closest('button') && !isPhone()) toggleMax(); });
-    });
-    const wins = [...document.querySelectorAll('.window.app:not([hidden])')];
-    if (wins.length) focusWin(wins[wins.length - 1]);
+      if (!w.hidden) { w.dataset.open = '1'; btnFor(w); }
+    }
 
-    // Show desktop: minimize everything
-    document.getElementById('showdesk').onclick = () => document.querySelectorAll('.window.app').forEach(w => {
-      w.hidden = true; w._task?.classList.remove('active');
-    });
-
-    // Desktop icons: click to select, double-click to open
-    document.querySelectorAll('.icon').forEach(i => {
-      const open = () => { const w = document.getElementById(i.dataset.open); if (w) openWin(w); };
-      i.addEventListener('click', () => {
-        document.querySelectorAll('.icon').forEach(o => o.classList.toggle('selected', o === i));
-        if (singleTap()) open();
+    // Arrange windows (taskbar right-click menu)
+    function arrange(how) {
+      const vis = wins.filter(w => w.dataset.open && !w.hidden);
+      const H = innerHeight - 40, W = innerWidth;
+      vis.forEach((w, i) => {
+        setSnap(w, null);
+        if (how === 'cascade') Object.assign(w.style, { left: 20 + i * 26 + 'px', top: 20 + i * 26 + 'px', width: Math.min(640, W - 60) + 'px', height: Math.min(440, H - 60) + 'px' });
+        if (how === 'stack') Object.assign(w.style, { left: 0, top: i * H / vis.length + 'px', width: W + 'px', height: H / vis.length + 'px' });
+        if (how === 'side-by-side') Object.assign(w.style, { left: i * W / vis.length + 'px', top: 0, width: W / vis.length + 'px', height: H + 'px' });
+        w.style.zIndex = ++z;
       });
-      i.addEventListener('dblclick', () => { if (!singleTap()) open(); });
+    }
+
+    // ---------- Taskbar buttons ----------
+    let thumbTimer, thumbHideTimer, peekTimer;
+    const thumbs = $('#thumbs');
+    function hideThumbs(now) {
+      clearTimeout(thumbTimer); clearTimeout(peekTimer);
+      document.body.classList.remove('peek'); wins.forEach(w => w.classList.remove('peek-keep'));
+      if (now) { clearTimeout(thumbHideTimer); thumbs.hidden = true; }
+      else { clearTimeout(thumbHideTimer); thumbHideTimer = setTimeout(() => thumbs.hidden = true, 300); }
+    }
+    function showThumbs(b) {
+      const ws = openWins(b.dataset.app);
+      if (!ws.length) return;
+      clearTimeout(thumbHideTimer); hideTip();
+      thumbs.innerHTML = '';
+      ws.forEach(w => {
+        const t = document.createElement('div'); t.className = 'thumb';
+        t.innerHTML = `<div class="head"><img src="${winIcon(w)}" alt=""><span></span></div><div class="x">✕</div><div class="pv"></div>`;
+        $('span', t).textContent = winTitle(w);
+        // live-looking preview: a scaled copy of the window
+        const wasHidden = w.hidden; if (wasHidden) { w.style.visibility = 'hidden'; w.hidden = false; }
+        const ww = w.offsetWidth, wh = w.offsetHeight;
+        const copy = w.cloneNode(true); copy.removeAttribute('id'); $$('[id]', copy).forEach(n => n.removeAttribute('id'));
+        if (wasHidden) { w.hidden = true; w.style.visibility = ''; }
+        Object.assign(copy.style, { position: 'relative', left: 0, top: 0, width: ww + 'px', height: wh + 'px', margin: 0, visibility: 'visible', zIndex: 0 });
+        copy.hidden = false; copy.classList.add('active'); copy.classList.remove('app');
+        Object.assign(copy.style, { display: 'flex', flexDirection: 'column' });
+        const sc = Math.min(186 / ww, 110 / wh);
+        const box = document.createElement('div');
+        Object.assign(box.style, { width: ww * sc + 'px', height: wh * sc + 'px' });
+        copy.style.transform = `scale(${sc})`; copy.style.transformOrigin = '0 0';
+        box.append(copy); $('.pv', t).append(box);
+        t.addEventListener('click', e => {
+          if (e.target.closest('.x')) { closeWin(w); hideThumbs(true); return; }
+          w.hidden ? restoreWin(w) : focusWin(w); hideThumbs(true);
+        });
+        t.addEventListener('mouseenter', () => {
+          clearTimeout(peekTimer);
+          peekTimer = setTimeout(() => {
+            if (w.hidden) return;
+            wins.forEach(o => o.classList.toggle('peek-keep', o === w)); w.style.zIndex = ++z; document.body.classList.add('peek');
+          }, 500);
+        });
+        t.addEventListener('mouseleave', () => { clearTimeout(peekTimer); document.body.classList.remove('peek'); });
+        thumbs.append(t);
+      });
+      thumbs.hidden = false;
+      const r = b.getBoundingClientRect();
+      thumbs.style.left = Math.max(4, Math.min(innerWidth - thumbs.offsetWidth - 4, r.left + r.width / 2 - thumbs.offsetWidth / 2)) + 'px';
+    }
+    thumbs.addEventListener('mouseenter', () => clearTimeout(thumbHideTimer));
+    thumbs.addEventListener('mouseleave', () => hideThumbs(false));
+
+    function launch(app) {
+      if (app === 'explorer') openWin(getExplorer('libraries'));
+      // Internet Explorer and Windows Media Player are pinned like on a fresh Windows 7 install
+    }
+    function initBtn(b) {
+      if (b.dataset.glow) b.style.setProperty('--glow', b.dataset.glow);
+      b.addEventListener('mousemove', e => { const r = b.getBoundingClientRect(); b.style.setProperty('--mx', (e.clientX - r.left) + 'px'); });
+      bindTip(b, () => openWins(b.dataset.app).length ? '' : b.dataset.name);
+      b.addEventListener('mouseenter', () => {
+        if (!canHover() || !openWins(b.dataset.app).length) return;
+        clearTimeout(thumbTimer); clearTimeout(thumbHideTimer);
+        thumbTimer = setTimeout(() => showThumbs(b), thumbs.hidden ? 400 : 0);
+      });
+      b.addEventListener('mouseleave', () => { clearTimeout(thumbTimer); if (!thumbs.hidden) hideThumbs(false); });
+      b.addEventListener('click', () => {
+        const ws = openWins(b.dataset.app);
+        hideTip(); closeMenus();
+        if (!ws.length) { launch(b.dataset.app); return; }
+        if (ws.length > 1) { thumbs.hidden ? showThumbs(b) : hideThumbs(true); return; }
+        const w = ws[0];
+        hideThumbs(true);
+        if (w.hidden) restoreWin(w);
+        else if (w === activeWin) minimizeWin(w);
+        else focusWin(w);
+      });
+    }
+    $$('.tb', tasks).forEach(initBtn);
+
+    // Jump list (right-click a taskbar button)
+    function openJumpList(b) {
+      closeMenus(); hideThumbs(true); hideTip();
+      const jl = $('#jumplist'), ws = openWins(b.dataset.app), pinned = b.classList.contains('pinned');
+      const icon = $('img', b).getAttribute('src');
+      jl.innerHTML = '';
+      const add = (html, fn) => { const d = document.createElement('div'); d.className = 'ji'; d.innerHTML = html; d.addEventListener('click', () => { closeMenus(); fn?.(); }); jl.append(d); };
+      add(`<img src="${icon}" alt=""><span></span>`, () => ws.length ? (ws[0].hidden ? restoreWin(ws[0]) : focusWin(ws[0])) : launch(b.dataset.app));
+      $('.ji:last-child span', jl).textContent = b.dataset.name || winTitle(ws[0]);
+      add(`<span class="pin"></span><span>${pinned ? 'Unpin this program from taskbar' : 'Pin this program to taskbar'}</span>`, () => {
+        b.classList.toggle('pinned');
+        if (!b.classList.contains('pinned') && !ws.length) b.remove();
+      });
+      if (ws.length) add(`<span class="pin"></span><span>${ws.length > 1 ? 'Close all windows' : 'Close window'}</span>`, () => ws.forEach(closeWin));
+      jl.hidden = false;
+      const r = b.getBoundingClientRect();
+      jl.style.left = Math.max(0, Math.min(innerWidth - jl.offsetWidth, r.left + r.width / 2 - jl.offsetWidth / 2)) + 'px';
+    }
+
+    // ---------- Show desktop (Aero Peek on hover, toggle on click) ----------
+    const showdesk = $('#showdesk');
+    let peekDeskTimer, desktopHidden = [];
+    function showDesktop() {
+      const vis = wins.filter(w => w.dataset.open && !w.hidden);
+      if (vis.length) { desktopHidden = vis; vis.forEach(w => { w.hidden = true; }); blurWins(); }
+      else { desktopHidden.filter(w => w.dataset.open).forEach(w => { w.hidden = false; focusWin(w); }); desktopHidden = []; }
+    }
+    showdesk.addEventListener('click', () => { clearTimeout(peekDeskTimer); document.body.classList.remove('peek'); showDesktop(); });
+    showdesk.addEventListener('mouseenter', () => {
+      if (!canHover()) return;
+      peekDeskTimer = setTimeout(() => { wins.forEach(w => w.classList.remove('peek-keep')); document.body.classList.add('peek'); }, 500);
     });
-    document.getElementById('desktop').addEventListener('mousedown', e => {
-      if (!e.target.closest('.icon')) document.querySelectorAll('.icon').forEach(o => o.classList.remove('selected'));
+    showdesk.addEventListener('mouseleave', () => { clearTimeout(peekDeskTimer); document.body.classList.remove('peek'); });
+    bindTip(showdesk, 'Show desktop');
+
+    // ---------- Explorer windows (Recycle Bin, Libraries) ----------
+    const SEARCH_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="#3a6ea5" stroke-width="1.8"/><path d="M10 10l4.2 4.2" stroke="#3a6ea5" stroke-width="2.2" stroke-linecap="round"/></svg>';
+    const EXPLORERS = {
+      'recycle-bin': { title: 'Recycle Bin', icon: 'images/explorer/recycle-bin.png', big: 'images/desktop/recycle-bin.png', cmds: [], items: [] },
+      'libraries': { title: 'Libraries', icon: 'images/explorer/libraries.png', big: 'images/startmenu/documents.png', cmds: ['New library'],
+        head: ['Libraries', 'Open a library to see your files and arrange them by folder, date, and other properties.'],
+        items: [['Documents', 'images/startmenu/documents.png'], ['Music', 'images/startmenu/music.png'], ['Pictures', 'images/startmenu/pictures.png'], ['Videos', 'images/explorer/lib-videos.png']] }
+    };
+    function getExplorer(key) {
+      let w = document.getElementById(key);
+      if (w) return w;
+      const c = EXPLORERS[key];
+      w = document.createElement('div');
+      w.className = 'window glass active app explorer'; w.id = key; w.hidden = true;
+      w.dataset.app = 'explorer'; w.dataset.icon = 'images/taskbar/explorer.png'; w.dataset.title = c.title;
+      const n = wins.filter(x => x.dataset.open).length;
+      Object.assign(w.style, { left: 90 + n * 26 + 'px', top: 50 + n * 26 + 'px', width: Math.min(720, innerWidth - 120) + 'px', height: Math.min(480, innerHeight - 110) + 'px' });
+      w.innerHTML = `
+        <div class="title-bar"><div class="title-bar-text"></div>
+          <div class="title-bar-controls"><button aria-label="Minimize"></button><button aria-label="Maximize"></button><button aria-label="Close"></button></div></div>
+        <div class="ex-nav">
+          <div class="ex-arrows"><span class="back"></span><span class="fwd"></span></div>
+          <div class="ex-address"><img src="${c.icon}" alt=""><span class="chev"></span><span class="crumb"></span><span class="chev"></span><span class="fill"></span><span class="drop"></span><span class="refresh"></span></div>
+          <div class="ex-search"><input type="text" placeholder="Search ${c.title}">${SEARCH_SVG}</div>
+        </div>
+        <div class="window-body">
+          <div class="ex-cmd"><span class="btn dd">Organize</span>${c.cmds.map(t => `<span class="btn">${t}</span>`).join('')}<span class="fill"></span><span class="btn"><img src="images/explorer/help.png" alt=""></span></div>
+          <div class="ex-main">
+            <div class="ex-tree">
+              <div class="node"><span class="tw"></span><img src="images/explorer/favorites.png" alt="">Favorites</div>
+              <div class="node"><span class="tw"></span><img src="images/explorer/libraries.png" alt="">Libraries</div>
+              <div class="node"><span class="tw"></span><img src="images/explorer/computer.png" alt="">Computer</div>
+              <div class="node"><span class="tw"></span><img src="images/explorer/network.png" alt="">Network</div>
+            </div>
+            <div class="ex-content"></div>
+          </div>
+          <div class="ex-details"><img src="${c.big}" alt=""><span></span></div>
+        </div>`;
+      $('.crumb', w).textContent = c.title;
+      $('.ex-details span', w).textContent = `${c.items.length} item${c.items.length === 1 ? '' : 's'}`;
+      const content = $('.ex-content', w);
+      if (c.head) content.insertAdjacentHTML('beforeend', `<div class="lib-head"></div><div class="lib-sub"></div>`), $('.lib-head', w).textContent = c.head[0], $('.lib-sub', w).textContent = c.head[1];
+      if (c.items.length) {
+        const tiles = document.createElement('div'); tiles.className = 'tiles';
+        c.items.forEach(([name, img]) => {
+          const t = document.createElement('div'); t.className = 'tile';
+          t.innerHTML = `<img src="${img}" alt=""><div><span></span><small>Library</small></div>`;
+          $('span', t).textContent = name;
+          t.addEventListener('click', () => { $$('.tile', w).forEach(o => o.classList.toggle('selected', o === t)); });
+          tiles.append(t);
+        });
+        content.append(tiles);
+      }
+      $('#desktop').append(w);
+      initWin(w);
+      return w;
+    }
+
+    // ---------- Desktop icons ----------
+    function openIcon(i) {
+      const id = i.dataset.open;
+      const w = document.getElementById(id) || (EXPLORERS[id] && getExplorer(id));
+      if (!w) return;
+      w.dataset.open && !w.hidden ? focusWin(w) : openWin(w);
+    }
+    $$('.icon').forEach(i => {
+      i.addEventListener('click', () => {
+        $$('.icon').forEach(o => o.classList.toggle('selected', o === i));
+        if (singleTap()) openIcon(i);
+      });
+      i.addEventListener('dblclick', () => { if (!singleTap()) openIcon(i); });
     });
+    $('#desktop').addEventListener('mousedown', e => {
+      if (!e.target.closest('.icon')) $$('.icon').forEach(o => o.classList.remove('selected'));
+      if (e.target === $('#desktop') || e.target.closest('#icons')) blurWins();
+    });
+
+    // Windows already in the page
+    $$('.window.app').forEach(initWin);
+    const visible = wins.filter(w => !w.hidden);
+    if (visible.length) focusWin(visible[visible.length - 1]);
   </script>
 </body>
 </html>
