@@ -218,6 +218,18 @@
     }
     #tooltip[hidden] { display: none; }
 
+    /* ---------- DWM glass (js/dwm-glass.js renders Windows 7's own blur + colorization shaders) ---------- */
+    html.dwm-glass .window.app { -webkit-backdrop-filter: none; backdrop-filter: none; }
+    html.dwm-glass .window.app:before { background: none; }
+    html.dwm-glass .window.app:after { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--dwm-glass-inactive) 0 0 / 100vw 100vh fixed; }
+    html.dwm-glass .window.app.active:after { background-image: var(--dwm-glass); }
+    /* Taskbar: glass + aero.msstyles TaskBar2Composited::TaskBar BACKGROUNDBOTTOM (IMAGE 845, sizing margin top 2) */
+    html.dwm-glass #taskbar {
+      background: var(--dwm-glass) 0 0 / 100vw 100vh fixed; -webkit-backdrop-filter: none; backdrop-filter: none;
+      border: 0; box-shadow: none;
+      border-image: url("images/win7/taskbar-bottom.png") 2 0 0 0 fill / 2px 0 0 0 stretch;
+    }
+
     /* ---------- Taskbar thumbnails ---------- */
     #thumbs {
       position: fixed; bottom: 44px; z-index: 10002; display: flex; gap: 6px; padding: 8px;
@@ -676,6 +688,7 @@
     </div>
   </div>
 
+  <script src="js/dwm-glass.js"></script>
   <script>
     const $ = (s, r = document) => r.querySelector(s);
     const $$ = (s, r = document) => [...r.querySelectorAll(s)];
