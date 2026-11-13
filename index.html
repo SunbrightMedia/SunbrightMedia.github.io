@@ -7,11 +7,16 @@
   <!-- 7.css by Khang Nguyen Duy, MIT License (see css/7.css.LICENSE) -->
   <link rel="stylesheet" href="css/7.css">
   <style>
-    /* Segoe UI (the Windows 7 system font) for visitors who don't have it installed */
-    @font-face { font-family: "Segoe UI"; src: local("Segoe UI"), url("fonts/segoeui.ttf") format("truetype"); font-weight: 400; }
+    /* Segoe UI exactly as shipped with Windows 7 (from Microsoft's Windows 7 SP1 media) */
+    @font-face { font-family: "Segoe UI"; src: url("fonts/segoeui.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+    @font-face { font-family: "Segoe UI"; src: url("fonts/segoeuii.ttf") format("truetype"); font-weight: 400; font-style: italic; }
+    @font-face { font-family: "Segoe UI"; src: url("fonts/seguisb.ttf") format("truetype"); font-weight: 600; font-style: normal; }
+    @font-face { font-family: "Segoe UI"; src: url("fonts/segoeuib.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+    @font-face { font-family: "Segoe UI"; src: url("fonts/segoeuiz.ttf") format("truetype"); font-weight: 700; font-style: italic; }
+    @font-face { font-family: "Segoe UI"; src: url("fonts/segoeuil.ttf") format("truetype"); font-weight: 300; font-style: normal; }
 
-    /* Windows 7 mouse pointers: arrow everywhere, hand on web links, I-beam in text boxes */
-    :root { --arrow: url("cursors/arrow.png") 0 0, default; --hand: url("cursors/link.png") 5 0, pointer; }
+    /* Windows 7 Aero pointers (from Windows\Cursors on the Windows 7 media; hotspots from the .cur files) */
+    :root { --arrow: url("cursors/aero_arrow.png") 0 0, default; --hand: url("cursors/aero_link.png") 4 0, pointer; }
     *, *::before, *::after { cursor: var(--arrow) !important; }
     a[href]:not(#startmenu a), a[href]:not(#startmenu a) * { cursor: var(--hand) !important; }
     input[type=text], input[type=search], textarea { cursor: text !important; }
@@ -34,21 +39,12 @@
       width: 76px; padding: 3px 2px 4px; text-align: center; color: #fff;
       border: 1px solid transparent; border-radius: 3px; text-shadow: 0 0 3px #000, 0 1px 2px #000;
     }
-    /* Windows 7 desktop highlight: frosted white on hover, frosted blue when selected */
-    .icon:hover {
-      border-color: rgba(255,255,255,.38);
-      background: linear-gradient(rgba(255,255,255,.22), rgba(255,255,255,.07));
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.14);
-    }
-    .icon.selected {
-      border-color: rgba(198,226,255,.82);
-      background: linear-gradient(rgba(172,212,255,.52), rgba(120,176,240,.34));
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.28);
-    }
-    .icon.selected:hover { background: linear-gradient(rgba(190,224,255,.62), rgba(136,190,248,.42)); }
-    .icon > span:last-child { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
-    .icon.selected > span:last-child { -webkit-line-clamp: unset; display: block; }
-    #icons.free .icon.selected { z-index: 2; }
+    /* Item highlight: Windows 7's own bitmaps from aero.msstyles (ListView LISTITEM, 9-slice with 3 px sizing margins) */
+    .icon { border-image-slice: 3 fill; border-image-width: 3px; border-image-repeat: stretch; }
+    .icon:hover { border-color: transparent; background: none; box-shadow: none; border-image-source: url("images/win7/listitem-hot.png"); }
+    .icon.selected { border-color: transparent; background: none; box-shadow: none; border-image-source: url("images/win7/listitem-selected.png"); }
+    .icon.selected:hover { border-image-source: url("images/win7/listitem-hot-selected.png"); }
+    #icons.nofocus .icon.selected:not(:hover) { border-image-source: url("images/win7/listitem-selected-nofocus.png"); }
     .icon .ico { position: relative; display: block; width: 48px; height: 48px; margin: 0 auto 3px; }
     .icon .ico img { display: block; width: 100%; height: 100%; margin: 0; }
     .icon .ico .arrow { position: absolute; left: 0; bottom: 0; width: 40%; height: 40%; }
@@ -77,8 +73,8 @@
     .rz.e, .rz.w { top: 8px; bottom: 8px; width: 8px; } .rz.e { right: -4px; } .rz.w { left: -4px; }
     .rz.ne, .rz.nw, .rz.se, .rz.sw { width: 12px; height: 12px; }
     .rz.ne { top: -4px; right: -4px; } .rz.nw { top: -4px; left: -4px; } .rz.se { bottom: -4px; right: -4px; } .rz.sw { bottom: -4px; left: -4px; }
-    .rz.n, .rz.s { cursor: ns-resize !important; } .rz.e, .rz.w { cursor: ew-resize !important; }
-    .rz.ne, .rz.sw { cursor: nesw-resize !important; } .rz.nw, .rz.se { cursor: nwse-resize !important; }
+    .rz.n, .rz.s { cursor: url("cursors/aero_ns.png") 4 11, ns-resize !important; } .rz.e, .rz.w { cursor: url("cursors/aero_ew.png") 11 4, ew-resize !important; }
+    .rz.ne, .rz.sw { cursor: url("cursors/aero_nesw.png") 8 8, nesw-resize !important; } .rz.nw, .rz.se { cursor: url("cursors/aero_nwse.png") 8 8, nwse-resize !important; }
     .window.app[data-snap=max] .rz { display: none; }
 
     /* Aero Snap preview */
@@ -984,12 +980,12 @@
       });
     }
     function focusWin(w) {
-      activeWin = w;
+      activeWin = w; $('#icons').classList.add('nofocus');
       wins.forEach(o => o.classList.toggle('active', o === w));
       w.style.zIndex = ++z;
       refreshBtns();
     }
-    function blurWins() { activeWin = null; wins.forEach(o => o.classList.remove('active')); refreshBtns(); }
+    function blurWins() { activeWin = null; $('#icons').classList.remove('nofocus'); wins.forEach(o => o.classList.remove('active')); refreshBtns(); }
     function openWin(w) {
       const wasHidden = w.hidden;
       w.hidden = false; w.dataset.open = '1'; btnFor(w); focusWin(w);
