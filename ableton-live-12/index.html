@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Untitled - Ableton Live 12 Suite</title>
   <link rel="icon" href="images/live-app-32.png">
-  <script src="themes.js"></script>
+  <script src="themes.js?v=e50b40f011"></script>
   <script>
     // Every UI colour comes from Live's own theme file (default: the Live 12 default theme,
     // "Default Dark Neutral Medium"). ?theme=<name> picks another of Live's 18 themes.
@@ -38,6 +38,9 @@
 
     /* Geometry: measured from a 1920×1041 Live 12 window (Windows, 100% scale, default theme). */
     #app { position: fixed; inset: 0; min-width: 1100px; min-height: 600px; }
+    /* No Windows title bar: the page starts at Live's menu bar (layout below is measured with it, so shift up by its 23px) */
+    #app { top: -23px; }
+    #titlebar { display: none !important; }
 
     /* ---------- Windows title bar + Live's menu bar ---------- */
     #titlebar { position: absolute; left: 0; right: 0; top: 0; height: 23px; background: #000; color: #fff; font: 12px/23px "Segoe UI Live", "Segoe UI", sans-serif; }
@@ -301,8 +304,8 @@
   </div>
   <input type="file" id="file-input" accept=".zip,application/zip">
 
-  <script src="icons.js"></script>
-  <script src="vendor/fflate.js"></script>
-  <script src="viewer.js"></script>
+  <script src="icons.js?v=296c543c47"></script>
+  <script src="vendor/fflate.js?v=da51e00555"></script>
+  <script src="viewer.js?v=5f66a9fe5f"></script>
 </body>
 </html>
