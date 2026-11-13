@@ -30,7 +30,7 @@
     /* Windows: 7.css provides the look; these just make them float on the desktop */
     .window.app { position: absolute; display: flex; flex-direction: column; min-width: 200px; min-height: 100px; }
     .window.app[hidden] { display: none; }
-    .window.app .title-bar { cursor: default; }
+    .window.app .title-bar { cursor: default; touch-action: none; }
     .window.app .window-body { flex: 1; overflow: auto; user-select: text; }
 
     /* ---------- Taskbar ---------- */
@@ -90,6 +90,28 @@
     #startmenu a { display: block; padding: 6px 8px; color: inherit; text-decoration: none; border: 1px solid transparent; border-radius: 3px; }
     #startmenu .left a:hover { background: linear-gradient(#f2f8fe, #d6e9fd); border-color: #a8d8f7; }
     #startmenu .right a:hover { background: linear-gradient(rgba(255,255,255,.25), rgba(255,255,255,.1)); border-color: rgba(255,255,255,.4); }
+    #start, .task, #showdesk, .icon { -webkit-tap-highlight-color: transparent; outline: none; }
+    #start:focus-visible, .task:focus-visible, #showdesk:focus-visible, .icon:focus-visible { outline: 1px dotted #fff; }
+
+    /* ---------- Mobile ---------- */
+    @media (max-width: 640px) {
+      /* Windows open full-screen above the taskbar */
+      .window.app { left: 0 !important; top: 0 !important; width: 100% !important; height: calc(100% - 40px) !important; min-width: 0; }
+      .window.app .title-bar-controls button[aria-label="Maximize"],
+      .window.app .title-bar-controls button[aria-label="Restore"] { display: none; }
+
+      /* Bigger tap targets for icons */
+      #icons { gap: 8px; top: 8px; left: 8px; }
+      .icon { width: 84px; padding: 6px 2px; }
+
+      /* Taskbar: buttons share the space, clock shows time only */
+      .task { width: auto; flex: 1 1 0; max-width: 140px; padding: 0 8px; }
+      #clock .date { display: none; }
+      #showdesk { width: 12px; }
+
+      /* Start menu spans the screen */
+      #startmenu { width: 100%; height: 70vh; border-radius: 0; }
+    }
   </style>
 </head>
 <body>
@@ -146,7 +168,7 @@
     const clock = document.getElementById('clock');
     const tick = () => {
       const d = new Date();
-      clock.innerHTML = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '<br>' + d.toLocaleDateString();
+      clock.innerHTML = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '<br class="date"><span class="date">' + d.toLocaleDateString() + '</span>';
     };
     tick(); setInterval(tick, 10000);
 
@@ -156,6 +178,10 @@
     document.addEventListener('mousedown', e => {
       if (!menu.hidden && !menu.contains(e.target) && e.target !== start) { menu.hidden = true; start.classList.remove('open'); }
     });
+
+    // Phone layout (matches the CSS breakpoint); touch devices open icons with one tap
+    const isPhone = () => matchMedia('(max-width: 640px)').matches;
+    const singleTap = () => matchMedia('(max-width: 640px), (pointer: coarse)').matches;
 
     // Windows
     const tasks = document.getElementById('tasks');
@@ -186,7 +212,7 @@
       const bar = w.querySelector('.title-bar');
       const btn = l => w.querySelector(`.title-bar-controls button[aria-label="${l}"]`);
       bar.addEventListener('pointerdown', e => {
-        if (e.target.closest('button') || w.dataset.max) return;
+        if (e.target.closest('button') || w.dataset.max || isPhone()) return;
         const dx = e.clientX - w.offsetLeft, dy = e.clientY - w.offsetTop;
         const move = ev => { w.style.left = ev.clientX - dx + 'px'; w.style.top = Math.max(0, ev.clientY - dy) + 'px'; };
         const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
@@ -205,7 +231,7 @@
         focusWin(w);
       };
       (btn('Maximize') || btn('Restore'))?.addEventListener('click', toggleMax);
-      bar.addEventListener('dblclick', e => { if (!e.target.closest('button')) toggleMax(); });
+      bar.addEventListener('dblclick', e => { if (!e.target.closest('button') && !isPhone()) toggleMax(); });
     });
     const wins = [...document.querySelectorAll('.window.app:not([hidden])')];
     if (wins.length) focusWin(wins[wins.length - 1]);
@@ -217,8 +243,12 @@
 
     // Desktop icons: click to select, double-click to open
     document.querySelectorAll('.icon').forEach(i => {
-      i.addEventListener('click', () => document.querySelectorAll('.icon').forEach(o => o.classList.toggle('selected', o === i)));
-      i.addEventListener('dblclick', () => { const w = document.getElementById(i.dataset.open); if (w) openWin(w); });
+      const open = () => { const w = document.getElementById(i.dataset.open); if (w) openWin(w); };
+      i.addEventListener('click', () => {
+        document.querySelectorAll('.icon').forEach(o => o.classList.toggle('selected', o === i));
+        if (singleTap()) open();
+      });
+      i.addEventListener('dblclick', () => { if (!singleTap()) open(); });
     });
     document.getElementById('desktop').addEventListener('mousedown', e => {
       if (!e.target.closest('.icon')) document.querySelectorAll('.icon').forEach(o => o.classList.remove('selected'));
