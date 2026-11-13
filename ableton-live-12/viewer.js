@@ -799,7 +799,7 @@ function makeRow(t, y, h, pinned) {
   const vsep = (x, w) => { const s = document.createElement('div'); s.className = 'vsep'; Object.assign(s.style, { left: x + 'px', width: w + 'px', height: ch + 'px' }); hd.append(s); };
   const R = k => 2 + 17 * k;    // control row top
   if (isMain) {
-    vsep(95, 5); vsep(174, 2);
+    vsep(95, 5); vsep(174, 2); vsep(289, 3);
     dropdown(hd, 102, R(0), 70, '1/2', 11, 'hd_mainMeterIcon');
     const vol = hctl(hd, 'field', 178, R(0), 46, ''); vol.title = 'Main Volume';
     fieldFill(vol, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
@@ -847,8 +847,8 @@ function makeRow(t, y, h, pinned) {
         fieldFill(vol, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
         hctl(hd, 'field', 225, R(1), 46, panText(t.mixer.pan)).title = 'Track Panning';
       }
-      if (audio && rowsFit >= 3) t.mixer.sends.slice(0, 2).forEach((v, i) => hctl(hd, 'field', 175 + 33 * i, R(2), 30, dbText(v, '-∞')).title = 'Send');
-      if (audio || t.type === 'group') meter(hd, t, 275, 2, ch - 2, true);
+      if (audio && rowsFit >= 3) t.mixer.sends.slice(0, 2).forEach((v, i) => hctl(hd, 'field', 175 + 33 * i, R(2), 30, dbText(v, '−∞')).title = 'Send');
+      if (audio || t.type === 'group') meter(hd, t, 275, 2, ch - 4, true);
       else midiMeter(hd, ch);
     }
   }
@@ -1658,7 +1658,7 @@ function openDialog(msg) {
   dialog(`
     <h1>Ableton Live 12</h1>
     <p>${msg || 'Open a Live Project to view its Arrangement, devices and frozen audio.'}</p>
-    <div class="drop" id="drop">Drop a zipped Live Project folder here<br><span class="btn" id="choose">Choose .zip…</span></div>
+    <div class="drop" id="drop">Drop a zipped Live Project folder here<br><span class="btn2" id="choose">Choose .zip…</span></div>
     <p style="color:var(--text-dim);font-size:11px">In Live: freeze all tracks, File › Collect All and Save, then zip the whole Project folder. Everything stays in your browser.</p>`);
   $('#choose').addEventListener('click', () => $('#file-input').click());
   const drop = $('#drop');
@@ -1798,7 +1798,7 @@ document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTra
   if (pick) {
     try { await loadUrl(pick.parts || [pick.file], pick.name); } catch (e) { openDialog(`<span class="err">${String(e.message || e)}</span>`); }
   } else if (list.length > 1) {
-    dialog(`<h1>Ableton Live 12</h1><p>Choose a project</p><div class="list"></div><p><span class="btn" id="choose2">Open a .zip…</span></p>`);
+    dialog(`<h1>Ableton Live 12</h1><p>Choose a project</p><div class="list"></div><p><span class="btn2" id="choose2">Open a .zip…</span></p>`);
     for (const p of list) {
       const d = document.createElement('div'); d.textContent = p.name;
       d.addEventListener('click', () => loadUrl(p.parts || [p.file], p.name).catch(e => openDialog(`<span class="err">${String(e.message || e)}</span>`)));
@@ -1806,6 +1806,21 @@ document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTra
     }
     $('#choose2').addEventListener('click', () => $('#file-input').click());
   } else {
-    openDialog();
+    // like Live itself: start with a new, empty Set (File opens a zipped project)
+    await loadDefaultSet();
   }
 })();
+
+async function loadDefaultSet() {
+  try {
+    const r = await fetch('projects/Untitled.als');
+    if (!r.ok) throw new Error('no default Set');
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    indexFiles({ 'Untitled.als': bytes });
+    set = parseSet(await gunzipText(bytes), 'Untitled.als');
+    set.name = 'Untitled';
+    tempoMap = new TempoMap(set.tempo, set.tempoEvents, set.end);
+    showSet();
+    closeDialog();
+  } catch (e) { openDialog(); }
+}

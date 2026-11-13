@@ -102,7 +102,7 @@
     #tracks-wrap { position: absolute; left: 0; right: 0; top: 59px; border-top: 2px solid var(--SurfaceArea); bottom: 21px; display: flex; flex-direction: column; }
     .tscroll { position: relative; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
     .tscroll::-webkit-scrollbar { display: none; }
-    #tracks { flex: 1; min-height: 0; }
+    #tracks { flex: 1; min-height: 0; background: linear-gradient(to right, transparent calc(100% - 292px), var(--SurfaceArea) calc(100% - 292px), var(--SurfaceArea) calc(100% - 290px), transparent calc(100% - 290px)); }
     #pinned { flex: none; }
     .lanes-canvas { position: sticky; top: 0; left: 0; display: block; }
     .rows { position: relative; }
@@ -152,8 +152,8 @@
     .device .knob::after { content: ""; position: absolute; left: 50%; top: 1px; width: 2px; height: 7px; margin-left: -1px; background: var(--ChosenDefault); transform-origin: 50% 8px; transform: rotate(var(--r, 0deg)); }
 
     #statusbar { position: absolute; left: 0; right: 0; bottom: 10px; height: 19px; }
-    #status-text { position: absolute; left: 42px; right: 360px; top: 0; height: 19px; padding-left: 6px; background: var(--SurfaceBackground); border-radius: 3px; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #status-play { position: absolute; right: 131px; top: 0; width: 220px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; }
+    #status-text { position: absolute; left: 42px; right: 359px; top: 0; height: 19px; padding-left: 6px; background: var(--SurfaceBackground); border-radius: 3px; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #status-play { position: absolute; right: 130px; top: 0; width: 220px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; }
     #status-play .div { position: absolute; left: 19px; top: 0; width: 1px; height: 19px; background: var(--SurfaceArea); }
     #status-trk { position: absolute; right: 56px; top: 0; width: 65px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; overflow: hidden; }
     #status-trk .up { position: absolute; left: 0; top: 0; width: 19px; height: 19px; background: var(--ChosenDefault); color: var(--ControlOnForeground); }
@@ -177,8 +177,15 @@
     .dialog .list div:hover { background: var(--SurfaceHighlight); }
     #file-input { display: none; }
 
+    /* Small screens (a proper mobile layout comes later): keep the Arrangement, transport and devices usable */
     @media (max-width: 700px) {
       #app { min-width: 0; }
+      #browser, #info, #splitter, #status-play, #controlbar .grp:first-child, #controlbar .grp:last-child { display: none; }
+      #cb-center { left: 4px !important; }
+      #cb-center > span:nth-child(n+6) { display: none; }
+      #arrangement { left: 6px; right: 6px; bottom: 197px; }
+      #detail { left: 6px; right: 6px; height: 150px; }
+      #status-text { right: 130px; }
     }
   </style>
 </head>
