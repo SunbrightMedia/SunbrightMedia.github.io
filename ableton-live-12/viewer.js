@@ -67,11 +67,24 @@ function fmtVal(v) {
   if (Math.abs(n) >= 100) return n.toFixed(1);
   return String(Number(n.toFixed(3)));
 }
-function layoutStatusBar(name) {
+// The Device View selector shows a miniature of the track's device chain right of the name (running Live: 53 x 23 px
+// for the template's Reverb, 38 x 23 for its Delay, ending at the box's right edge, 2 px above and below the bar).
+// Only the captured template devices with their default parameters can be shown.
+function deviceThumb(t) {
+  const d = t?.devices?.length === 1 && typeof DEVICE_THUMBS !== 'undefined' && DEVICE_THUMBS[t.devices[0].tag];
+  return d && d.sig === JSON.stringify(t.devices[0].params) ? d : null;
+}
+function layoutStatusBar(name, t) {
   const c = layoutStatusBar.c || (layoutStatusBar.c = document.createElement('canvas').getContext('2d'));
   const cs = getComputedStyle($('#status-track'));
   c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-  const area = Math.max(45, Math.round(c.measureText(name || '').width) + 13), w = 20 + area;
+  const th = deviceThumb(t), tw = th ? th.w : 0;
+  const area = Math.max(45, Math.round(c.measureText(name || '').width) + 13), w = 20 + area + tw;
+  let img = $('#status-thumb');
+  if (!img) { img = document.createElement('img'); img.id = 'status-thumb'; img.dataset.info = 'Device View Selector'; $('#statusbar').append(img); }
+  img.hidden = !th;
+  if (th) { img.src = th.png; Object.assign(img.style, { position: 'absolute', right: '56px', top: '-2px', width: th.w + 'px', height: th.h + 'px' }); }
+  $('#status-track').style.right = tw + 'px';
   $('#status-trk').style.width = w + 'px';
   if (getComputedStyle($('#status-play')).display === 'none') return;   // narrow (phone) layout keeps its own positions
   $('#status-play').style.right = (56 + w + 9) + 'px';
@@ -745,7 +758,7 @@ function buildStatic() {
   const f = $('#filters');
   const head = document.createElement('div');
   head.className = 'frow'; head.style.top = '0'; head.dataset.info = 'Filters';
-  head.innerHTML = '<span id="br-ftoggle" data-info="Show Filters" data-hit="-2 -2 -1 -2" class="abs" style="left:0;top:0;width:18px;height:19px"><i data-ic="br_filters" style="left:2px;top:1px"></i></span><span class="l" style="left:19px">Filters</span><span id="br-edit" data-info="Show Tags Editor" data-hit="1 1 0 1"><i data-ic="br_editIcon" style="left:2px;top:0"></i><span class="abs" style="left:15px;top:1px">Edit</span></span>';
+  head.innerHTML = '<span id="br-ftoggle" data-info="Show Filters" data-hit="-2 -2 -1 -2" class="abs" style="left:0;top:0;width:18px;height:19px"><i data-ic="br_filters" style="left:2px;top:1px"></i></span><span class="l" style="left:19px">Filters</span><span id="br-edit" data-info="Show Tags Editor" data-hit="1 1 1 1"><i data-ic="br_editIcon" style="left:2px;top:1px"></i><span class="abs" style="left:15px;top:1px">Edit</span></span>';
   f.append(head);
   const sep0 = document.createElement('div'); sep0.className = 'frow line'; sep0.dataset.info = 'Filters'; sep0.style.top = '19px'; sep0.style.background = 'var(--SurfaceArea)'; f.append(sep0);
   FILTERS.forEach((n, i) => {
@@ -1254,7 +1267,7 @@ function select(t) {
   // Live sizes this box to the name: text area = text width + 13 px, right edge fixed, the Arrangement position field and the
   // message field move with it (running Live: "1-MIDI" 45 px, "A-Reverb" 58 px; "4-Audio" 49 px, 2 px less than this
   // rule gives - Live's own glyph advances/kerning differ slightly from the browser's)
-  layoutStatusBar(stName);
+  layoutStatusBar(stName, t);
   renderDevices(t);
   drawAll();
 }
