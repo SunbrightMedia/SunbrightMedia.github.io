@@ -67,13 +67,31 @@
     .cb.half { height: 8px; }
     /* playing: the Play triangle turns ChosenPlay green (Ableton press screenshot 5) */
     #cb-play.playing { color: var(--ChosenPlay); }
+    /* hover (measured in Live 12): boxed controls lighten by mixing in 25.7% white; transport icons grow */
+    .cb.hv:hover { background: color-mix(in srgb, var(--TransportOffBackground) 74.3%, #fff); }
+    .cb.hv.on:hover { background: color-mix(in srgb, var(--ChosenDefault) 74.3%, #fff); }
+    #cb-scale-btn.hv:hover { background: color-mix(in srgb, var(--ScaleAwareness) 74.3%, #fff); }
+    .cb .hov, .cb:hover .nhov { display: none; }
+    .cb:hover .hov { display: block; }
+    .cb .seg { position: absolute; top: 2px; width: 18px; height: 13px; }
+    .cb .seg:hover { background: color-mix(in srgb, var(--TransportOffBackground) 74.3%, #fff); }
+    /* fold button hover: the circle's inside lightens (white overlay traced from Live 12) */
+    .fold-hit { position: absolute; left: 0; top: 0; width: 18px; height: 17px; color: #fff; }
+    .fold-hit .ic { visibility: hidden; }
+    .fold-hit:hover .ic { visibility: visible; }
     #cb-scale-btn { background: var(--ScaleAwareness); color: var(--ControlOnForeground); }
     .clickable { cursor: default; }
 
     /* ---------- Panels ---------- */
     .panel { position: absolute; background: var(--SurfaceBackground); border-radius: 3px; overflow: hidden; }
     #browser { left: 9px; top: 90px; width: var(--bw); bottom: calc(var(--dh) + 47px); }
-    #arrangement { left: calc(var(--bw) + 18px); right: 9px; top: 90px; bottom: calc(var(--dh) + 47px); outline: 2px solid var(--MainViewFocusIndicator); border-radius: 3px; overflow: visible; }
+    #arrangement { left: calc(var(--bw) + 18px); right: 9px; top: 90px; bottom: calc(var(--dh) + 47px); border-radius: 3px; overflow: visible; }
+    /* the focused view (last clicked: browser, Arrangement or Detail View) gets a 2 px MainViewFocusIndicator outline */
+    .panel.focused { outline: 2px solid var(--MainViewFocusIndicator); overflow: visible; }
+    #browser.focused, #detail.focused { overflow: hidden; outline-offset: 0; }
+    #insert-cursor { position: absolute; left: 0; width: 1px; display: none; pointer-events: none; z-index: 2;
+      animation: insert-pulse 0.6s linear infinite alternate; }
+    @keyframes insert-pulse { from { background: var(--RangeDefault); } to { background: #fff; } }
     #info { left: 9px; width: var(--iw); bottom: 38px; height: var(--dh); }
     #detail { left: calc(var(--iw) + 18px); right: 9px; bottom: 38px; height: var(--dh); }
     #splitter { position: absolute; left: calc(var(--iw) + 12px); bottom: calc(var(--dh) - 112px); width: 4px; height: 107px; }
@@ -82,7 +100,13 @@
     #app.no-browser #arrangement { left: 9px; }
     #app.no-info #info, #app.no-info #splitter { display: none; }
     #app.no-info #detail { left: 9px; }
-    #app.no-detail #detail, #app.no-detail #splitter { display: none; }
+    /* hiding the Device View removes the whole bottom row, Info View included (measured in Live 12) */
+    #app.no-detail #detail, #app.no-detail #splitter, #app.no-detail #info { display: none; }
+    #app.no-detail #browser { bottom: 38px; }
+    /* with the Info View hidden, a small 2-bar meter sits in the left margin of the bottom row (Live 12) */
+    #info-meter { position: absolute; left: 2px; width: 5px; height: 108px; bottom: calc(38px + (var(--dh) - 108px) / 2); display: none; }
+    #info-meter i { position: absolute; width: 2px; background: var(--MeterBackground); }
+    #app.no-info:not(.no-detail) #info-meter { display: block; }
     #app.no-detail #arrangement { bottom: 38px; }
     #app.no-detail.no-browser:not(.no-info) #arrangement { bottom: calc(var(--dh) + 47px); }
     #app.no-info.no-detail #browser { bottom: 38px; }
@@ -90,9 +114,13 @@
     .grip { position: absolute; z-index: 5; }
     #grip-browser { top: 90px; width: 9px; left: calc(var(--bw) + 9px); bottom: calc(var(--dh) + 47px); cursor: col-resize; }
     #app.no-detail.no-info #grip-browser { bottom: 38px; }
-    #grip-info { width: 9px; left: calc(var(--iw) + 9px); bottom: 38px; height: var(--dh); cursor: col-resize; }
-    #grip-row { left: 9px; right: 9px; height: 9px; bottom: calc(var(--dh) + 38px); cursor: row-resize; }
-    #app.no-browser #grip-browser, #app.no-info #grip-info, #app.no-detail.no-info #grip-row { display: none; }
+    #app.no-browser #grip-browser { display: none; }
+    /* Live's own cursors (captured from the running Live 12): magnifier over the overview and the bar-number band,
+       speaker (scrub) over the lower ruler strip. Resize cursors are the system ones, as in Live. */
+    #overview, #ruler-zoom { cursor: url(cursors/zoom.png) 6 6, zoom-in; }
+    #ruler-scrub { cursor: url(cursors/scrub.png) 7 8, default; }
+    #ruler-zoom { position: absolute; left: 0; right: 0; top: 0; height: 22px; }
+    #ruler-scrub { position: absolute; left: 0; right: 0; top: 22px; height: 23px; }
     #grip-sidebar { top: 23px; bottom: 0; width: 4px; left: calc(var(--sbw) - 1px); cursor: col-resize; z-index: 5; }
 
     /* ---------- Browser ---------- */
@@ -107,7 +135,7 @@
     .sbrow.dis { color: var(--BrowserDisabledItem); }
     #filters { position: absolute; left: calc(var(--sbw) + 2px); right: 0; top: 23px; }
     #browser.filters-hidden #filters .frow:not(:first-child) { display: none; }
-    #browser.filters-hidden #br-namehead { top: 44px !important; }
+    #browser.filters-hidden #br-namehead { top: 43px !important; }
     #br-ftoggle { cursor: default; }
     /* Filters hidden: the disclosure triangle turns to point right, the same ▼/▶ convention Live uses for track
        fold buttons (images/1.png and the manual's Track Controls figure). Not seen in a reference: unverified. */
@@ -130,6 +158,9 @@
     .btn > span.abs { top: 1px; }
     /* Solo on: ChosenPreListen (the theme's blue; Live 12 manual "Mixing", GroupTrackSoloButtonHalfColored.png shows solo in blue) */
     .btn.solo.on { background: var(--ChosenPreListen); color: var(--ControlOnForeground); }
+    /* while any track is soloed, every switched-on Track Activator shows ControlDisabled with ControlOnDisabledForeground text */
+    .btn.act.on.implicit { background: var(--ControlDisabled); color: var(--ControlOnDisabledForeground); }
+    .btn.focus { box-shadow: 0 0 0 1px var(--ControlSelectionFrame), inset 0 0 0 1px var(--ControlContrastFrame); }
     .btn.on { background: var(--ChosenDefault); color: var(--ControlOnForeground); }
     .btn.field { background: var(--ControlTextBack); }
     .btn.flat { background: var(--SurfaceBackground); }
@@ -145,7 +176,9 @@
     .theader .bg { position: absolute; left: 2px; right: 0; top: 0; background: var(--SurfaceBackground); }
     .theader.sel .bg { background: var(--SurfaceHighlight); }
     .theader .name { position: absolute; left: 2px; top: 0; width: 93px; overflow: hidden; }
-    .theader .name span { position: absolute; left: 23px; top: 3px; height: 13px; line-height: 13px; font-weight: bold; white-space: nowrap; }
+    .theader .name .tn { position: absolute; left: 23px; top: 3px; height: 13px; line-height: 13px; font-weight: bold; white-space: nowrap; }
+    /* a clicked title bar shows SelectionBackground (text/fold in its 26.7% dark) while the Arrangement has focus (Live 12) */
+    #arrangement.focused .theader.tsel .name { background: var(--SelectionBackground) !important; color: var(--title-sel-dark) !important; }
     .theader .vsep { position: absolute; top: 0; width: 2px; background: var(--SurfaceArea); }
     .theader .meter { position: absolute; }
     .meter i { position: absolute; width: 3px; background: var(--MeterBackground); }
@@ -238,41 +271,41 @@
       <div class="grp" style="left:0;width:460px">
         <span class="cb ghost" id="cb-browser" style="left:12px;width:17px;color:var(--ViewControlOn)" data-ic="browserToggle" title="Show/Hide Browser"></span>
         <span class="cb ghost" style="left:31px;width:12px;color:var(--ViewControlOff)" data-ic="ddTriangleDim"></span>
-        <span class="cb c" style="left:54px;width:26px">Tap</span>
-        <span class="cb c" id="cb-tempo" style="left:82px;width:42px">120.00</span>
-        <span class="cb" style="left:126px;width:17px" data-ic="nudgeDown"></span>
-        <span class="cb" style="left:145px;width:17px" data-ic="nudgeUp"></span>
+        <span class="cb hv c" style="left:54px;width:26px">Tap</span>
+        <span class="cb hv c" id="cb-tempo" style="left:82px;width:42px">120.00</span>
+        <span class="cb hv" style="left:126px;width:17px" data-ic="nudgeDown"></span>
+        <span class="cb hv" style="left:145px;width:17px" data-ic="nudgeUp"></span>
         <span class="cb" id="cb-sig" style="left:164px;width:42px"><span class="r" style="right:29px">4</span><span class="t" style="left:19px">/</span><span class="t" style="left:29px">4</span></span>
-        <span class="cb" style="left:208px;width:39px" data-ic="metronome"><i data-ic="ddTriangle" style="left:25px"></i></span>
-        <span class="cb" id="cb-quant-box" style="left:249px;width:45px"><span class="t" id="cb-quant" style="left:4px">1 Bar</span><i data-ic="ddTriangle" style="left:31px"></i></span>
-        <span class="cb" id="cb-scale-btn" style="left:315px;width:17px" data-ic="scaleAware" title="Scale"></span>
-        <span class="cb" style="left:334px;width:44px"><span class="t" id="cb-root" style="left:4px">C</span><i data-ic="ddTriangle" style="left:30px"></i></span>
-        <span class="cb" style="left:380px;width:70px"><span class="t" id="cb-scale" style="left:4px">Major</span><i data-ic="ddTriangle" style="left:56px"></i></span>
+        <span class="cb hv" style="left:208px;width:39px" data-ic="metronome"><i data-ic="ddTriangle" style="left:25px"></i></span>
+        <span class="cb hv" id="cb-quant-box" style="left:249px;width:45px"><span class="t" id="cb-quant" style="left:4px">1 Bar</span><i data-ic="ddTriangle" style="left:31px"></i></span>
+        <span class="cb hv" id="cb-scale-btn" style="left:315px;width:17px" data-ic="scaleAware" title="Scale"></span>
+        <span class="cb hv" style="left:334px;width:44px"><span class="t" id="cb-root" style="left:4px">C</span><i data-ic="ddTriangle" style="left:30px"></i></span>
+        <span class="cb hv" style="left:380px;width:70px"><span class="t" id="cb-scale" style="left:4px">Major</span><i data-ic="ddTriangle" style="left:56px"></i></span>
       </div>
       <div class="grp" id="cb-center" style="left:calc(50% - 245px);width:560px">
-        <span class="cb on clickable" id="cb-follow" style="left:0;width:21px" data-ic="follow" title="Follow"></span>
-        <span class="cb" id="cb-pos-box" style="left:23px;width:82px"><span class="r" id="cb-pos-1" style="right:53px">1</span><span class="t" style="left:32px">.</span><span class="r" id="cb-pos-2" style="right:29px">1</span><span class="t" style="left:56px">.</span><span class="r" id="cb-pos-3" style="right:5px">1</span></span>
-        <span class="cb ghost clickable" id="cb-play" style="left:121px;width:21px" data-ic="play" title="Play"></span>
-        <span class="cb ghost clickable" id="cb-stop" style="left:143px;width:22px" data-ic="stop" title="Stop"></span>
-        <span class="cb ghost" style="left:166px;width:22px" data-ic="record" title="Arrangement Record"></span>
-        <span class="cb" style="left:203px;width:17px" data-ic="overdub" title="MIDI Arrangement Overdub"></span>
-        <span class="cb on" style="left:222px;width:17px" data-ic="automationArm" title="Automation Arm"></span>
+        <span class="cb hv on clickable" id="cb-follow" data-info="Follow" style="left:0;width:21px" data-ic="follow" title="Follow"></span>
+        <span class="cb" id="cb-pos-box" style="left:23px;width:82px"><i class="seg" style="left:13px"></i><i class="seg" style="left:37px"></i><i class="seg" style="left:61px"></i><span class="r" id="cb-pos-1" style="right:53px">1</span><span class="t" style="left:32px">.</span><span class="r" id="cb-pos-2" style="right:29px">1</span><span class="t" style="left:56px">.</span><span class="r" id="cb-pos-3" style="right:5px">1</span></span>
+        <span class="cb ghost clickable" id="cb-play" data-info="Play Button" style="left:121px;width:21px"  title="Play"><i class="nhov" data-ic="play"></i><i class="hov" data-ic="playHover"></i></span>
+        <span class="cb ghost clickable" id="cb-stop" data-info="Stop Button" style="left:143px;width:22px"  title="Stop"><i class="nhov" data-ic="stop"></i><i class="hov" data-ic="stopHover"></i></span>
+        <span class="cb ghost" style="left:166px;width:22px"  title="Arrangement Record"><i class="nhov" data-ic="record"></i><i class="hov" data-ic="recordHover"></i></span>
+        <span class="cb hv" style="left:203px;width:17px" data-ic="overdub" title="MIDI Arrangement Overdub"></span>
+        <span class="cb hv on" style="left:222px;width:17px" data-ic="automationArm" title="Automation Arm"></span>
         <span class="cb dim" style="left:241px;width:17px" data-ic="backToArr" title="Back to Arrangement"></span>
         <span class="cb dim" style="left:260px;width:17px" data-ic="captureMidi" title="Capture MIDI"></span>
-        <span class="cb" style="left:279px;width:17px" data-ic="sessionRec" title="Session Record"></span>
-        <span class="cb" id="cb-ls-box" style="left:317px;width:82px"><span class="r" id="cb-ls-1" style="right:53px">3</span><span class="t" style="left:32px">.</span><span class="r" id="cb-ls-2" style="right:29px">1</span><span class="t" style="left:56px">.</span><span class="r" id="cb-ls-3" style="right:5px">1</span></span>
-        <span class="cb" style="left:401px;width:21px" data-ic="punchIn" title="Punch-In"></span>
-        <span class="cb clickable" id="cb-loop" style="left:424px;width:21px" data-ic="loop" title="Loop Switch"></span>
-        <span class="cb" style="left:447px;width:21px" data-ic="punchOut" title="Punch-Out"></span>
-        <span class="cb" id="cb-ll-box" style="left:470px;width:82px"><span class="r" id="cb-ll-1" style="right:53px">4</span><span class="t" style="left:32px">.</span><span class="r" id="cb-ll-2" style="right:29px">0</span><span class="t" style="left:56px">.</span><span class="r" id="cb-ll-3" style="right:5px">0</span></span>
+        <span class="cb hv" style="left:279px;width:17px" data-ic="sessionRec" title="Session Record"></span>
+        <span class="cb" id="cb-ls-box" style="left:317px;width:82px"><i class="seg" style="left:13px"></i><i class="seg" style="left:37px"></i><i class="seg" style="left:61px"></i><span class="r" id="cb-ls-1" style="right:53px">3</span><span class="t" style="left:32px">.</span><span class="r" id="cb-ls-2" style="right:29px">1</span><span class="t" style="left:56px">.</span><span class="r" id="cb-ls-3" style="right:5px">1</span></span>
+        <span class="cb hv" style="left:401px;width:21px" data-ic="punchIn" title="Punch-In"></span>
+        <span class="cb hv clickable" id="cb-loop" data-info="Loop Switch" style="left:424px;width:21px" data-ic="loop" title="Loop Switch"></span>
+        <span class="cb hv" style="left:447px;width:21px" data-ic="punchOut" title="Punch-Out"></span>
+        <span class="cb" id="cb-ll-box" style="left:470px;width:82px"><i class="seg" style="left:13px"></i><i class="seg" style="left:37px"></i><i class="seg" style="left:61px"></i><span class="r" id="cb-ll-1" style="right:53px">4</span><span class="t" style="left:32px">.</span><span class="r" id="cb-ll-2" style="right:29px">0</span><span class="t" style="left:56px">.</span><span class="r" id="cb-ll-3" style="right:5px">0</span></span>
       </div>
       <div class="grp" style="right:0;width:316px">
-        <span class="cb" style="left:0;width:17px" data-ic="draw" title="Draw Mode"></span>
-        <span class="cb on" style="left:19px;width:17px" data-ic="keyboard" title="Computer MIDI Keyboard"></span>
-        <span class="cb c" style="left:38px;width:26px">Key</span>
+        <span class="cb hv" style="left:0;width:17px" data-ic="draw" title="Draw Mode"></span>
+        <span class="cb hv on" style="left:19px;width:17px" data-ic="keyboard" title="Computer MIDI Keyboard"></span>
+        <span class="cb hv c" style="left:38px;width:26px">Key</span>
         <span class="cb half" style="left:66px;width:8px"></span><span class="cb half" style="left:66px;width:8px;top:24px"></span>
-        <span class="cb c" style="left:76px;width:28px">MIDI</span>
-        <span class="cb c" id="cb-sr" style="left:106px;width:48px">44.1 kHz</span>
+        <span class="cb hv c" style="left:76px;width:28px">MIDI</span>
+        <span class="cb hv c" id="cb-sr" style="left:106px;width:48px">44.1 kHz</span>
         <span class="cb" style="left:156px;width:56px"><span class="t" id="cb-cpu" style="left:14px">1 %</span><i data-ic="ddTriangle" style="left:42px"></i></span>
         <span class="cb" style="left:214px;width:28px"></span>
         <span class="cb half" style="left:244px;width:8px"></span><span class="cb half" style="left:244px;width:8px;top:24px"></span>
@@ -299,9 +332,9 @@
       <span class="grip" id="grip-sidebar" title="Drag to change the sidebar width"></span>
     </div>
 
-    <div class="panel" id="arrangement">
-      <canvas id="overview"></canvas>
-      <div id="ruler"><canvas id="ruler-canvas"></canvas></div>
+    <div class="panel focused" id="arrangement">
+      <canvas id="overview" data-info="Overview"></canvas>
+      <div id="ruler"><canvas id="ruler-canvas"></canvas><span id="ruler-zoom" data-info="Beat-Time Ruler"></span><span id="ruler-scrub" data-info="Scrub Area"></span></div>
       <div id="ruler-side">
         <span class="pill" style="left:4px;top:10px;width:29px">Set</span>
         <span class="btn" style="left:44px;top:10px;width:23px" data-ic="rs_expand"></span>
@@ -309,18 +342,19 @@
         <span class="abs" style="left:3px;top:27px;width:32px;height:16px" data-ic="rs_arrows"></span>
       </div>
       <div id="tracks-wrap">
-        <div id="tracks" class="tscroll"><canvas class="lanes-canvas" id="lanes-canvas"></canvas><div class="rows" id="rows"></div></div>
+        <div id="tracks" class="tscroll"><canvas class="lanes-canvas" id="lanes-canvas" data-info="Main Lane"></canvas><div class="rows" id="rows"></div></div>
         <div id="pinned" class="tscroll"><canvas class="lanes-canvas" id="pinned-canvas"></canvas><div class="rows" id="pinned-rows"></div></div>
       </div>
-      <div id="songruler"><canvas id="song-canvas"></canvas>
+      <div id="songruler"><canvas id="song-canvas" data-info="Time Ruler"></canvas>
         <div class="side">
           <span class="btn on" style="left:2px;top:4px;width:15px" data-ic="sr_wave"></span>
-          <span class="btn field" style="left:20px;top:4px;width:35px;overflow:hidden"><i id="zoom-fill" style="position:absolute;left:1px;top:1px;bottom:1px;width:10px;background:var(--RangeEditField)"></i><span id="zoom-label" style="position:relative">1.00x</span></span>
-          <span class="btn" style="left:61px;top:4px;width:15px">H</span>
+          <span class="btn field" data-info="Waveform Vertical Zoom Level" style="left:20px;top:4px;width:35px;overflow:hidden"><i id="zoom-fill" style="position:absolute;left:1px;top:1px;bottom:1px;width:10px;background:var(--RangeEditField)"></i><span id="zoom-label" style="position:relative">1.00x</span></span>
+          <span class="btn" data-info="Optimize Arrangement Height" style="left:61px;top:4px;width:15px">H</span>
           <span class="btn" style="left:79px;top:4px;width:15px">W</span>
         </div>
       </div>
       <span id="oneone"></span>
+      <span id="insert-cursor"></span>
 
       <div id="overlay">
         <div class="dialog" id="dialog"></div>
@@ -331,7 +365,8 @@
     <span id="splitter" data-ic="sp_dots"></span>
     <div class="panel" id="detail"><div id="devices"><div class="empty">Drop an Instrument or Sample Here</div></div></div>
 
-    <span class="grip" id="grip-browser"></span><span class="grip" id="grip-info"></span><span class="grip" id="grip-row"></span>
+    <span id="info-meter"><i style="left:0;top:0;height:11px"></i><i style="left:3px;top:0;height:11px"></i><i style="left:0;top:12px;height:96px"></i><i style="left:3px;top:12px;height:96px"></i></span>
+    <span class="grip" id="grip-browser"></span>
     <div id="statusbar">
       <span class="abs" id="st-info" style="left:9px;top:0;width:19px;height:19px;color:var(--ViewControlOn)" data-ic="st_info" title="Show/Hide Info View"></span>
       <span id="status-text"></span>
@@ -343,7 +378,8 @@
   <input type="file" id="file-input" accept=".zip,application/zip">
 
   <script src="icons.js?v=f3e4bd10ca"></script>
+  <script src="icons-live.js?v=147810bae7"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="viewer.js?v=8712a92e32"></script>
+  <script src="viewer.js?v=ece1299b1c"></script>
 </body>
 </html>
