@@ -1096,6 +1096,18 @@ function isVisible(t) { let p = t.parent; while (p) { if (!p.unfolded) return fa
 const laneContentH = h => 17 * Math.round(h / 17) + 18;
 function laneH(t) { return (t.unfolded ? laneContentH(t.laneHeight) : FOLDED_H) + SEP; }  // row = content + 2 px divider
 
+// Optimize Arrangement Height (H): the unfolded tracks all get the tallest lane height of the 17 px series (17 k + 18)
+// for which they fit the track area together with the folded ones (running Live, empty template Set in a 574 px track
+// area: four tracks 86 -> 137 px, i.e. k = floor((574 / 4 - 2 - 18) / 17) = 7).
+function optimizeHeight() {
+  if (!set) return;
+  const vis = set.tracks.filter(isVisible), open = vis.filter(t => t.unfolded);
+  if (!open.length) return;
+  const avail = $('#tracks').clientHeight - (vis.length - open.length) * (FOLDED_H + SEP);
+  const k = Math.max(1, Math.floor((avail / open.length - SEP - 18) / 17));
+  for (const t of open) t.laneHeight = 17 * k;
+  buildRows(); drawAll();
+}
 function buildRows() {
   const rowsEl = $('#rows'), pinEl = $('#pinned-rows');
   rowsEl.innerHTML = ''; pinEl.innerHTML = '';
@@ -1305,8 +1317,9 @@ function foldedMidiMeter(hd, ch) {
   const i = document.createElement('i'); i.dataset.ic = 'hd_midiFolded'; i.style.left = '0'; i.style.color = 'var(--MeterBackground)'; hd.append(i);
 }
 function midiMeter(hd, ch) {
-  const n = Math.floor((ch - 5) / 8);
-  for (let k = 0; k < n; k++) { const i = document.createElement('i'); i.dataset.ic = 'hd_midiDot'; Object.assign(i.style, { left: '274px', top: (5 + 8 * k) + 'px', color: 'var(--MeterBackground)' }); hd.append(i); }
+  // the dots sit against the bottom: first dot at ch - 8 n - 1 (running Live: 86 px track -> 5, 137 px -> 8)
+  const n = Math.floor((ch - 5) / 8), t0 = ch - 8 * n - 1;
+  for (let k = 0; k < n; k++) { const i = document.createElement('i'); i.dataset.ic = 'hd_midiDot'; Object.assign(i.style, { left: '274px', top: (t0 + 8 * k) + 'px', color: 'var(--MeterBackground)' }); hd.append(i); }
 }
 
 let titleSel = null;
@@ -1552,7 +1565,7 @@ function drawLanes(ctx, list, scrollTop, viewH, pinned) {
     if (t === selected && !engine.playing && !pinned && !view.tsel) cursorAt = { x: Math.round(xOf(view.insert)), y, h };
   }
   if (pinned) { ctx.fillStyle = C.area; ctx.fillRect(0, 0, w, 3); }
-  else if (viewH - end > 30) {
+  else if (viewH - end >= 18) {   // shown in an 18 px gap too (running Live after Optimize Height); smaller gaps not measured
     // centred hint on a SurfaceBackground plate that hides the grid (as measured)
     const msg = 'Drop Files and Devices Here';
     ctx.font = FONT; ctx.textBaseline = 'alphabetic';
@@ -2306,6 +2319,7 @@ function setupInteraction() {
   // "To return the insert marker to the starting play position, you can double-click the Stop button or press the Home key"
   // (Live 12 manual, Arrangement View > Arrangement Playback)
   $('#cb-stop').addEventListener('dblclick', () => { if (set) setInsert(0); });
+  $('#songruler [data-info="Optimize Arrangement Height"]').addEventListener('click', optimizeHeight);   // acts on release (running Live)
   $('#cb-loop').addEventListener('click', () => {
     if (!set) return;
     set.loop.on = !set.loop.on; $('#cb-loop').classList.toggle('on', set.loop.on);
@@ -2321,6 +2335,7 @@ function setupInteraction() {
       if (engine.playing) engine.stop(); else engine.play(view.insert);
     }
     if (e.key === 'Home') { setInsert(0); }
+    if ((e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.metaKey && !e.altKey) optimizeHeight();   // [H] (Info View)
     // Live 12 manual, Keyboard Shortcuts: + / - zoom, S solo, 0 deactivate, U fold/unfold, F1-F8 Track Activators.
     // Zoom keys: LArrangerView slot 210 (0x143ac5990) -> 0x1437fe1c0 with 1.6 / 0.625 (0x145e94e70 / 0x145e94ad0).
     // 0x1437fe1c0 asks slot 187 (0x143b0aa00) for an anchor: while Follow is scrolling playback that is the play
