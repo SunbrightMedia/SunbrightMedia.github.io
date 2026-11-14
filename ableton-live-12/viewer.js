@@ -1415,8 +1415,13 @@ function drawAll() {
     drawLanes(lanesCanvas.getContext('2d'), rows, tr.scrollTop, tr.clientHeight, false);
     drawLanes(pinCanvas.getContext('2d'), pinnedRows, pn.scrollTop, pn.clientHeight, true);
     drawRuler(); drawSongRuler(); drawOverview();
-    // The insert marker's line in the selected track pulses between RangeDefault and white, 0.6 s each way
-    // (measured in Live 12 from a timed screenshot series: period 1.2 s, linear ramps).
+    // The insert marker's line in the selected track pulses (CSS insert-pulse, 0.6 s each way). From Live's code:
+    // 0x144678580 sets a global blink level (ARemoteableInt at [0x147266f90]) to int(255 x w(t)), w = 0x14298c9a0:
+    // phase = (t mod 1200 ms) / 1200 (1200 = 0x145e957f8), w = 2 x (phase <= 0.5 ? phase : 1 - phase), a linear
+    // triangle; the marker (0x144678cf0) blends two theme colours by level / 255 (1/255 = 0x145e93420). t is Live's
+    // global animation clock, so the phase is not tied to the click. The two colours are theme slots 20 and 57
+    // ([colours+0x50], [colours+0xe4]); read from the running Live's colour table they are #03c3d5 (RangeDefault's
+    // value) and #ffffff. Slot 57's theme name is ambiguous (four keys are white), so white is written literally.
     const cur = $('#insert-cursor');
     if (cursorAt && cursorAt.x >= 0 && cursorAt.x < lanesWidth()) Object.assign(cur.style, { display: 'block', left: cursorAt.x + 'px', top: (61 + cursorAt.y) + 'px', height: cursorAt.h + 'px' });
     else cur.style.display = 'none';
@@ -1972,6 +1977,10 @@ function setupPanels() {
 }
 
 // "the cursor will snap to grid lines that represent the meter subdivisions"; Alt bypasses snapping (manual, Using the Editing Grid)
+// A lane click goes LArrangerScrollable slot 95 (0x143b0a600) -> 0x143b516f0 -> TTimeline snapping (0x14302ce80,
+// 0x14302d280) with the adaptive grid. Read in the running Live at 1/128 grid (0.03125 beats): 1.1094 -> 1.125,
+// 1.1193 -> 1.125, 1.1357 -> 1.125, i.e. the nearest grid line. Snapping to clip edges (0x14302d280 also weighs an
+// object snap, within 5 px, 0x145e950f8) is not modelled.
 function snap(b, free) {
   if (free) return Math.max(0, b);
   const g = gridStep();
