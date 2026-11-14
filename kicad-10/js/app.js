@@ -5,6 +5,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { readBoard } from './pcb.js';
 import { buildBoard, convexPieces } from './build3d.js';
 import { resolveModel, loadModelObject, modelMatrix } from './models.js';
+import { buildRoom } from './room.js';
 
 const $ = s => document.querySelector(s);
 const statusEl = $('#status');
@@ -20,8 +21,11 @@ const MM = 0.001;
 // ---------------------------------------------------------------- desk (metres, top surface at y = 0)
 const DESK = { w: 1.6, d: 0.8, top: 0.03, legH: 0.72, leg: 0.05 };
 const FLOOR_Y = -(DESK.top + DESK.legH);
-// Poly Haven "Oak Veneer 01" texture covers 1830 x 1830 mm (asset dimensions on polyhaven.com)
-const WOOD_TILE = 1.83;
+// Poly Haven "Dark Wood" texture covers 2000 x 2000 mm (asset dimensions on polyhaven.com);
+// its grain runs along the texture's U axis
+const WOOD_TILE = 2.0;
+// the room around the desk (metres)
+const ROOM = { back: -0.85, front: 2.3, left: -2.0, right: 2.0, ceiling: FLOOR_Y + 2.6 };
 
 // ---------------------------------------------------------------- renderer / scene
 const renderer = new THREE.WebGLRenderer({ antialias: true, canvas: $('#view') });
@@ -34,7 +38,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xb9b6b0);
+scene.background = new THREE.Color(0x2a221c);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.005, 30);
 camera.position.set(0, 0.42, 0.42);
@@ -42,8 +46,10 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0, 0);
 controls.enableDamping = true;
 controls.minDistance = 0.04;
-controls.maxDistance = 3.5;
-controls.maxPolarAngle = Math.PI * 0.49;
+controls.maxDistance = 1.6;
+controls.maxPolarAngle = Math.PI * 0.47;
+controls.minAzimuthAngle = -1.1;   // stay on the room side of the desk
+controls.maxAzimuthAngle = 1.1;
 controls.update();
 
 new RGBELoader().load('textures/studio_small_09_1k.hdr', tex => {
@@ -51,18 +57,22 @@ new RGBELoader().load('textures/studio_small_09_1k.hdr', tex => {
   scene.environment = pm.fromEquirectangular(tex).texture;
   tex.dispose(); pm.dispose();
 });
-scene.environmentIntensity = 1.0;
+scene.environmentIntensity = 0.7;
 
-const sun = new THREE.DirectionalLight(0xfff6ea, 1.8);
-sun.position.set(-0.6, 1.6, 0.9);
+// daylight through the window behind the desk (near-neutral so board colours stay true); the
+// back wall shadows everything but the window opening
+const sun = new THREE.DirectionalLight(0xfff3e2, 2.0);
+// from back left and fairly high, so its mirror reflection off glossy mask goes to the front right,
+// away from the usual viewing directions
+sun.position.set(-1.6, 1.9, -1.6);
 sun.castShadow = true;
 sun.shadow.mapSize.set(4096, 4096);
-Object.assign(sun.shadow.camera, { left: -0.95, right: 0.95, top: 0.95, bottom: -0.95, near: 0.5, far: 4 });
+Object.assign(sun.shadow.camera, { left: -1.1, right: 1.1, top: 1.1, bottom: -1.1, near: 0.5, far: 5 });
 sun.shadow.bias = -0.0002;
 sun.shadow.normalBias = 0.0006;
 sun.shadow.radius = 3;
 scene.add(sun);
-scene.add(new THREE.HemisphereLight(0xf2f0ea, 0x6b5d4c, 0.25));
+scene.add(new THREE.HemisphereLight(0xfff0dc, 0x5a4232, 0.35));
 
 // wood
 const texLoader = new THREE.TextureLoader();
@@ -74,13 +84,13 @@ const woodTex = (file, srgb) => {
   return t;
 };
 const wood = new THREE.MeshStandardMaterial({
-  map: woodTex('oak_veneer_01_diff_2k.jpg', true),
-  roughnessMap: woodTex('oak_veneer_01_rough_2k.jpg', false),
-  normalMap: woodTex('oak_veneer_01_nor_gl_2k.jpg', false),
-  roughness: 1, metalness: 0,
+  map: woodTex('dark_wood_diff_2k.jpg', true),
+  roughnessMap: woodTex('dark_wood_rough_2k.jpg', false),
+  normalMap: woodTex('dark_wood_nor_gl_2k.jpg', false),
+  color: 0xb8aaa0, roughness: 1, metalness: 0,   // darkens the photo texture a little; the grain is unchanged
 });
 
-// box whose UVs are in metres / WOOD_TILE, grain (texture V) running along the box's longest axis
+// box whose UVs are in metres / WOOD_TILE, grain (texture U) running along the box's longest axis
 function woodBox(w, h, d) {
   const g = new THREE.BoxGeometry(w, h, d);
   const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
@@ -91,7 +101,7 @@ function woodBox(w, h, d) {
     const axes = ['x', 'y', 'z'].filter(a => n[a] < 0.5);          // the two in-plane axes
     const along = axes.includes(long) ? long : axes[0];
     const across = axes.find(a => a !== along);
-    uv.setXY(i, p[across] / WOOD_TILE + 0.37, p[along] / WOOD_TILE + 0.21);
+    uv.setXY(i, p[along] / WOOD_TILE + 0.21, p[across] / WOOD_TILE + 0.37);
   }
   return g;
 }
@@ -107,11 +117,9 @@ for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
 }
 desk.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
 scene.add(desk);
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), new THREE.MeshStandardMaterial({ color: 0x8d8a85, roughness: 0.95 }));
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = FLOOR_Y;
-floor.receiveShadow = true;
-scene.add(floor);
+const { room, lampLight } = buildRoom({ floorY: FLOOR_Y, ceilingY: ROOM.ceiling, back: ROOM.back, front: ROOM.front, left: ROOM.left, right: ROOM.right });
+lampLight.intensity = 3;
+scene.add(room);
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
@@ -277,6 +285,10 @@ function frame(now) {
     if (t.y < FLOOR_Y - 1) { b.body.setTranslation({ x: 0, y: 0.05, z: 0 }, true); b.body.setLinvel({ x: 0, y: 0, z: 0 }, true); }
   }
   controls.update();
+  // keep the camera inside the room
+  camera.position.x = THREE.MathUtils.clamp(camera.position.x, ROOM.left + 0.15, ROOM.right - 0.15);
+  camera.position.y = THREE.MathUtils.clamp(camera.position.y, FLOOR_Y + 0.15, ROOM.ceiling - 0.15);
+  camera.position.z = THREE.MathUtils.clamp(camera.position.z, ROOM.back + 0.15, ROOM.front - 0.15);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

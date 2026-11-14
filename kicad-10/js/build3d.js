@@ -172,7 +172,7 @@ function materials(c) {
   // Colours come from the board (stackup) or KiCad's defaults; surface finish properties
   // (roughness/metalness) are rendering choices for the PBR renderer.
   const copper = new THREE.MeshStandardMaterial({ color: lin(c.copper), metalness: 1, roughness: 0.35, side: THREE.FrontSide });
-  const mask = col => new THREE.MeshPhysicalMaterial({ color: lin(col), roughness: 0.32, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.25,
+  const mask = col => new THREE.MeshPhysicalMaterial({ color: lin(col), roughness: 0.45, metalness: 0, clearcoat: 0.15, clearcoatRoughness: 0.4,
     transparent: col.a < 1, opacity: col.a, depthWrite: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
   const silk = col => new THREE.MeshStandardMaterial({ color: lin(col), roughness: 0.75, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
   const body = new THREE.MeshStandardMaterial({ color: lin(c.body), roughness: 0.7, metalness: 0, transparent: c.body.a < 1, opacity: c.body.a });

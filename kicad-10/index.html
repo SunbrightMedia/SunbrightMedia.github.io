@@ -11,15 +11,17 @@
       application icon, resources/bitmaps_png/icons/icon_kicad.ico in the KiCad source at tag 10.0.8
       (https://gitlab.com/kicad/code/kicad), GPL-3.0-or-later per the repository's LICENSE.README.
     - js/newstroke-*.js: KiCad's stroke font table from common/newstroke_font.cpp (licences in the file).
-    - textures/oak_veneer_01_*: "Oak Veneer 01" by Jenelle van Heerden, Poly Haven, CC0
-      (https://polyhaven.com/a/oak_veneer_01). textures/studio_small_09_1k.hdr: "Studio Small 09"
+    - textures/dark_wood_*: "Dark Wood" by Dimitrios Savva (photography), Rico Cilliers (tiling) and
+      Dario Barresi (baking), Poly Haven, CC0 (https://polyhaven.com/a/dark_wood).
+    - The room (js/room.js) is simple faceted geometry made for this page; no external models.
+    - textures/studio_small_09_1k.hdr: "Studio Small 09"
       by Sergej Majboroda, Poly Haven, CC0 (https://polyhaven.com/a/studio_small_09).
     - vendor/fflate.js: fflate (MIT), see vendor/fflate.LICENSE.
   -->
 
   <style>
     :root { color-scheme: light; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #b9b6b0; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: #222; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #2a221c; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: #222; }
     #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
     #ui { position: fixed; left: max(12px, env(safe-area-inset-left)); top: max(12px, env(safe-area-inset-top)); right: 12px;
       display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
