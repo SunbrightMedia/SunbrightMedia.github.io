@@ -18,11 +18,17 @@
     })();
   </script>
   <style>
-    @font-face { font-family: "Ableton Sans Small"; src: url(fonts/AbletonSansSmall-Regular.ttf); }
-    @font-face { font-family: "Ableton Sans Small"; font-weight: bold; src: url(fonts/AbletonSansSmall-Bold.ttf); }
-    @font-face { font-family: "Ableton Sans Small"; font-style: italic; src: url(fonts/AbletonSansSmall-RegularItalic.ttf); }
-    @font-face { font-family: "Ableton Sans Light"; src: url(fonts/AbletonSans-Light.ttf); }
-    @font-face { font-family: "Segoe UI Live"; src: url(../fonts/segoeui.ttf); }
+    /* Vertical metrics are pinned to whole pixels at the sizes used (10px: ascent 9 / descent 3, 9px: 8 / 2,
+       18px Light: 17 / 5, Segoe UI 12px: 13 / 3), so every browser and OS puts each baseline on the same pixel row.
+       Without this, Windows (DirectWrite) and Linux/macOS round the fonts' 940/260 per-mille metrics differently
+       and text shifts by a pixel or more inside its box. */
+    @font-face { font-family: "Ableton Sans Small"; src: url(fonts/AbletonSansSmall-Regular.ttf); ascent-override: 90%; descent-override: 30%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Small"; font-weight: bold; src: url(fonts/AbletonSansSmall-Bold.ttf); ascent-override: 90%; descent-override: 30%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Small"; font-style: italic; src: url(fonts/AbletonSansSmall-RegularItalic.ttf); ascent-override: 90%; descent-override: 30%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Small 9"; src: url(fonts/AbletonSansSmall-Regular.ttf); ascent-override: 88.8889%; descent-override: 22.2222%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Small 9"; font-weight: bold; src: url(fonts/AbletonSansSmall-Bold.ttf); ascent-override: 88.8889%; descent-override: 22.2222%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Light"; src: url(fonts/AbletonSans-Light.ttf); ascent-override: 94.4444%; descent-override: 27.7778%; line-gap-override: 0%; }
+    @font-face { font-family: "Segoe UI Live"; src: url(../fonts/segoeui.ttf); ascent-override: 108.3333%; descent-override: 25%; line-gap-override: 0%; }
     :root { --font: "Ableton Sans Small", sans-serif; }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; overflow: hidden; background: var(--Desktop); color: var(--ControlForeground);
@@ -192,7 +198,7 @@
 
     /* ---------- Info view / Detail view / status bar ---------- */
     #info .title { position: absolute; left: 0; right: 0; top: 0; height: 17px; background: var(--SurfaceHighlight); line-height: 17px; padding-left: 5px; font-weight: bold; }
-    #info .body { position: absolute; font-size: 9px; left: 6px; right: 4px; top: 17px; line-height: 15px; padding-top: 2px; white-space: pre; }
+    #info .body { position: absolute; font-size: 9px; font-family: "Ableton Sans Small 9", sans-serif; left: 6px; right: 4px; top: 17px; line-height: 15px; padding-top: 2px; white-space: pre; }
     #devices { position: absolute; inset: 0; display: flex; gap: 3px; padding: 3px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #555 transparent; }
     #devices .empty { position: absolute; left: 0; right: 0; top: 89px; text-align: center; line-height: 10px; pointer-events: none; }
     .device { flex: none; display: flex; flex-direction: column; background: var(--DetailViewBackground); border-radius: 3px; min-width: 150px; max-width: 620px; }
