@@ -833,6 +833,11 @@ function buildStatic() {
   hitArea(sig, 2, 16, 'Time Signature Numerator', '0 -2 0 -2'); hitArea(sig, 24, 16, 'Time Signature Denominator', '0 -2 0 -2');
   const met = $('#controlbar [data-info="Metronome"]');
   met._hit = hitArea(met, 0, 28, 'Metronome'); met._hit2 = hitArea(met, 28, 11, 'Metronome Settings');
+  // Tap shows the tap count while pressed (running Live: "1" under the held mouse, "Tap" again on release); the
+  // count of further taps is not modelled
+  const tap = $('#controlbar [data-info="Tap Tempo"]');
+  tap.addEventListener('mousedown', () => { tap.textContent = '1'; });
+  for (const ev of ['mouseup', 'mouseleave']) tap.addEventListener(ev, () => { tap.textContent = 'Tap'; });
   layoutControlBar();
 }
 function hitArea(el, x, w, info, hit = '0 0 0 0') {
@@ -2375,7 +2380,7 @@ function layoutControlBar() {
   // left group
   const met = I('Metronome');
   put(met, 208, c2 ? 33 : 39); $('i', met).style.left = (c2 ? 19 : 25) + 'px';
-  put(met._hit, 0, c2 ? 22 : 28); put(met._hit2, c2 ? 22 : 28, 11);
+  put(met._hit, 0, c2 ? 22 : 28); put(met._hit2, c2 ? 22 : 28, 11); met.style.setProperty('--mw', (c2 ? 22 : 28) + 'px');
   put(I('Quantization Menu'), c2 ? 243 : 249);
   const ls = (c2 ? -6 : 0) - k13;
   put(I('Scale Mode'), 315 + ls); put(I('Current Scale Root Note'), 334 + ls); put(I('Current Scale Name'), 380 + ls);

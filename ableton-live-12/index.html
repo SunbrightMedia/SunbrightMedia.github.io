@@ -79,6 +79,13 @@
     /* hover (measured in Live 12): boxed controls lighten by mixing in 25.7% white; transport icons grow */
     .cb.hv:hover { background: color-mix(in srgb, var(--TransportOffBackground) 74.3%, #fff); }
     .cb.hv.on:hover { background: color-mix(in srgb, var(--ChosenDefault) 74.3%, #fff); }
+    /* pressed states read off the running Live (mouse held): the nudge buttons light up like a switched-on button
+       (ChosenDefault lightened, ControlOnForeground icon); Play / Stop / Record drop their hover drawing */
+    #controlbar [data-info^="Phase Nudge"]:active { background: color-mix(in srgb, var(--ChosenDefault) 74.3%, #fff); color: var(--ControlOnForeground); }
+    .cb.ghost:active .hov { display: none; }
+    .cb.ghost:active .nhov { display: block; }
+    /* hovering the metronome lights only its switch part, not the settings menu's triangle (running Live) */
+    .cb.hv[data-info="Metronome"]:has(.hit[data-info="Metronome"]:hover) { background: linear-gradient(to right, color-mix(in srgb, var(--TransportOffBackground) 74.3%, #fff) var(--mw, 28px), var(--TransportOffBackground) var(--mw, 28px)); }
     #cb-scale-btn.hv:hover { background: color-mix(in srgb, var(--ScaleAwareness) 74.3%, #fff); }
     .cb .hov, .cb:hover .nhov { display: none; }
     .cb:hover .hov { display: block; }
@@ -400,6 +407,6 @@
   <script src="device-thumbs.js?v=e259c2f009"></script>
   <script src="icons-hidpi.js?v=d00d666705"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="viewer.js?v=35d3173cc6"></script>
+  <script src="viewer.js?v=b268a77fa8"></script>
 </body>
 </html>
