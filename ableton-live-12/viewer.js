@@ -1653,7 +1653,7 @@ function setupInteraction() {
   const tracks = $('#tracks'), pinned = $('#pinned');
   tracks.addEventListener('scroll', drawAll);
   pinned.addEventListener('scroll', drawAll);
-  addEventListener('resize', () => { if (set) { layoutCanvases(); drawAll(); } });
+  addEventListener('resize', layoutAfterResize);
 
   const zoomAt = (x, factor) => {
     const b = bOf(x);
@@ -1804,7 +1804,23 @@ function togglePanel(cls, force) {
   $('#status-trk').classList.toggle('closed', !on('no-detail'));
   layoutAfterResize();
 }
-function layoutAfterResize() { if (set) { layoutCanvases(); drawAll(); } }
+// Browser / sidebar limits measured by dragging the splitters of the real Live 12 (1920 px wide window):
+//   the Arrangement border sits at --bw + 16 (pixel-identical to Live at the same width);
+//   narrowest open browser: border x = 143  ->  --bw 127;
+//   a drag asking for a border left of x = 68 (--bw < 52) closes the browser (and greys its toggle);
+//   widest: border x = 1578 at 1920 px, i.e. --bw = window width - 358; when the window shrinks Live
+//   narrows the browser to keep this, so the lanes never collapse;
+//   sidebar divider: sidebar >= 27 px, and >= 100 px left for the browser's content column.
+const BW_MIN = 127, BW_CLOSE = 52, BW_RIGHT = 358, SBW_MIN = 27, SBW_RIGHT = 100;
+function clampPanels() {
+  const app = $('#app'), px = v => parseFloat(getComputedStyle(app).getPropertyValue(v));
+  const bwMax = Math.max(BW_MIN, app.clientWidth - BW_RIGHT);
+  const bw = clamp(px('--bw'), BW_MIN, bwMax);
+  if (bw !== px('--bw')) app.style.setProperty('--bw', bw + 'px');
+  const sbw = clamp(px('--sbw'), SBW_MIN, bw - SBW_RIGHT);
+  if (sbw !== px('--sbw')) app.style.setProperty('--sbw', sbw + 'px');
+}
+function layoutAfterResize() { clampPanels(); if (set) { layoutCanvases(); drawAll(); } }
 function focusPanel(id) {
   for (const p of ['browser', 'arrangement', 'detail']) $('#' + p).classList.toggle('focused', p === id);
 }
@@ -1819,14 +1835,20 @@ function setupPanels() {
   const px = v => parseFloat(getComputedStyle(app).getPropertyValue(v));
   const drag = (el, axis, begin, set) => el.addEventListener('pointerdown', e => {
     e.preventDefault(); el.setPointerCapture(e.pointerId);
-    const start = axis === 'x' ? e.clientX : e.clientY, b0 = begin();
+    const start = axis === 'x' ? e.clientX : e.clientY, b0 = begin(start);
     const move = ev => { set(b0, (axis === 'x' ? ev.clientX : ev.clientY) - start); layoutAfterResize(); };
     const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); };
     el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
   });
   // Limits are not documented by Ableton; these only stop a panel collapsing to nothing or pushing others off screen.
-  drag($('#grip-browser'), 'x', () => px('--bw'), (b, d) => app.style.setProperty('--bw', clamp(b + d, px('--sbw') + 120, innerWidth * 0.5) + 'px'));
-  drag($('#grip-sidebar'), 'x', () => px('--sbw'), (b, d) => app.style.setProperty('--sbw', clamp(b + d, 60, px('--bw') - 120) + 'px'));
+  // From a closed browser the drag starts at the Arrangement's left edge (Live: grab x 8 -> border follows the pointer).
+  drag($('#grip-browser'), 'x', start => app.classList.contains('no-browser') ? start - 14 : px('--bw'), (b, d) => {
+    const want = b + d;
+    if (want < BW_CLOSE) { if (!app.classList.contains('no-browser')) togglePanel('no-browser', true); return; }
+    app.style.setProperty('--bw', want + 'px');
+    if (app.classList.contains('no-browser')) togglePanel('no-browser', false);
+  });
+  drag($('#grip-sidebar'), 'x', () => px('--sbw'), (b, d) => app.style.setProperty('--sbw', (b + d) + 'px'));
   if ('ResizeObserver' in window) new ResizeObserver(layoutAfterResize).observe($('#arrangement'));
 }
 

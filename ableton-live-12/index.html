@@ -114,7 +114,7 @@
     .grip { position: absolute; z-index: 5; }
     #grip-browser { top: 90px; width: 9px; left: calc(var(--bw) + 9px); bottom: calc(var(--dh) + 47px); cursor: col-resize; }
     #app.no-detail.no-info #grip-browser { bottom: 38px; }
-    #app.no-browser #grip-browser { display: none; }
+    #app.no-browser #grip-browser { left: 0; }  /* a closed browser is reopened by dragging the Arrangement's left edge */
     /* Live's own cursors (captured from the running Live 12): magnifier over the overview and the bar-number band,
        speaker (scrub) over the lower ruler strip. Resize cursors are the system ones, as in Live. */
     #overview, #ruler-zoom { cursor: url(cursors/zoom.png) 6 6, zoom-in; }
@@ -380,6 +380,6 @@
   <script src="icons.js?v=f3e4bd10ca"></script>
   <script src="icons-live.js?v=147810bae7"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="viewer.js?v=ece1299b1c"></script>
+  <script src="viewer.js?v=5250b2e389"></script>
 </body>
 </html>
