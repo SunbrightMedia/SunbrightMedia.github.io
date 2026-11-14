@@ -1554,8 +1554,7 @@ function vuColours(h) {
   return out;
 }
 // One bar: rows from the peak down in the gradient colours, the part between the peak and the average darkened by
-// MeterBackground at alpha 0x57, and the held peak as a 1 px line in its row's colour (0x14319e450). The page's level
-// estimates (peak / mean square over the analyser buffer, peak held 1 s) are not Live's ballistics, which are not traced.
+// MeterBackground at alpha 0x57, and the held peak as a 1 px line in its row's colour (0x14319e450). Levels: meters().
 function drawVu(ctx, x, h, sep, peakDb, rmsDb, holdDb) {
   const cols = vuColours(h), row = db => h * vuPct(db) / 100;
   const pk = row(peakDb), av = row(rmsDb), hold = row(holdDb), top = Math.max(0, Math.floor(Math.min(pk, av)));
@@ -2377,11 +2376,14 @@ const engine = {
     this.nodes.clear();
     const make = t => {
       const input = this.ctx.createGain();     // clips and child tracks arrive here
+      // a mono clip plays on both channels at full level, as in Live (running Live: a -30 dB mono sine meters -30.0 dB
+      // on each side), not through the panner's mono law (-3 dB each side)
+      input.channelCount = 2; input.channelCountMode = 'explicit'; input.channelInterpretation = 'speakers';
       const vol = this.ctx.createGain();       // track volume × audible
       const pan = this.ctx.createStereoPanner();
       const an = this.ctx.createAnalyser(); an.fftSize = 512;
       const split = this.ctx.createChannelSplitter(2);
-      const anL = this.ctx.createAnalyser(), anR = this.ctx.createAnalyser(); anL.fftSize = anR.fftSize = 512;
+      const anL = this.ctx.createAnalyser(), anR = this.ctx.createAnalyser(); anL.fftSize = anR.fftSize = 4096;
       input.connect(vol); vol.connect(pan); pan.connect(split); split.connect(anL, 0); split.connect(anR, 1);
       this.nodes.set(t, { input, vol, pan, anL, anR });
     };
@@ -2565,7 +2567,8 @@ const engine = {
     $('#cb-play').classList.remove('playing');
     cancelAnimationFrame(this.meterRaf);
     for (const t of set?.tracks || []) {
-      if (t._meter) { const cv = t._meter.querySelector('canvas.vu'); cv?.getContext('2d').clearRect(0, 0, cv.width, cv.height); t._meter._hold = null; }
+      if (t._meter) { const cv = t._meter.querySelector('canvas.vu'); cv?.getContext('2d').clearRect(0, 0, cv.width, cv.height); }
+      const n = this.nodes.get(t); if (n) n.meter = null;
       if (t._hd) t._hd.querySelectorAll('[data-ic="hd_midiDot"]').forEach(d => d.style.color = 'var(--MeterBackground)');
       t._midiHold = null;
     }
@@ -2573,26 +2576,52 @@ const engine = {
     drawAll();
   },
   meters() {
-    const buf = new Float32Array(512);
+    // Live's meters (traced): the realtime OAudioMeterProcessor (0x142ceb4e0) takes each sample's power p = s*s, keeps the
+    // largest p and runs a mean square ms += (p - ms) * c with c = 1 - expf(-5 / sample rate) (0x140a47dd2, 0.2 s),
+    // keeping the largest ms. AAudioMeterModule (0x1444cf4a0) fetches and clears both on every UI update and feeds an
+    // LAudioMeterFader each (0x1444c4c70) with the peak and 2 * ms: level = max(10 * log10(x), -140) (x > 1e-12, else -140),
+    // shown = max(level, shown - 0.075 dB/ms * elapsed ms) ("MeterDefaultFallbackRate" 75), held = the highest level,
+    // falling at the same rate once it is older than 10000 ms ("MeterDefaultHoldTime"), reset below -140. The bar is the
+    // peak fader's shown level (AVuMeterView slot 180), the darker part the mean-square fader's (slot 182), the line the
+    // peak fader's held level (slot 181). The page reads each new sample once from its analysers, using the audio clock.
+    const buf = new Float32Array(4096), sr = this.ctx.sampleRate, C = Math.fround(1 - Math.fround(Math.exp(-5 / sr)));
+    const fader = () => ({ cur: -140, shown: -140, held: -140, holding: false, t: null, ht: 0 });
+    const feed = (f, x, now) => {
+      f.cur = x > 1e-12 ? Math.max(10 * Math.log10(x), -140) : -140;
+      const fall = f.t === null ? 0 : (now - f.t) * 0.075;
+      f.shown = Math.max(f.cur, f.shown - fall);
+      if (f.cur >= f.held) { f.held = f.cur; f.holding = true; f.ht = now; }
+      else if (f.holding && now - f.ht > 10000) f.held -= fall;
+      if (f.held < -140) { f.held = -140; f.holding = false; }
+      f.t = now;
+    };
     const loop = () => {
       if (!this.playing) return;
+      const now = Math.floor(performance.now()), at = Math.round(this.ctx.currentTime * sr);
       for (const [t, n] of this.nodes) {
-        if (!t._meter || !t._meter.isConnected) continue;
-        const m = t._meter, cv = m.querySelector('canvas.vu'); if (!cv) continue;
-        const ctx = cv.getContext('2d'), now = performance.now();
-        m._hold ||= [{ db: -140, at: 0 }, { db: -140, at: 0 }];
+        const st = n.meter ||= { at, ch: [0, 1].map(() => ({ ms: 0, pk: fader(), rms: fader() })) };
+        const fresh = Math.min(buf.length, Math.max(0, at - st.at)); st.at = at;
         [n.anL, n.anR].forEach((an, i) => {
+          const ch = st.ch[i]; let pk = 0, mx = 0, ms = ch.ms;
           an.getFloatTimeDomainData(buf);
-          let pk = 0, sq = 0; for (let k = 0; k < buf.length; k++) { const v = Math.abs(buf[k]); if (v > pk) pk = v; sq += v * v; }
-          const db = pk > 0 ? 20 * Math.log10(pk) : -140, rms = sq > 0 ? 10 * Math.log10(sq / buf.length) : -140, H = m._hold[i];
-          if (db >= H.db || now - H.at > 1000) { H.db = db; H.at = now; }
-          drawVu(ctx, i * 4, cv.height, m._sep, db, rms, H.db);
+          for (let k = buf.length - fresh; k < buf.length; k++) {
+            const p = Math.fround(buf[k] * buf[k]);
+            if (p > pk) pk = p;
+            ms = Math.fround(ms + Math.fround(Math.fround(p - ms) * C));
+            if (ms > mx) mx = ms;
+          }
+          ch.ms = ms;
+          feed(ch.pk, pk, now); feed(ch.rms, Math.fround(mx + mx), now);
         });
+        if (!t._meter || !t._meter.isConnected) continue;
+        const cv = t._meter.querySelector('canvas.vu'); if (!cv) continue;
+        const ctx = cv.getContext('2d');
+        st.ch.forEach((ch, i) => drawVu(ctx, i * 4, cv.height, t._meter._sep, ch.pk.shown, ch.rms.shown, ch.pk.held));
       }
       // MIDI tracks: the converter (0x14317ace0) maps velocity linearly onto the dots and keeps at least one lit while
       // anything plays; the held dot sits at the loudest velocity of the last second, in 255,173,86 (running Live).
       // Live's level decay is not traced: the page lights the bottom dot while notes sound.
-      const b = this.beatNow(), now = performance.now();
+      const b = this.beatNow();
       for (const t of set.tracks) {
         if (t.type !== 'midi' || !t._hd) continue;
         const dots = [...t._hd.querySelectorAll('[data-ic="hd_midiDot"]')], n = dots.length; if (!n) continue;
