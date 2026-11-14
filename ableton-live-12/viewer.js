@@ -723,7 +723,7 @@ let selected = null;
 // Live's zoom for a new Set: one bar = 15.6896 px (fitted to all 84 grid lines of the reference screenshot:
 // 1314 px of lanes show 335 beats)
 const DEFAULT_PPB = 1314 / 335;
-const view = { beat0: 0, ppb: DEFAULT_PPB, insert: 0 };
+const view = { beat0: 0, ppb: DEFAULT_PPB, insert: 0, ext: null, range: null };
 const HW = 292;  // track header width incl. its 2 px divider
 const FONT = '10px "Ableton Sans Small"';
 
@@ -962,6 +962,49 @@ function layoutCanvases() {
 const xOf = b => (b - view.beat0) * view.ppb;
 const bOf = x => view.beat0 + x / view.ppb;
 const beatsPerBar = () => set ? set.sig.num * 4 / set.sig.den : 4;
+
+// The Arrangement's time range, from Live 12.0's exe (addresses in "Ableton Live 12 Suite.exe", image base 0x140000000).
+// ASongArrangerMediator (vtable 0x145cb9570) gives the range the Arrangement and the Overview map: start = 0
+// (slot 9, 0x143b542a0) and end = max(S, visible end) (slot 6, 0x143b541b0), where visible end = the time at the
+// last visible pixel ([LArrangerScrollable+0x140], written by 0x1437fe820) and S = the transport's extent
+// (ATransport+0x200). 0x142f93db0 updates S: cand = clamp(songEnd + 32, 232, 15768000) (constants 0x145e953e0,
+// 0x145e956b8, 0x145e95d00), adopted only if cand <= S - 32 or cand >= S + 16 (0x145e952c8).
+// songEnd (0x142f90740) = max(arrangement content end ([ATransport+0x978]), current song time (ACurrentTime),
+// loop end, end of the time selection (ATimeSelection; the insert marker is a selection of length 0),
+// [LCuePointManager+0x110]). Values read in the running Live (empty Set, playhead 113.04, loop 8..24, insert 109):
+// S = 232, content end 0, so S = the 232 floor.
+const EXT_MIN = 232, EXT_PAD = 32, EXT_SHRINK = 32, EXT_GROW = 16, EXT_MAX = 15768000;
+function songEnd() {
+  let e = 0;
+  for (const t of [...set.tracks, ...set.returns]) for (const c of [...t.clips, ...t.freezeClips]) e = Math.max(e, c.end);
+  for (const l of set.locators) e = Math.max(e, l.time);   // cue points: [LCuePointManager+0x110] (see notes)
+  return Math.max(e, engine.playing ? engine.beatNow() : view.insert, set.loop.start + set.loop.length, view.insert);
+}
+function updateExtent() {
+  const c = clamp(songEnd() + EXT_PAD, EXT_MIN, EXT_MAX);
+  if (view.ext == null || c <= view.ext - EXT_SHRINK || c >= view.ext + EXT_GROW) view.ext = c;
+}
+const rangeEnd = () => Math.max(view.ext ?? EXT_MIN, bOf(lanesWidth() - 1));
+// Zoom limits. 0x1437ff9b0 (LArrangerScrollable slot 180) sets the content width to clamp(viewport width x factor,
+// viewport width, 1073740823 px) (constant 0x145e95e60), and LBeatTimeViewPosConverter::setWidth (0x1431f78d0)
+// maps the range onto it: beats per pixel = range / (width - 1). So fully zoomed out the whole range fills the
+// lanes, and the deepest zoom puts the range on 1073740823 px.
+const ZOOM_MAX_W = 1073740823;
+function setZoom(ppb, anchorX) {
+  const vw = lanesWidth(), r = rangeEnd(), b = bOf(anchorX);
+  view.ppb = clamp(ppb, (vw - 1) / r, (ZOOM_MAX_W - 1) / r);
+  view.beat0 = b - anchorX / view.ppb;
+  view.range = r;
+  clampScroll();
+}
+// The scroll offset is clamped to the content (0x1437ff5e0): content left edge <= 0 <= content right edge - viewport,
+// i.e. 0 <= beat0 <= range - (viewport - 1) / ppb. (Checked in Live: dragging the ruler right stops with beat 232,
+// the end of S, at the right edge.) The range is the one the content width was last set from (at the last zoom),
+// or S if that has grown since; how Live resizes the content when S changes between zooms is not traced.
+function clampScroll() {
+  const r = Math.max(view.ext ?? EXT_MIN, view.range ?? 0);
+  view.beat0 = clamp(view.beat0, 0, Math.max(0, r - (lanesWidth() - 1) / view.ppb));
+}
 
 // Grid, tiles and ruler labels follow Ableton's own algorithm (Push's Ableton/Grid/beatTimeGridUtils.js:
 // grid thinning by doubling, tiles = one beat or powers of 4 bars, labels = beats or powers of 2 bars).
@@ -1268,9 +1311,9 @@ function drawSongRuler() {
 
 // Overview strip above the ruler, framed in MainViewFocusIndicator grey
 const OV_ROWS = [0x36, 0x36, 0x29, 0x31, 0x36, 0x2d, 0x2d, 0x36, 0x31, 0x29, 0x36, 0x36];
-// Beats the Overview spans. Live shows the visible range as a frame inside it; how Live sizes the whole
-// span is not known (unverified): here the larger of the Set's length and the visible range.
-function overviewSpan() { return Math.max(set ? set.end + beatsPerBar() : 16, bOf(lanesWidth())); }
+// Beats the Overview spans: AAllTracksOverview (0x143add010) takes the mediator's range end (vslot 0x30 =
+// ASongArrangerMediator slot 6, see rangeEnd) as its span from 0 and its own width / span as px per beat.
+function overviewSpan() { return set ? rangeEnd() : 16; }
 function drawOverview() {
   const W = $('#arrangement').clientWidth, ctx = ovCanvas.getContext('2d');
   const F = T.MainViewFocusIndicator;
@@ -1317,8 +1360,8 @@ function drawAll() {
   rafPending = true;
   requestAnimationFrame(() => {
     rafPending = false;
-    // The Arrangement starts at bar 1: Live never scrolls to negative time (the user, about Live 12)
-    view.beat0 = Math.max(0, view.beat0);
+    // The Arrangement starts at bar 1 and ends at the range end (clampScroll, 0x1437ff5e0)
+    updateExtent(); clampScroll();
     const tr = $('#tracks'), pn = $('#pinned');
     drawLanes(lanesCanvas.getContext('2d'), rows, tr.scrollTop, tr.clientHeight, false);
     drawLanes(pinCanvas.getContext('2d'), pinnedRows, pn.scrollTop, pn.clientHeight, true);
@@ -1655,22 +1698,19 @@ function setupInteraction() {
   pinned.addEventListener('scroll', drawAll);
   addEventListener('resize', layoutAfterResize);
 
-  const zoomAt = (x, factor) => {
-    const b = bOf(x);
-    view.ppb = clamp(view.ppb * factor, 0.05, 2000);
-    view.beat0 = b - x / view.ppb;
-    drawAll();
-  };
+  const zoomAt = (x, factor) => { setZoom(view.ppb * factor, x); drawAll(); };
   const onWheel = (e, area) => {
     if (!set) return;
     const rect = area.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    // Ctrl+wheel: x2.25 per wheel notch (100 px of deltaY), measured in Live 12
-    if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoomAt(x, Math.pow(2.25, -e.deltaY / 100)); return; }
+    // Ctrl+wheel: LArrangerScrollable slot 105 (0x143b09990) zooms by pow(1.5, 0.1 x delta) (constants 0x145e94e48,
+    // 0x145e94528) through 0x1437fe250, keeping the time under the mouse in place. One wheel notch arrives there as
+    // delta 20 (read in the running Live), so x2.25 per notch; a notch is taken as 100 px of browser deltaY.
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoomAt(x, Math.pow(1.5, 0.1 * 20 * -e.deltaY / 100)); return; }
     if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
       e.preventDefault();
       view.beat0 += (e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX) / view.ppb;
-      view.beat0 = Math.max(0, view.beat0);
+      clampScroll();
       drawAll();
     }
   };
@@ -1678,6 +1718,15 @@ function setupInteraction() {
   $('#ruler').addEventListener('wheel', e => onWheel(e, $('#ruler')), { passive: false });
   $('#songruler').addEventListener('wheel', e => onWheel(e, $('#songruler')), { passive: false });
 
+  // Drag zoom/scroll of the beat-time ruler and the Overview: both end in LArrangerScrollable slot 181
+  // (0x1437ff6a0, traced in the running Live for both), once per mouse move with that move's (dx, dy) in px:
+  // if |dx| > |dy| it scrolls by dx (0x1437ff5e0), otherwise it zooms the content width by (1 + 0.01 x dy)
+  // (constant 0x145e940c0; drag down = zoom in) about the anchor time [+0x120], which the press sets to the time
+  // under the mouse (0x1437ffc00, mode 2), keeping that time's screen position (0x1437ff9b0).
+  const dragDelta = (dx, dy, anchorB) => {
+    if (Math.abs(dx) > Math.abs(dy)) { view.beat0 -= dx / view.ppb; clampScroll(); }
+    else setZoom(view.ppb * Math.max(0, 1 + 0.01 * dy), xOf(anchorB));
+  };
   // Ruler: click sets the start position; drag up/down zooms, left/right scrolls (like Live)
   const ruler = $('#ruler');
   ruler.addEventListener('pointerdown', e => {
@@ -1691,8 +1740,7 @@ function setupInteraction() {
       const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
       if (Math.abs(ev.clientX - e.clientX) + Math.abs(ev.clientY - y0) > 3) moved = true;
       if (!moved) return;
-      view.ppb = clamp(view.ppb * Math.exp(dy * 0.012), 0.05, 2000);
-      view.beat0 = anchorB - (x0 + (ev.clientX - e.clientX)) / view.ppb;
+      dragDelta(dx, dy, anchorB);
       lastX = ev.clientX; lastY = ev.clientY;
       drawAll();
     };
@@ -1703,7 +1751,7 @@ function setupInteraction() {
     ruler.addEventListener('pointermove', move); ruler.addEventListener('pointerup', up);
   });
   // "If nothing is selected, double-clicking the beat-time ruler zooms out to show the entire Arrangement" (manual, Layout)
-  const zoomAll = () => { view.ppb = Math.min(DEFAULT_PPB, clamp(lanesWidth() / (set.end + beatsPerBar()), 0.05, 2000)); view.beat0 = 0; drawAll(); };
+  const zoomAll = () => { view.beat0 = 0; setZoom(Math.min(DEFAULT_PPB, lanesWidth() / (set.end + beatsPerBar())), 0); drawAll(); };
   ruler.addEventListener('dblclick', () => { if (set) zoomAll(); });
   // Overview: "click and drag horizontally to scroll left or right, or click and drag vertically to zoom in or out.
   // To zoom out to the full Arrangement, double-click anywhere within the black outline." (manual, Layout)
@@ -1711,12 +1759,17 @@ function setupInteraction() {
   const dragNav = (el, zoom) => el.addEventListener('pointerdown', e => {
     if (!set) return;
     el.setPointerCapture(e.pointerId);
-    const x0 = e.clientX, y0 = e.clientY, b0 = view.beat0, p0 = view.ppb;
+    const x0 = e.clientX, y0 = e.clientY, b0 = view.beat0;
+    let lastY = y0;
+    // Overview: the press anchors the time under the mouse in the Overview's mapping (seen in Live: x 800 -> beat 68.46
+    // of a 232-beat range), vertical moves zoom through slot 181 as on the ruler (see dragDelta)
+    const r = el.getBoundingClientRect(), anchorB = zoom ? (x0 - r.left - 1) / (r.width - 2) * overviewSpan() : 0;
     ovMoved = false;
     const move = ev => {
       if (Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) > 3) ovMoved = true; else return;
-      if (zoom) view.ppb = clamp(p0 * Math.exp((ev.clientY - y0) * 0.012), 0.05, 2000);
+      if (zoom) { const dy = ev.clientY - lastY; lastY = ev.clientY; if (dy) setZoom(view.ppb * Math.max(0, 1 + 0.01 * dy), xOf(anchorB)); }
       view.beat0 = b0 - (ev.clientX - x0) / view.ppb;
+      clampScroll();
       drawAll();
     };
     const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); };
@@ -1775,10 +1828,12 @@ function setupInteraction() {
       if (engine.playing) engine.stop(); else engine.play(view.insert);
     }
     if (e.key === 'Home') { setInsert(0); }
-    // Live 12 manual, Keyboard Shortcuts: + / - zoom (x1.6 per press, measured in Live 12), S solo, 0 deactivate, U fold/unfold, F1-F8 Track Activators
+    // Live 12 manual, Keyboard Shortcuts: + / - zoom, S solo, 0 deactivate, U fold/unfold, F1-F8 Track Activators.
+    // Zoom keys: LArrangerView slot 210 (0x143ac5990) -> 0x1437fe1c0 with 1.6 / 0.625 (0x145e94e70 / 0x145e94ad0),
+    // about the centre of the visible range (0x1437fe2e0)
     const w = lanesWidth() / 2;
-    if (e.key === '+' || e.key === '=') { const c = bOf(w); view.ppb = clamp(view.ppb * 1.6, 0.05, 20000); view.beat0 = c - w / view.ppb; drawAll(); }
-    if (e.key === '-') { const c = bOf(w); view.ppb = clamp(view.ppb / 1.6, 0.05, 20000); view.beat0 = c - w / view.ppb; drawAll(); }
+    if (e.key === '+' || e.key === '=') { setZoom(view.ppb * 1.6, w); drawAll(); }
+    if (e.key === '-') { setZoom(view.ppb * 0.625, w); drawAll(); }
     if (selected && !e.ctrlKey && !e.altKey && !e.metaKey) {
       if (e.key === 's' || e.key === 'S') { const was = selected.mixer.solo; for (const o of allTracks()) o.mixer.solo = false; selected.mixer.solo = !was; refreshMixer(); }
       if (e.key === '0') { selected.mixer.on = !selected.mixer.on; refreshMixer(); }
@@ -1986,8 +2041,9 @@ function showSet() {
   selected = null;
   buildRows();
   // Live's default zoom; zoomed out further only if the song would not fit
-  view.ppb = Math.min(DEFAULT_PPB, clamp(lanesWidth() / (set.end + beatsPerBar()), 0.05, 200));
-  view.beat0 = 0;
+  view.beat0 = 0; view.ext = null; view.range = null; updateExtent();
+  view.ppb = Math.min(DEFAULT_PPB, lanesWidth() / (set.end + beatsPerBar()));
+  setZoom(view.ppb, 0);
   // sample rate from the first frozen file
   const any = set.tracks.flatMap(t => t.freezeClips).find(c => c.file) || set.tracks.flatMap(t => t.clips).find(c => c.file);
   if (any) getSource(any.file).then(s => { if (s) $('#cb-sr').textContent = (s.sr / 1000).toFixed(1).replace(/\.0$/, '') + ' kHz'; });
