@@ -625,7 +625,7 @@ document.documentElement.style.setProperty('--title-sel-dark', rgbHex(hexRGB(T.S
 // ArrangerGridTiles; sampled lines over #323232 / #363636 are #2c2c2c / #303030 (0.375) and #282828 / #2b2b2b (0.666).)
 const GRID_LEVEL = [0.375, 0.666, 1];
 const gridAlpha = (hex, f) => hex.slice(0, 7) + Math.trunc(parseInt(hex.slice(7, 9) || 'ff', 16) * f).toString(16).padStart(2, '0');
-const gridLine = (sel, tiled, level = 2) => { const l = over(sel ? T.SurfaceHighlight : T.SurfaceBackground, gridAlpha(T.GridLineBase, GRID_LEVEL[level]), Math.floor); return tiled ? over(l, T.ArrangerGridTiles) : l; };
+const gridLine = (sel, tiled, level = 2) => { const l = over(sel === 'time' ? T.SelectionBackground : sel ? T.SurfaceHighlight : T.SurfaceBackground, gridAlpha(T.GridLineBase, GRID_LEVEL[level]), Math.floor); return tiled ? over(l, T.ArrangerGridTiles) : l; };
 const gridLevel = b => { const on = u => Math.abs(b / u - Math.round(b / u)) < 1e-6; return on(beatsPerBar()) ? 2 : on(beatLen()) ? 1 : 0; };
 // a track's dark contrast colour on its own colour (fold button, name): the track colour at 26.7%
 const darkOf = hex => rgbHex(hexRGB(hex).slice(0, 3).map(v => v * 0.267));
@@ -1489,9 +1489,13 @@ function rulerLabel(b) {
   return `${bar + 1}.${bt + 1}.${six + 1}`;
 }
 // lane background: tiles (the first, from bar 1, darker) and grid lines
+// sel: false = lane, true = selected track's lane, 'time' = time selection (running Live: SelectionBackground #b0ddeb,
+// with the same tile shade (ArrangerGridTiles) and grid lines (GridLineBase) laid over it: 176,221,235 / 160,200,213 /
+// grid 120,150,159 and 109,136,144 on the shaded tile)
 function drawZebra(ctx, w, y, h, sel) {
   const block = tileBeats(), b1 = bOf(w);
-  const light = sel ? C.highlight : C.surface, dark = sel ? C.tileSel : C.tile;
+  const light = sel === 'time' ? T.SelectionBackground : sel ? C.highlight : C.surface;
+  const dark = sel === 'time' ? over(T.SelectionBackground, T.ArrangerGridTiles) : sel ? C.tileSel : C.tile;
   for (let b = Math.floor(view.beat0 / block) * block; b < b1; b += block) {
     const k = Math.round(b / block);
     const x0 = Math.round(xOf(b)), x1 = Math.round(xOf(b + block));
@@ -1533,6 +1537,10 @@ function drawLanes(ctx, list, scrollTop, viewH, pinned) {
     if (y > viewH || y + r.h < 0) continue;
     const t = r.track, h = r.h - SEP;
     if (t === selected) drawZebra(ctx, w, y, h, true);
+    if (view.tsel && view.tsel.tracks.includes(t)) {
+      const x0 = Math.round(xOf(view.tsel.b0)), x1 = Math.round(xOf(view.tsel.b1));
+      ctx.save(); ctx.beginPath(); ctx.rect(x0, y, x1 - x0, h); ctx.clip(); drawZebra(ctx, w, y, h, 'time'); ctx.restore();
+    }
     if (t.type === 'group') drawGroupSummary(ctx, t, y, h, w);
     else for (const c of t.clips) {
       const x0 = xOf(c.start), x1 = xOf(c.end);
@@ -1541,7 +1549,7 @@ function drawLanes(ctx, list, scrollTop, viewH, pinned) {
     }
     ctx.fillStyle = C.area; ctx.fillRect(0, y + h, w, SEP);
     // the insert marker's cursor line in the selected track
-    if (t === selected && !engine.playing && !pinned) cursorAt = { x: Math.round(xOf(view.insert)), y, h };
+    if (t === selected && !engine.playing && !pinned && !view.tsel) cursorAt = { x: Math.round(xOf(view.insert)), y, h };
   }
   if (pinned) { ctx.fillStyle = C.area; ctx.fillRect(0, 0, w, 3); }
   else if (viewH - end > 30) {
@@ -1700,9 +1708,16 @@ function drawRuler() {
     if (l.name) ctx.fillText(l.name, x + 8, 31);
   }
   // insert / start marker: a 7 px wide downward triangle at the bottom
-  const ix = Math.round(xOf(view.insert));
-  ctx.fillStyle = C.insert;
-  for (let k = 0; k < 4; k++) ctx.fillRect(ix - 3 + k, 41 + k, 7 - 2 * k, 1);
+  if (view.tsel) {
+    // a time selection shows two 4 px wedges instead, ending at its start and starting at its end (running Live)
+    const x0 = Math.round(xOf(view.tsel.b0)), x1 = Math.round(xOf(view.tsel.b1));
+    ctx.fillStyle = T.SelectionBackground;
+    for (let k = 0; k < 4; k++) { ctx.fillRect(x0 - 3 + k, 41 + k, 4 - k, 1); ctx.fillRect(x1, 41 + k, 4 - k, 1); }
+  } else {
+    const ix = Math.round(xOf(view.insert));
+    ctx.fillStyle = C.insert;
+    for (let k = 0; k < 4; k++) ctx.fillRect(ix - 3 + k, 41 + k, 7 - 2 * k, 1);
+  }
   if (engine.playing) { const px = Math.round(xOf(engine.beatNow())); ctx.fillStyle = '#ffffff'; ctx.fillRect(px, 22, 1, h - 22); }
 }
 // Left end of the loop brace, 10 x 11 px of LoopColor coverage measured from Live (the right end is its mirror image)
@@ -2249,7 +2264,26 @@ function setupInteraction() {
     // 4 Audio and set the insert marker there)
     const r = list.find(r => y >= r.y && y < r.y + r.h) || (list.length && y >= list[list.length - 1].y ? list[list.length - 1] : null);
     if (r) select(r.track);
-    setInsert(snap(bOf(x), e.altKey));
+    view.tsel = null;
+    const b0 = snap(bOf(x), e.altKey);
+    setInsert(b0);
+    // dragging makes a time selection over the tracks between the press and the pointer, from grid line to grid line
+    // (running Live: "Time Selection     Start: 14.1.1     End: 33.1.1     Length: 19.0.0  (Duration: 0:38)", word gaps
+    // measured 14 px = five spaces, 6 px before "(Duration")
+    const x00 = e.clientX;
+    const mv = ev => {
+      if (ev.clientX === x00 && !view.tsel) return;
+      const b1 = snap(bOf(ev.clientX - rect.left), ev.altKey), yy = ev.clientY - rect.top + area.scrollTop;
+      const r2 = list.find(q => yy >= q.y && yy < q.y + q.h) || (yy < 0 ? list[0] : list[list.length - 1]);
+      const i0 = list.indexOf(r), i1 = list.indexOf(r2);
+      const tracks = r && r2 ? list.slice(Math.min(i0, i1), Math.max(i0, i1) + 1).map(q => q.track) : [];
+      if (b1 === b0) { if (view.tsel) { view.tsel = null; setInsert(b0); } return; }
+      view.tsel = { b0: Math.min(b0, b1), b1: Math.max(b0, b1), tracks };
+      if (r2 && r2.track !== selected) select(r2.track);   // the track under the pointer becomes the selected one (running Live)
+      timeSelStatus(); drawAll();
+    };
+    const upf = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', upf); };
+    addEventListener('mousemove', mv); addEventListener('mouseup', upf);
   };
   tracks.addEventListener('mousedown', e => {
     // [Ctrl + Alt + Drag] Scroll Display (Live 12 Info View, Main Lane)
@@ -2480,6 +2514,10 @@ function refreshMixerClasses() {
 function focusControl(el) {
   document.querySelectorAll('.btn.focus').forEach(b => b !== el && b.classList.remove('focus'));
   if (el) el.classList.add('focus');
+}
+function timeSelStatus() {
+  const { b0, b1 } = view.tsel, sec = Math.floor(tempoMap.sec(b1) - tempoMap.sec(b0) + 1e-6);
+  status(`Time Selection     Start: ${fmtPos(b0).join('.')}     End: ${fmtPos(b1).join('.')}     Length: ${fmtLen(b1 - b0).join('.')}  (Duration: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')})`);
 }
 function setInsert(b) {
   view.insert = b;
