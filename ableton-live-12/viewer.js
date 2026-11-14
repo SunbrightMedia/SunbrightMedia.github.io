@@ -1053,13 +1053,17 @@ function canvasInfoAt(x, y, t) {
   }
   return null;
 }
-document.addEventListener('mousemove', e => {
-  const t = e.target; if (!t?.closest) return;
-  let key = canvasInfoAt(e.clientX, e.clientY, t);
-  if (key == null) key = infoAt(e.clientX, e.clientY);
+function hoverInfo(x, y, t) {
+  if (!t?.closest) return;
+  let key = canvasInfoAt(x, y, t);
+  if (key == null) key = infoAt(x, y);
   if (key && !(INFO[key] || INFO_HTML[key])) key = '';
   if (showInfo.cur !== key) showInfo(key);
-});
+}
+document.addEventListener('mousemove', e => hoverInfo(e.clientX, e.clientY, e.target));
+// a drag (splitter, scroll bar) keeps the Info View on what was pressed; on release it follows the element now under
+// the pointer (running Live, browser splitter dragged until the browser hides, released over a lane: "Main Lane")
+document.addEventListener('pointerup', e => requestAnimationFrame(() => hoverInfo(e.clientX, e.clientY, document.elementFromPoint(e.clientX, e.clientY))), true);
 // Info View texts that are not plain lines: bullet lists as Live lays them out (running Live, "Clip/Device Drop Area":
 // a 3 x 3 px square 2 px right of the paragraph's left edge, item text 11 px right of it, items 2 px and 4 px further apart)
 const INFO_HTML = {
@@ -1246,13 +1250,23 @@ function laneH(t) { return (t.unfolded ? laneContentH(t.laneHeight) : FOLDED_H) 
 // Optimize Arrangement Height (H): the unfolded tracks all get the tallest lane height of the 17 px series (17 k + 18)
 // for which they fit the track area together with the folded ones (running Live, empty template Set in a 574 px track
 // area: four tracks 86 -> 137 px, i.e. k = floor((574 / 4 - 2 - 18) / 17) = 7).
+// Like W it is a toggle whose button stays lit while on (handler 0x143ac55f0 -> 0x143af3570, flag byte [+0x70]; running
+// Live, Clips2 Set: first press 4 tracks to the track area and H lit, second press the old heights back and H unlit).
+let heightPrev = null;
 function optimizeHeight() {
   if (!set) return;
+  if (heightPrev) {
+    for (const [t, h] of heightPrev) t.laneHeight = h;
+    heightPrev = null; $('#songruler [data-info="Optimize Arrangement Height"]').classList.remove('on');
+    buildRows(); drawAll(); return;
+  }
   const vis = set.tracks.filter(isVisible), open = vis.filter(t => t.unfolded);
   if (!open.length) return;
   const avail = $('#tracks').clientHeight - (vis.length - open.length) * (FOLDED_H + SEP);
   const k = Math.max(1, Math.floor((avail / open.length - SEP - 18) / 17));
+  heightPrev = new Map(set.tracks.map(t => [t, t.laneHeight]));
   for (const t of open) t.laneHeight = 17 * k;
+  $('#songruler [data-info="Optimize Arrangement Height"]').classList.add('on');
   buildRows(); drawAll();
 }
 // Optimize Arrangement Width (W), from Live 12.0's exe: the handler (0x143ac5480) is a toggle. The first press keeps
@@ -1263,8 +1277,10 @@ function optimizeHeight() {
 let widthPrev = null;
 function optimizeWidth() {
   if (!set) return;
+  // the handler sets its flag [+0x90] and passes it to the button ([vt+0x240], 0x143ac5554..0x143ac556c): W lit while on
+  const btn = $('#songruler [data-info="Optimize Arrangement Width"]');
   if (widthPrev) {
-    Object.assign(view, widthPrev); widthPrev = null;
+    Object.assign(view, widthPrev); widthPrev = null; btn.classList.remove('on');
     clampScroll(); drawAll(); return;
   }
   let s = Infinity, e = -Infinity;
@@ -1273,7 +1289,7 @@ function optimizeWidth() {
   const bar = beatsPerBar(), eps = 2.6015651015651016e-07;
   const t0 = Math.max(0, Math.floor((Math.max(0, Math.floor(s / bar) * bar) - eps) / bar) * bar);
   const t1 = Math.ceil((Math.max(0, Math.ceil(e / bar) * bar) + eps) / bar) * bar;
-  widthPrev = { beat0: view.beat0, ppb: view.ppb, range: view.range };
+  widthPrev = { beat0: view.beat0, ppb: view.ppb, range: view.range }; btn.classList.add('on');
   const r = rangeEnd(), vw = lanesWidth();
   const w = clamp(Math.round(vw * r / (t1 - t0)), vw, ZOOM_MAX_W);
   view.ppb = (w - 1) / r; view.range = r; view.beat0 = t0;
