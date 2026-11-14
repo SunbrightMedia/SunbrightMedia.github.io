@@ -534,36 +534,66 @@ async function getSource(path) {
   return src;
 }
 
-// Waveform overview: min/max per block of frames, per channel
-const PEAK_BLOCK = 256;
-const peaks = new Map(); // path → { blocks, ch, min: Int8Array[], max: Int8Array[] }
+// Waveform data: min/max of the samples per block of 2^k frames, per channel (float, as Live keeps them). Level 4
+// (16 frames) is computed once per file; coarser levels are pairs of finer ones, finer than 16 frames is read from the
+// samples when drawn.
+const PEAK_BLOCK = 16;
+const peaks = new Map(); // path -> { ch, sr, frames, done, lv: [{ min: Float32Array[], max: Float32Array[] }] (index k - 4) }
 async function computePeaks(path) {
   if (peaks.has(path)) return peaks.get(path);
   const src = await getSource(path);
   if (!src) { peaks.set(path, null); return null; }
   const blocks = Math.ceil(src.frames / PEAK_BLOCK), ch = Math.min(src.ch, 2);
-  const pk = { blocks, ch, sr: src.sr, min: [], max: [], done: 0 };
-  for (let c = 0; c < ch; c++) { pk.min.push(new Int8Array(blocks)); pk.max.push(new Int8Array(blocks)); }
+  const pk = { ch, sr: src.sr, frames: src.frames, src, done: 0, blocks, lv: [{ min: [], max: [] }] };
+  for (let c = 0; c < ch; c++) { pk.lv[0].min.push(new Float32Array(blocks)); pk.lv[0].max.push(new Float32Array(blocks)); }
   peaks.set(path, pk);
-  const per = 2048; // blocks per slice, then yield to keep the page responsive
+  const per = 8192; // blocks per slice, then yield to keep the page responsive
   for (let b0 = 0; b0 < blocks; b0 += per) {
     const nb = Math.min(per, blocks - b0);
     const data = src.read(b0 * PEAK_BLOCK, nb * PEAK_BLOCK);
     for (let c = 0; c < ch; c++) {
-      const d = data[c], mn = pk.min[c], mx = pk.max[c];
+      const d = data[Math.min(c, data.length - 1)], mn = pk.lv[0].min[c], mx = pk.lv[0].max[c];
       for (let b = 0; b < nb; b++) {
-        let lo = 1, hi = -1;
+        let lo = Infinity, hi = -Infinity;
         const e = Math.min(d.length, (b + 1) * PEAK_BLOCK);
-        for (let i = b * PEAK_BLOCK; i < e; i++) { const v = d[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+        for (let i = b * PEAK_BLOCK; i < e; i++) { const s = d[i]; if (s < lo) lo = s; if (s > hi) hi = s; }
         if (lo > hi) lo = hi = 0;
-        mn[b0 + b] = Math.round(clamp(lo, -1, 1) * 127);
-        mx[b0 + b] = Math.round(clamp(hi, -1, 1) * 127);
+        mn[b0 + b] = lo; mx[b0 + b] = hi;
       }
     }
-    pk.done = b0 + nb;
+    pk.done = b0 + nb; pk.lv.length = 1;   // coarser levels are rebuilt from the new data
     await new Promise(r => setTimeout(r, 0));
   }
   return pk;
+}
+// min / max of block j at level k (blocks of 2^k frames) for channel c; 0 outside the file
+function peakLevel(pk, k) {
+  if (k < 4) return null;
+  while (pk.lv.length <= k - 4) {
+    const p = pk.lv[pk.lv.length - 1], n = Math.ceil(p.min[0].length / 2), q = { min: [], max: [] };
+    for (let c = 0; c < pk.ch; c++) {
+      const a = p.min[c], b = p.max[c], mn = new Float32Array(n), mx = new Float32Array(n);
+      for (let j = 0; j < n; j++) {
+        const j2 = 2 * j, has2 = j2 + 1 < a.length;
+        mn[j] = has2 ? Math.min(a[j2], a[j2 + 1]) : a[j2]; mx[j] = has2 ? Math.max(b[j2], b[j2 + 1]) : b[j2];
+      }
+      q.min.push(mn); q.max.push(mx);
+    }
+    pk.lv.push(q);
+  }
+  return pk.lv[k - 4];
+}
+function blockMinMax(pk, k, j, c) {
+  const size = 2 ** k, s0 = j * size;
+  if (j < 0 || s0 >= pk.frames) return [0, 0];
+  if (k >= 4) {
+    if (s0 >= pk.done * PEAK_BLOCK) return [0, 0];
+    const L = peakLevel(pk, k); return [L.min[c][j], L.max[c][j]];
+  }
+  const d = pk.src.read(s0, Math.min(size, pk.frames - s0)), ch = d[Math.min(c, d.length - 1)];
+  let lo = Infinity, hi = -Infinity;
+  for (const s of ch) { if (s < lo) lo = s; if (s > hi) hi = s; }
+  return lo > hi ? [0, 0] : [lo, hi];
 }
 
 // ---------------------------------------------------------------------------
@@ -1644,7 +1674,7 @@ function drawClip(ctx, c, x0, x1, y, h, w) {
     const bodyY = by + 1, bodyH = y + h - bodyY;
     drawGrid(ctx, w, bodyY, bodyH, col);
     if (c.kind === 'midi') drawNotes(ctx, c, x0, x1, bodyY, bodyH, w);
-    else drawWave(ctx, c, x0, x1, bodyY, bodyH, w);
+    else { drawWave(ctx, c, x0, x1, bodyY, bodyH, w); drawFadeWedges(ctx, c, x0, x1, bodyY, bodyH); }
     if (c.loop.on) {
       // where the loop repeats, Live marks the clip with 3 px notches under the top edge and at the bottom, not with a
       // line through it (running Live, harness clip Set: 19,41,32 on 37,255,168 and 18,41,20 on 26,255,47 = 17,17,17 at
@@ -1686,7 +1716,7 @@ function drawSelectedClip(ctx, c, x0, x1, y, h, w) {
   if (c.kind === 'midi') {
     const sb = parseInt(T.SelectionBackground.slice(1, 7), 16);
     drawNotes(ctx, c, x0, x1, bodyY, bodyH, w, 'rgb(' + [sb >> 16, (sb >> 8) & 255, sb & 255].map(v => Math.round((23 * 240 + v * 15) / 255)).join(',') + ')');
-  } else drawWave(ctx, c, x0, x1, bodyY, bodyH, w);
+  } else { drawWave(ctx, c, x0, x1, bodyY, bodyH, w); drawFadeWedges(ctx, c, x0, x1, bodyY, bodyH); }
   ctx.fillStyle = luminance(col) < 0.4 ? '#efefef' : T.ClipText;
   ctx.font = FONT; ctx.textBaseline = 'middle';
   if (c.name) ctx.fillText(c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5);
@@ -1732,40 +1762,138 @@ function drawNotes(ctx, c, x0, x1, y, h, w, fill) {
   ctx.globalAlpha = 1;
 }
 
+// Audio clip waveform, from Live 12.0's exe (LAudioClipContentView, draw 0x14382d8d0 -> 0x143831bd0):
+// - channel rects: two channels split the body at floor(h / 2) (gdb: 0..34 and 34..69 of a 69 px body); each one's
+//   centre is top + floor(h / 2) + 0.5 and its scale min(bottom - 0.5 - centre, centre - top - 0.5) (0x14382ec40),
+//   e.g. 17.5 / 16 and 51.5 / 17
+// - the data (gdb on the vertex lists 0x1444fadc0 hands to the renderer): two mip levels of min/max blocks, 2^L and
+//   2^(L+1) frames with L = floor(log2(frames per pixel)), mixed with a = log2(frames per pixel) - L: one vertex per
+//   fine block j at a x the coarse block's centre + (1 - a) x the fine block's centre (centres at start + (size - 1)
+//   / 2), values a x coarse + (1 - a) x fine (checked on every vertex of the harness loop: 512 / 256 frame blocks,
+//   a = 0.654); blocks outside the file count as silence
+// - the vertex list of each stretch of content is cut where the clip shows it, linearly interpolated there, and is
+//   0 at the clip's own start and end (its zero-length fades), except where another clip on the track joins it (gdb:
+//   "Loud" 0..8 and "Loud half" 8..16: value 0 at x 0 and at the second one's end, interpolated values where they meet
+//   and at a loop restart); straight between vertices
+// - y = centre - scale x value x clip gain, clamped to the rect +- 2, filled as one polygon per channel in
+//   WaveformColor (renderer: premultiplied 22,22,22 + destination x 16 / 256) and clipped to the channel's rect
 function drawWave(ctx, c, x0, x1, y, h, w) {
   const pk = c.file ? peaks.get(c.file) : null;
   if (!pk) return;
-  const chs = pk.ch, band = h / chs;
-  // WaveformColor (#171717 at alpha 0xef) over the clip colour, rounded down (running Live: 23,37,24 on 26,255,47)
   const wc = parseInt(T.WaveformColor.slice(1, 9), 16), wa = wc & 255, cc = parseInt((c.disabled ? T.MutedAuditionClip : c.color).slice(1, 7), 16);
-  ctx.fillStyle = 'rgb(' + [24, 16, 8].map(s => Math.floor((((wc >>> s) & 255) * wa + ((cc >> (s - 8)) & 255) * (255 - wa)) / 255)).join(',') + ')';
-  const xs = Math.max(0, Math.floor(x0)), xe = Math.min(w, Math.ceil(x1));
-  const clipStartSec = tempoMap.sec(c.start);
-  for (let x = xs; x < xe; x++) {
-    const ba = bOf(x) - c.start, bb = bOf(x + 1) - c.start;
-    let sa, sb;
-    if (c.warped) { sa = warpSec(c, contentAt(c, ba)); sb = warpSec(c, contentAt(c, bb)); }
-    else { sa = contentAt(c, tempoMap.sec(c.start + ba) - clipStartSec); sb = contentAt(c, tempoMap.sec(c.start + bb) - clipStartSec); }
-    if (sb < sa) sb = sa + (bb - ba) * 60 / tempoMap.tempoAt(c.start + ba);
-    let k0 = Math.floor(sa * pk.sr / PEAK_BLOCK), k1 = Math.ceil(sb * pk.sr / PEAK_BLOCK);
-    if (k1 <= k0) k1 = k0 + 1;
-    if (k0 >= pk.done || k1 <= 0) continue;
-    k0 = Math.max(0, k0); k1 = Math.min(pk.done, k1);
-    for (let ch = 0; ch < chs; ch++) {
-      let lo = 127, hi = -127;
-      const mn = pk.min[ch], mx = pk.max[ch];
-      const stride = Math.max(1, Math.floor((k1 - k0) / 64));
-      for (let k = k0; k < k1; k += stride) { if (mn[k] < lo) lo = mn[k]; if (mx[k] > hi) hi = mx[k]; }
-      if (lo > hi) continue;
-      // each channel's zero line on a whole row, floor(top + band x (channel + 1/2)) (running Live, 69 px body, two
-      // channels: rows 17 and 51; silence shows as that 1 px line in WaveformColor)
-      const mid = Math.floor(y + band * ch + band / 2), amp = (band / 2 - 2) * c.gain ** 0.5;
-      const top = mid - (hi / 127) * amp, bot = mid - (lo / 127) * amp;
-      ctx.fillRect(x, top, 1, Math.max(1, bot - top));
+  ctx.fillStyle = 'rgb(' + [24, 16, 8].map(s => Math.round(((wc >>> s) & 255) * wa / 255) + ((((cc >> (s - 8)) & 255) * (255 - wa)) >> 8)).join(',') + ')';
+  const chs = pk.ch, rects = chs === 1 ? [[y, y + h]] : [[y, y + Math.floor(h / 2)], [y + Math.floor(h / 2), y + h]];
+  const geo = rects.map(([t, b]) => {
+    const hh = b - t, cy = hh / 2 >= 1.5 ? Math.floor(hh / 2) + t + 0.5 : hh / 2 + t;
+    return { t, b, cy, scale: Math.min(b - 0.5 - cy, cy - (t + 0.5)) };
+  });
+  const len = c.end - c.start, gain = c.gain ?? 1, sr = pk.sr;
+  // stretches of continuous content (the loop splits the clip), joined into one vertex list per channel
+  const polys = geo.map(() => []);
+  let d = 0;
+  for (let it = 0; it < 4000 && d < len - 1e-9; it++) {
+    const e = Math.min(len, nextWrap(c, d));
+    const xa = xOf(c.start + d), xb = xOf(c.start + e);
+    if (xa > w + 2) break;
+    if (xb >= -2) {
+      // content seconds at both ends of the stretch (warp markers or tempo map)
+      const secAt = dd => c.warped ? warpSec(c, contentAt(c, dd)) : contentAt(c, tempoMap.sec(c.start + dd) - tempoMap.sec(c.start));
+      const sa = secAt(d), sb = sa + (c.warped ? warpSec(c, contentAt(c, d) + (e - d)) - warpSec(c, contentAt(c, d)) : tempoMap.sec(c.start + e) - tempoMap.sec(c.start + d));
+      const pxPerFrame = (xb - xa) / Math.max(1e-9, (sb - sa) * sr);
+      const fpp = 1 / pxPerFrame, lg = Math.log2(Math.max(1, fpp)), L = Math.floor(lg), a = lg - L;
+      const f = 2 ** L, xOfFrame = fr => xa + (fr - sa * sr) * pxPerFrame;
+      // visible part only, with a couple of blocks to spare on each side
+      const vx0 = Math.max(xa, -2), vx1 = Math.min(xb, w + 2);
+      const j0 = Math.floor((sa * sr + (vx0 - xa) / pxPerFrame) / f) - 2, j1 = Math.ceil((sa * sr + (vx1 - xa) / pxPerFrame) / f) + 2;
+      if (j1 - j0 > 200000) { d = e; continue; }
+      for (let ch = 0; ch < chs; ch++) {
+        const pts = [];
+        for (let j = j0; j <= j1; j++) {
+          const k = j >> 1, F = blockMinMax(pk, L, j, ch), C = blockMinMax(pk, L + 1, k, ch);
+          const pos = a * (k * 2 * f + (2 * f - 1) / 2) + (1 - a) * (j * f + (f - 1) / 2);
+          pts.push([xOfFrame(pos), a * C[0] + (1 - a) * F[0], a * C[1] + (1 - a) * F[1]]);
+        }
+        // cut at the stretch's ends (0 at the clip's own start)
+        const cut = (xc, zero) => {
+          let i = pts.findIndex(p => p[0] >= xc);
+          if (i < 0) i = pts.length - 1;
+          const p = pts[Math.max(0, i - 1)], q = pts[i], t = q[0] > p[0] ? (xc - p[0]) / (q[0] - p[0]) : 0;
+          return zero ? [xc, 0, 0] : [xc, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t];
+        };
+        const head = cut(xa, d === 0 && !joinedAt(c, c.start)), tail = cut(xb, Math.abs(e - len) < 1e-9 && !joinedAt(c, c.end));
+        polys[ch].push(head, ...pts.filter(p => p[0] > xa && p[0] < xb), tail);
+      }
     }
+    if (e === Infinity) break;
+    d = e;
   }
+  polys.forEach((poly, ch) => {
+    if (!poly.length) return;
+    const G = geo[ch], lo = G.t - 2, hi = G.b + 2, Y = v => clamp(G.cy - v * G.scale * gain, lo, hi);
+    ctx.save();
+    // clipped to the clip view's whole pixels (a loud clip's last, partly covered column is filled in the running Live)
+    const cx0 = Math.max(Math.round(x0), -2), cx1 = Math.min(Math.round(x1), w + 2);
+    ctx.beginPath(); ctx.rect(cx0, G.t, cx1 - cx0, G.b - G.t); ctx.clip();
+    // the renderer (ADeferredGraphPort, 0x1429f6ba0) puts every edge half a pixel further out (the outline is widened
+    // like a 1 px stroke), so silence is a 1 px line (running Live: per-column coverage along the spikes' edges); the
+    // widened outline is filled as one shape
+    const top = poly.map(p => [p[0], Y(p[2])]), bot = poly.map(p => [p[0], Y(p[1])]);
+    // offset of a polyline by half a pixel to its outer side (sgn 1: up, -1: down): convex corners bevelled, concave
+    // ones cut at the crossing of the two offset edges
+    const off = (pts, sgn) => {
+      const segs = [];
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const [ax, ay] = pts[i], [bx, by] = pts[i + 1], dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy);
+        if (l < 1e-9) continue;
+        const nx = sgn * dy / l * 0.5, ny = -sgn * dx / l * 0.5;
+        segs.push({ a: [ax + nx, ay + ny], b: [bx + nx, by + ny], d: [dx / l, dy / l] });
+      }
+      if (!segs.length) return [];
+      const out = [segs[0].a];
+      for (let i = 0; i + 1 < segs.length; i++) {
+        const s = segs[i], t = segs[i + 1], cr = s.d[0] * t.d[1] - s.d[1] * t.d[0];
+        if (cr * sgn > 1e-9 || Math.abs(cr) <= 1e-9) { out.push(s.b, t.a); continue; }
+        // concave: intersection of the two offset lines
+        const den = s.d[0] * t.d[1] - s.d[1] * t.d[0];
+        const u = ((t.a[0] - s.a[0]) * t.d[1] - (t.a[1] - s.a[1]) * t.d[0]) / den;
+        out.push([s.a[0] + s.d[0] * u, s.a[1] + s.d[1] * u]);
+      }
+      out.push(segs[segs.length - 1].b);
+      return out;
+    };
+    const T2 = off(top, 1), B2 = off(bot, -1);
+    if (!T2.length) { ctx.restore(); return; }
+    ctx.beginPath();
+    ctx.moveTo(T2[0][0] - 0.5, T2[0][1]);
+    for (const p of T2) ctx.lineTo(p[0], p[1]);
+    ctx.lineTo(T2[T2.length - 1][0] + 0.5, T2[T2.length - 1][1]);
+    ctx.lineTo(B2[B2.length - 1][0] + 0.5, B2[B2.length - 1][1]);
+    for (let i = B2.length - 1; i >= 0; i--) ctx.lineTo(B2[i][0], B2[i][1]);
+    ctx.lineTo(B2[0][0] - 0.5, B2[0][1]);
+    ctx.closePath(); ctx.fill('nonzero');
+    ctx.restore();
+  });
 }
 
+// The clip fades' marks at an audio clip's two ends (AFadesView, draw 0x143ace1a0; the clip Set's fades have length
+// 0): the body is darkened (black at alpha 39: 26,255,47 -> 22,216,39) beyond a curve that runs over the whole body
+// height from 4.25 px inside the edge to 0.25 px outside it, x = edge -+ (4.25 - 4.5 u), y = top + height (1 - cos pi u)
+// / 2. The shape is the same at every zoom (running Live, 25.7 and 54.9 px per beat); its numbers are fitted to the
+// captured pixels (residual 0.1 px^2 over 60 rows), the drawing code has not been traced.
+const joinedAt = (c, b) => { const t = set.tracks.find(t => t.clips.includes(c)); return !!t && t.clips.some(o => o !== c && (Math.abs(o.end - b) < 1e-9 || Math.abs(o.start - b) < 1e-9)); };
+function drawFadeWedges(ctx, c, x0, x1, y, h) {
+  ctx.save();
+  ctx.beginPath(); ctx.rect(Math.round(x0), y, Math.round(x1) - Math.round(x0), h); ctx.clip();
+  ctx.fillStyle = 'rgba(0,0,0,' + 39 / 255 + ')';
+  // no start mark when another clip on the track ends where this one starts (running Live: "Loud half" right after
+  // "Loud" shows none, its predecessor's end mark is there)
+  for (const [E, dir] of joinedAt(c, c.start) ? [[Math.round(x1), -1]] : [[Math.round(x0), 1], [Math.round(x1), -1]]) {
+    ctx.beginPath(); ctx.moveTo(E - dir * 2, y);
+    for (let i = 0; i <= 48; i++) { const u = i / 48; ctx.lineTo(E + dir * (4.25 - 4.5 * u), y + h * (1 - Math.cos(Math.PI * u)) / 2); }
+    ctx.lineTo(E - dir * 2, y + h); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
 // Beat-time ruler: 22 px band with bar numbers, then 23 px of lane background with the loop brace and insert marker
 function drawRuler() {
   const cv = rulerCanvas, w = lanesWidth(), h = 45, ctx = cv.getContext('2d');
