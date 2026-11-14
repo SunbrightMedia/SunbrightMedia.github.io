@@ -200,6 +200,8 @@
     /* ---------- Info view / Detail view / status bar ---------- */
     #info .title { position: absolute; left: 0; right: 0; top: 0; height: 17px; background: var(--SurfaceHighlight); line-height: 17px; padding-left: 5px; padding-top: 1px; font-weight: bold; }
     #info .body { position: absolute; font-size: 9px; font-family: "Ableton Sans Small 9", sans-serif; left: 7px; right: 3px; top: 17px; line-height: 15px; padding-top: 3px; white-space: pre; }
+    #info .body .li { position: relative; padding-left: 11px; }
+    #info .body .li::before { content: ''; position: absolute; left: 2px; top: 6px; width: 3px; height: 3px; background: currentColor; }
     #devices { position: absolute; inset: 0; display: flex; gap: 3px; padding: 3px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #555 transparent; }
     #devices .empty { position: absolute; left: 0; right: 0; top: 89px; text-align: center; line-height: 10px; pointer-events: none; }
     .device { flex: none; display: flex; flex-direction: column; background: var(--DetailViewBackground); border-radius: 3px; min-width: 150px; max-width: 620px; }
@@ -226,7 +228,7 @@
     .device .knob::after { content: ""; position: absolute; left: 50%; top: 1px; width: 2px; height: 7px; margin-left: -1px; background: var(--ChosenDefault); transform-origin: 50% 8px; transform: rotate(var(--r, 0deg)); }
 
     #statusbar { position: absolute; left: 0; right: 0; bottom: 10px; height: 19px; }
-    #status-text { position: absolute; left: 42px; right: 359px; top: 0; height: 19px; padding-left: 6px; background: var(--SurfaceBackground); border-radius: 3px; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #status-text { position: absolute; left: 42px; right: 359px; top: 0; height: 19px; padding-left: 6px; padding-top: 1px; background: var(--SurfaceBackground); border-radius: 3px; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #status-text.alert { background: var(--Alert); color: var(--ControlOnForeground); }
     #status-play { position: absolute; right: 130px; top: 0; width: 220px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; }
     #status-play .div { position: absolute; left: 19px; top: 0; width: 1px; height: 19px; background: var(--SurfaceArea); }
@@ -388,6 +390,6 @@
   <script src="icons.js?v=f3e4bd10ca"></script>
   <script src="icons-live.js?v=147810bae7"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="viewer.js?v=644a603f86"></script>
+  <script src="viewer.js?v=952209866c"></script>
 </body>
 </html>

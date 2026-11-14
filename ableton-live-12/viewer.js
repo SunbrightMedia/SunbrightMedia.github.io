@@ -66,6 +66,16 @@ function fmtVal(v) {
   if (Math.abs(n) >= 100) return n.toFixed(1);
   return String(Number(n.toFixed(3)));
 }
+function layoutStatusBar(name) {
+  const c = layoutStatusBar.c || (layoutStatusBar.c = document.createElement('canvas').getContext('2d'));
+  const cs = getComputedStyle($('#status-track'));
+  c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const area = Math.max(45, Math.round(c.measureText(name || '').width) + 13), w = 20 + area;
+  $('#status-trk').style.width = w + 'px';
+  if (getComputedStyle($('#status-play')).display === 'none') return;   // narrow (phone) layout keeps its own positions
+  $('#status-play').style.right = (56 + w + 9) + 'px';
+  $('#status-text').style.right = (56 + w + 9 + 220 + 9) + 'px';
+}
 const status = (t, alert) => { const el = $('#status-text'); el.textContent = t; el.classList.toggle('alert', !!(alert && t)); };
 
 // ---------------------------------------------------------------------------
@@ -671,6 +681,8 @@ const FILTERS = ['Content', 'Type', 'Sounds', 'Drums', 'Character', 'Devices', '
 const INFO = {
   // Info View texts as Live 12 shows them when hovering each element (read off the running Live 12; line breaks as Live wraps them)
   'Track Title Bar': 'Click to select this track; choose ‘Rename’\nfrom the Edit menu to rename the track;\nchoose ‘Delete’ to delete the track. Drag this\ntrack above or below another to reorder\nthem.\n\n[Arrow Left/Right] Fold track display in/out',
+  'Main Lane|midi': 'Displays all clips that normally play through\nthe track’s mixer. Click and drag to select\ntime, then use any available Edit menu\ncommand to edit.\n\n[Ctrl + Arrow Up/Down] Insert Clips from\nPrevious/Next Take Lane\n[Ctrl + Alt + Drag] Scroll Display\n[Ctrl + Scroll Wheel] Zoom In/Out\n[Alt + Scroll Wheel] Adjust Lane Height',
+  'Clip/Device Drop Area': ' ',
   'Main Lane': 'Displays all clips that normally play through\nthe track’s mixer. Click and drag to select\ntime, then use any available Edit menu\ncommand to edit.\n\n[Ctrl + Arrow Up/Down] Insert Clips from\nPrevious/Next Take Lane\n[Ctrl + Alt + Drag] Scroll Display\n[Ctrl + Scroll Wheel] Zoom In/Out\n[Alt + Scroll Wheel] Adjust Lane Height\nHold [F] to View and Edit Fades',
   'Beat-Time Ruler': 'Drag left/right to scroll.\nDrag up/down to zoom out/in.\nDouble-click to zoom in to the current\nselection.\n\n[+/-] Zoom In/Out\n[Ctrl + Scroll Wheel] Zoom In/Out',
   'Scrub Area': 'Click here to make playback jump to this\npoint. The size of the jump will be quantized\nby the global quantization setting.\nHold the mouse down over the scrub area to\nrepeatedly play a section the size of the\nchosen quantization setting. Set\nquantization to small settings or ‘None’ to\nscrub through the music.\n\n[Ctrl + Scroll Wheel] Zoom In/Out',
@@ -724,9 +736,29 @@ function buildStatic() {
   showInfo('Track Title Bar');
 }
 document.addEventListener('mouseover', e => { const i = e.target.closest?.('[data-info]'); if (i && i.dataset.info && INFO[i.dataset.info]) showInfo(i.dataset.info); });
-function showInfo(title) {
-  $('#info-title').textContent = title;
-  $('#info-body').textContent = INFO[title] || '';
+// the lanes: Main Lane (MIDI tracks have no fades line), and below the last track the Clip/Device Drop Area (running Live)
+document.addEventListener('mousemove', e => {
+  if (!set || !e.target.closest?.('#tracks') || e.target.closest('.theader')) return;
+  const area = $('#tracks');
+  if (e.clientX - area.getBoundingClientRect().left >= lanesWidth()) return;
+  const y = e.clientY - area.getBoundingClientRect().top + area.scrollTop;
+  const r = rows.find(r => y >= r.y && y < r.y + r.h);
+  const key = !r ? 'Clip/Device Drop Area' : r.track.type === 'midi' ? 'Main Lane|midi' : 'Main Lane';
+  if (showInfo.cur !== key) { showInfo.cur = key; showInfo(key); }
+});
+// Info View texts that are not plain lines: bullet lists as Live lays them out (running Live, "Clip/Device Drop Area":
+// a 3 x 3 px square 2 px right of the paragraph's left edge, item text 11 px right of it, items 2 px and 4 px further apart)
+const INFO_HTML = {
+  'Clip/Device Drop Area': ['You can create new tracks by dropping files\nand devices into this area:', ['Drop MIDI files, MIDI effects and\ninstruments to create MIDI tracks.', 'Drop samples and audio effects to\ncreate audio tracks.']],
+};
+function showInfo(title, shown = title.replace(/\|.*/, '')) {
+  showInfo.cur = title;
+  $('#info-title').textContent = shown;
+  const body = $('#info-body'), h = INFO_HTML[title];
+  if (!h) { body.textContent = INFO[title] || ''; return; }
+  body.textContent = '';
+  const p = document.createElement('div'); p.textContent = h[0]; body.append(p);
+  h[1].forEach((t, i) => { const li = document.createElement('div'); li.className = 'li'; li.style.marginTop = (i ? 4 : 2) + 'px'; li.textContent = t; body.append(li); });
 }
 
 // ---------------------------------------------------------------------------
@@ -776,6 +808,7 @@ function buildRows() {
   const top = document.createElement('div'); top.className = 'trow'; top.style.cssText = 'top:0;height:3px;background:var(--SurfaceArea)'; pinEl.prepend(top);
   $('#pinned').style.height = Math.min(py, 200) + 'px';
   applyIcons($('#tracks-wrap'));
+  refreshMixerClasses();
   layoutCanvases();
   drawAll();
 }
@@ -858,11 +891,12 @@ function makeRow(t, y, h, pinned) {
     const act = hctl(hd, 'act on', 175, R(0), 46, t.label);
     act.title = 'Track Activator'; act.dataset.info = 'Track Activator';
     act.classList.toggle('on', t.mixer.on);
-    act.addEventListener('mousedown', e => { e.stopPropagation(); focusControl(act); t.mixer.on = !t.mixer.on; refreshMixer(); });
+    act.addEventListener('mousedown', e => { e.stopPropagation(); setTitleSel(null); focusControl(act); t.mixer.on = !t.mixer.on; refreshMixer(); });
     const solo = hctl(hd, 'solo' + (t.mixer.solo ? ' on' : ''), 225, R(0), isRet ? 17 : 21, 'S');
     solo.title = 'Solo'; solo.dataset.info = 'Solo/Cue';
     solo.addEventListener('mousedown', e => {
       e.stopPropagation();
+      setTitleSel(null);   // Solo / Track Activator clear the title selection, the track stays selected (running Live)
       focusControl(solo);
       const was = t.mixer.solo;
       if (!(e.ctrlKey || e.metaKey)) for (const o of allTracks()) o.mixer.solo = false;
@@ -951,7 +985,12 @@ function allTracks() { return [...set.tracks, ...set.returns, set.main]; }
 function select(t) {
   selected = t;
   document.querySelectorAll('.theader').forEach(x => x.classList.toggle('sel', x._t === t));
-  $('#status-track').textContent = t ? (t.type === 'return' || t.type === 'main' ? t.name : (t.effName || t.name).replace(/ /g, '-')) : '';
+  const stName = t ? (t.type === 'main' ? t.name : (t.effName || (t.type === 'return' ? t.label + '-' + t.name : t.name)).replace(/ /g, '-')) : '';
+  $('#status-track').textContent = stName;
+  // Live sizes this box to the name: text area = text width + 13 px, right edge fixed, the Arrangement position field and the
+  // message field move with it (running Live: "1-MIDI" 45 px, "A-Reverb" 58 px; "4-Audio" 49 px, 2 px less than this
+  // rule gives - Live's own glyph advances/kerning differ slightly from the browser's)
+  layoutStatusBar(stName);
   renderDevices(t);
   drawAll();
 }
@@ -981,8 +1020,11 @@ function layoutCanvases() {
   sizeCanvas(ovCanvas, $('#arrangement').clientWidth, 14);
 }
 
-const xOf = b => (b - view.beat0) * view.ppb;
-const bOf = x => view.beat0 + x / view.ppb;
+// Live scrolls by whole pixels: a time's x is round(t / beats-per-px) (0x140e81590) minus an integer content offset
+// (LArrangerScrollable's view position), so positions are rounded in content space, then shifted.
+const scrollPx = () => Math.round(view.beat0 * view.ppb);
+const xOf = b => b * view.ppb - scrollPx();
+const bOf = x => (x + scrollPx()) / view.ppb;
 const beatsPerBar = () => set ? set.sig.num * 4 / set.sig.den : 4;
 
 // The Arrangement's time range, from Live 12.0's exe (addresses in "Ableton Live 12 Suite.exe", image base 0x140000000).
@@ -1012,9 +1054,12 @@ const rangeEnd = () => Math.max(view.ext ?? EXT_MIN, bOf(lanesWidth() - 1));
 // maps the range onto it: beats per pixel = range / (width - 1). So fully zoomed out the whole range fills the
 // lanes, and the deepest zoom puts the range on 1073740823 px.
 const ZOOM_MAX_W = 1073740823;
-function setZoom(ppb, anchorX) {
-  const vw = lanesWidth(), r = rangeEnd(), b = bOf(anchorX);
-  view.ppb = clamp(ppb, (vw - 1) / r, (ZOOM_MAX_W - 1) / r);
+function setZoom(ppb, anchorX, anchorB) {
+  const vw = lanesWidth(), r = rangeEnd(), b = anchorB ?? bOf(anchorX);
+  // the content width is a whole number of pixels (0x1437ff9b0 truncates it after rounding) and beats per pixel follow
+  // from it, so zoom steps land on (width - 1) / range exactly as in Live
+  const w0 = view.ppb * r + 1, w = clamp(Math.round(w0 * ppb / view.ppb), vw, ZOOM_MAX_W);
+  view.ppb = (w - 1) / r;
   view.beat0 = b - anchorX / view.ppb;
   view.range = r;
   clampScroll();
@@ -1774,7 +1819,7 @@ function setupInteraction() {
   pinned.addEventListener('scroll', drawAll);
   addEventListener('resize', layoutAfterResize);
 
-  const zoomAt = (x, factor) => { setZoom(view.ppb * factor, x); drawAll(); };
+  const zoomAt = (x, factor) => { x = Math.round(x); setZoom(view.ppb * factor, x, bOf(x)); drawAll(); };
   const onWheel = (e, area) => {
     if (!set) return;
     const rect = area.getBoundingClientRect();
@@ -1801,7 +1846,7 @@ function setupInteraction() {
   // under the mouse (0x1437ffc00, mode 2), keeping that time's screen position (0x1437ff9b0).
   const dragDelta = (dx, dy, anchorB) => {
     if (Math.abs(dx) > Math.abs(dy)) { view.beat0 -= dx / view.ppb; clampScroll(); }
-    else setZoom(view.ppb * Math.max(0, 1 + 0.01 * dy), xOf(anchorB));
+    else setZoom(view.ppb * Math.max(0, 1 + 0.01 * dy), Math.round(xOf(anchorB)), anchorB);   // the anchor keeps its whole-pixel x (0x1437ff9b0)
   };
   // Ruler: click sets the start position; drag up/down zooms, left/right scrolls (like Live)
   const ruler = $('#ruler');
@@ -1814,7 +1859,8 @@ function setupInteraction() {
     ruler.setPointerCapture(e.pointerId);
     const move = ev => {
       const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
-      if (Math.abs(ev.clientX - e.clientX) + Math.abs(ev.clientY - y0) > 3) moved = true;
+      // Live applies the very first move (gdb: the first delta into slot 181 was the 2 px of the first mouse move)
+      if (Math.abs(ev.clientX - e.clientX) + Math.abs(ev.clientY - y0) > 0) moved = true;
       if (!moved) return;
       dragDelta(dx, dy, anchorB);
       lastX = ev.clientX; lastY = ev.clientY;
@@ -1844,7 +1890,7 @@ function setupInteraction() {
     const r = el.getBoundingClientRect(), anchorB = zoom ? (x0 - r.left - 1) / (r.width - 2) * overviewSpan() : 0;
     ovMoved = false;
     const move = ev => {
-      if (Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) > 3) ovMoved = true; else return;
+      if (Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) > 0) ovMoved = true; else return;
       if (zoom) { dragDelta(-(ev.clientX - lastX), ev.clientY - lastY, anchorB); lastX = ev.clientX; lastY = ev.clientY; }
       else { view.beat0 = b0 - (ev.clientX - x0) / view.ppb; clampScroll(); }
       drawAll();
@@ -1914,9 +1960,11 @@ function setupInteraction() {
     // it was on screen - for the insert marker (a selection of length 0, 0x1437fe479) its start keeps its x.
     // (Seen in Live: with the insert marker at 1.1.1 on screen, + keeps bar 1 at the left edge.)
     const zoomKey = f => {
-      const w = lanesWidth(), xi = xOf(view.insert);
-      const ax = engine.playing && follow ? xOf(engine.beatNow()) : (xi >= 0 && xi <= w ? xi : Math.trunc(w / 2));
-      setZoom(view.ppb * f, ax); drawAll();
+      const w = lanesWidth(), xi = Math.round(xOf(view.insert));
+      if (engine.playing && follow) setZoom(view.ppb * f, Math.round(xOf(engine.beatNow())), engine.beatNow());
+      else if (xi >= 0 && xi <= w) setZoom(view.ppb * f, xi, view.insert);
+      else setZoom(view.ppb * f, Math.trunc(w / 2));
+      drawAll();
     };
     if (e.key === '+' || e.key === '=') zoomKey(1.6);
     if (e.key === '-') zoomKey(0.625);
@@ -1961,7 +2009,10 @@ function clampPanels() {
   const sbw = clamp(px('--sbw'), SBW_MIN, bw - SBW_RIGHT);
   if (sbw !== px('--sbw')) app.style.setProperty('--sbw', sbw + 'px');
 }
-function layoutAfterResize() { clampPanels(); if (set) { layoutCanvases(); drawAll(); } }
+// When the lanes get wider Live keeps the scroll position and zoom: the range end follows the new visible end
+// (ASongArrangerMediator slot 6 = max(S, visible end)), so nothing is clamped (running Live: hiding the browser kept bar 6
+// at the left edge)
+function layoutAfterResize() { clampPanels(); if (set) { layoutCanvases(); view.range = Math.max(view.range ?? 0, bOf(lanesWidth() - 1)); drawAll(); } }
 function focusPanel(id) {
   for (const p of ['browser', 'arrangement', 'detail']) $('#' + p).classList.toggle('focused', p === id);
 }
@@ -2004,15 +2055,17 @@ function snap(b, free) {
   return g > 0 ? Math.max(0, Math.round(b / g) * g) : Math.max(0, b);
 }
 // re-draw the Track Activator / Solo switches after a keyboard change
-function refreshMixer() {
+function refreshMixer() { refreshMixerClasses(); engine.updateMix(); }
+// soloing a track greys the other tracks' Track Activators (ControlDisabled #757575 in the running Live), also after the
+// headers are rebuilt (fold/unfold)
+function refreshMixerClasses() {
   const soloing = allTracks().some(t => t.mixer.solo);
   document.querySelectorAll('.theader').forEach(x => {
     if (!x._t) return;
     x.querySelector('.solo')?.classList.toggle('on', x._t.mixer.solo);
     const a = x.querySelector('.act');
-    if (a) { a.classList.toggle('on', x._t.mixer.on); a.classList.toggle('implicit', soloing && x._t.mixer.on); }
+    if (a) { a.classList.toggle('on', x._t.mixer.on); a.classList.toggle('implicit', soloing && x._t.mixer.on && !x._t.mixer.solo && x._t.type !== 'return'); }
   });
-  engine.updateMix();
 }
 // The 1 px ControlSelectionFrame ring Live draws around the last pressed header control (measured in Live 12)
 function focusControl(el) {
