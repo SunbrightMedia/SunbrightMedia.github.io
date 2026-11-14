@@ -1809,16 +1809,17 @@ function setupInteraction() {
     if (!set) return;
     el.setPointerCapture(e.pointerId);
     const x0 = e.clientX, y0 = e.clientY, b0 = view.beat0;
-    let lastY = y0;
+    let lastX = x0, lastY = y0;
     // Overview: the press anchors the time under the mouse in the Overview's mapping (seen in Live: x 800 -> beat 68.46
-    // of a 232-beat range), vertical moves zoom through slot 181 as on the ruler (see dragDelta)
+    // of a 232-beat range). Its moves reach slot 181 like the ruler's (see dragDelta) but with dx negated (traced in
+    // the running Live: +10 px of mouse -> dx -10, via AXBackgroundView slot 97, 0x142b110d0): the visible range
+    // moves with the mouse, 1 lane pixel per mouse pixel.
     const r = el.getBoundingClientRect(), anchorB = zoom ? (x0 - r.left - 1) / (r.width - 2) * overviewSpan() : 0;
     ovMoved = false;
     const move = ev => {
       if (Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) > 3) ovMoved = true; else return;
-      if (zoom) { const dy = ev.clientY - lastY; lastY = ev.clientY; if (dy) setZoom(view.ppb * Math.max(0, 1 + 0.01 * dy), xOf(anchorB)); }
-      view.beat0 = b0 - (ev.clientX - x0) / view.ppb;
-      clampScroll();
+      if (zoom) { dragDelta(-(ev.clientX - lastX), ev.clientY - lastY, anchorB); lastX = ev.clientX; lastY = ev.clientY; }
+      else { view.beat0 = b0 - (ev.clientX - x0) / view.ppb; clampScroll(); }
       drawAll();
     };
     const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); };
@@ -1878,11 +1879,18 @@ function setupInteraction() {
     }
     if (e.key === 'Home') { setInsert(0); }
     // Live 12 manual, Keyboard Shortcuts: + / - zoom, S solo, 0 deactivate, U fold/unfold, F1-F8 Track Activators.
-    // Zoom keys: LArrangerView slot 210 (0x143ac5990) -> 0x1437fe1c0 with 1.6 / 0.625 (0x145e94e70 / 0x145e94ad0),
-    // about the centre of the visible range (0x1437fe2e0)
-    const w = lanesWidth() / 2;
-    if (e.key === '+' || e.key === '=') { setZoom(view.ppb * 1.6, w); drawAll(); }
-    if (e.key === '-') { setZoom(view.ppb * 0.625, w); drawAll(); }
+    // Zoom keys: LArrangerView slot 210 (0x143ac5990) -> 0x1437fe1c0 with 1.6 / 0.625 (0x145e94e70 / 0x145e94ad0).
+    // 0x1437fe1c0 asks slot 187 (0x143b0aa00) for an anchor: while Follow is scrolling playback that is the play
+    // line; otherwise 0x1437fe2e0 zooms about the lanes' centre and then puts a visible time selection back where
+    // it was on screen - for the insert marker (a selection of length 0, 0x1437fe479) its start keeps its x.
+    // (Seen in Live: with the insert marker at 1.1.1 on screen, + keeps bar 1 at the left edge.)
+    const zoomKey = f => {
+      const w = lanesWidth(), xi = xOf(view.insert);
+      const ax = engine.playing && follow ? xOf(engine.beatNow()) : (xi >= 0 && xi <= w ? xi : Math.trunc(w / 2));
+      setZoom(view.ppb * f, ax); drawAll();
+    };
+    if (e.key === '+' || e.key === '=') zoomKey(1.6);
+    if (e.key === '-') zoomKey(0.625);
     if (selected && !e.ctrlKey && !e.altKey && !e.metaKey) {
       if (e.key === 's' || e.key === 'S') { const was = selected.mixer.solo; for (const o of allTracks()) o.mixer.solo = false; selected.mixer.solo = !was; refreshMixer(); }
       if (e.key === '0') { selected.mixer.on = !selected.mixer.on; refreshMixer(); }
