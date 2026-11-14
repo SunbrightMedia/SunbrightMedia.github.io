@@ -1006,41 +1006,77 @@ function clampScroll() {
   view.beat0 = clamp(view.beat0, 0, Math.max(0, r - (lanesWidth() - 1) / view.ppb));
 }
 
-// Grid, tiles and ruler labels follow Ableton's own algorithm (Push's Ableton/Grid/beatTimeGridUtils.js:
-// grid thinning by doubling, tiles = one beat or powers of 4 bars, labels = beats or powers of 2 bars).
-// The pixel thresholds are Live 12 desktop's, measured by zooming the real Live 12 step by step:
-//   grid lines need >= 14 px      (accepted 14.3 px, rejected 13.2 px)
-//   tiles need >= 85 px           (accepted 91.6, rejected 78.2; exact value between those)
-//   bar / beat labels need >= 38 px (accepted 40.2, rejected 36.6)
-//   1/8 and 1/16 labels need >= 80 px (accepted 84, rejected 77); no labels finer than 1/16
-const GRID_MIN_PX = 14, TILE_MIN_PX = 85, LABEL_MIN_PX = 38, SUBLABEL_MIN_PX = 80;
+// Grid, tiles and ruler ticks, from Live 12.0's exe (the Arrangement's beat-time grid and ruler).
 const beatLen = () => 4 / (set ? set.sig.den : 4);
-// next doubling (or 4x) of `base` that is at least `min` (beatTimeGridUtils.firstDivisionAbove)
-const firstDivisionAbove = (min, base, k) => base * Math.pow(k, Math.ceil(Math.log(min / base) / Math.log(k) - 1e-9));
+// The adaptive grid: ABeatGrid with an AFlexibleBeatGridState (vtable 0x145ae5450). Its value is a note fraction
+// num/den (den > 1) or num bars (den = 1); the step in beats is num x bar or 4 x num / den (0x1430e0520, triplets
+// off). Every zoom change runs slot 13 (0x1431dc510) with min = [ABeatGrid+0xb8] x beats per pixel, and
+// [ABeatGrid+0xb8] = 20 px (read in the running Live: the Options menu's grid width, Medium = sqrt(8 x Widest) by
+// the menu code 0x1446818d0; Narrowest = 8):
+//   coarser while step < min / sqrt 2 (0x145e94b40) and the coarser step < half the visible span ([+0xa0],
+//   0x1430e0480; 0.5 = 0x145e94a00), up to 512 bars; coarser of (n, 1) is (2n, 1), of (n, d) is (n, d / 2);
+//   finer while step > min x sqrt 2 (0x145e94e20) and the finer step > 8 px (0x1430e03b0, 8 = 0x145e951b8);
+//   finer of (1, d) is (1, 2d), of (n, d) is (n / 2, d), and (1, > 0x4000) becomes (1, 0x8000) (0x145ae57a0),
+//   which means no grid (0x1430df0b0 returns step 0) and is accepted without the 8 px test.
+// Slot 13 runs on zoom changes, so this does too (not on every frame). So the step stays between 14.1 and 28.3 px, and as the bounds are inclusive and the ladder doubles, the history
+// only matters where the ladder does not double (odd meters, half note -> bar). The value a Set starts with is not
+// traced; (1, 1) is used.
+const GRID_PX = 20, SQRT2 = Math.SQRT2;
+const GRID_OFF = 0x8000;
+const gridStepOf = v => v[0] === 1 && v[1] === GRID_OFF ? 0 : v[1] === 1 ? v[0] * beatsPerBar() : 4 * v[0] / v[1];
+const gridCoarser = v => v[0] === 1 && v[1] === GRID_OFF ? [1, 0x4000] : v[1] === 1 ? [v[0] * 2, 1] : [v[0], v[1] / 2];
+const gridFiner = v => { const f = v[0] === 1 ? [1, v[1] * 2] : [v[0] / 2, v[1]]; return f[0] === 1 && f[1] > 0x4000 ? [1, GRID_OFF] : f; };
+function updateGrid() {
+  const tpp = 1 / view.ppb, min = GRID_PX * tpp, span = lanesWidth() * tpp;
+  let v = view.grid || [1, 1];
+  if (gridStepOf(v) < min) {
+    while (v[0] !== 512 && gridStepOf(v) < min / SQRT2 && 0.5 * span > gridStepOf(gridCoarser(v))) v = gridCoarser(v);
+  } else {
+    while (!(v[0] === 1 && v[1] === GRID_OFF) && gridStepOf(v) > min * SQRT2) {
+      const f = gridFiner(v);
+      if (!(f[1] === GRID_OFF || gridStepOf(f) > 8 * tpp)) break;
+      v = f;
+    }
+  }
+  view.grid = v;
+}
+// step in beats; 0 = no grid
 function gridStep() {
-  const min = GRID_MIN_PX / view.ppb, bpb = beatsPerBar();
-  if (min <= bpb) {
-    // subdivisions of the bar by halving (1/2, 1/4 ... 1/256 bar), as fine as allowed
-    let g = bpb;
-    while (g / 2 >= min && g / 2 >= bpb / 256) g /= 2;
-    return g;
-  }
-  return firstDivisionAbove(min, bpb, 2);
+  const key = view.ppb + '/' + lanesWidth() + '/' + beatsPerBar();
+  if (view.gridKey !== key) { view.gridKey = key; updateGrid(); }
+  return gridStepOf(view.grid);
 }
+// Tiles (the alternating lane shading), 0x14466f960: one beat if a beat is >= 80 px (0x145e955a8), else the bar
+// times the first power of 4 that is >= 80 px; every other tile, from bar 1, is shaded.
+const TILE_PX = 80;
 function tileBeats() {
-  const min = TILE_MIN_PX / view.ppb, bpb = beatsPerBar(), beat = beatLen();
-  if (beat >= min) return beat;
-  return firstDivisionAbove(Math.max(bpb, min), bpb, 4);
-}
-// ruler label interval in beats
-function labelStep() {
   const bpb = beatsPerBar(), beat = beatLen(), ppb = view.ppb;
-  if (beat * ppb >= LABEL_MIN_PX) {
-    if (beat / 4 * ppb >= SUBLABEL_MIN_PX) return beat / 4;   // sixteenths
-    if (beat / 2 * ppb >= SUBLABEL_MIN_PX) return beat / 2;   // eighths
-    return beat;
+  if (beat >= TILE_PX / ppb) return beat;
+  let t = bpb;
+  while (t * ppb < TILE_PX) t *= 4;
+  return t;
+}
+// Beat-time ruler (ABeatTimeRulerView, vtable 0x145e7f6c8, draw 0x144683c90). Tick step from 0x1446a8970 with
+// min = 20 px (0x145e95318): beat >= min: the beat halved while still >= min (out = max(2, num), 2 or 4 ticks per
+// group as the step is the beat, half or less); bar < min: bar doubled until >= min (out 2); otherwise the bar
+// divided by its largest proper divisor r (from num / 2 down to 2, num > 3) with bar / r > min (out = r), else the
+// bar (out 2). Every out-th tick is a long one (0x144684060), and labels go on every L-th tick, L = max(int(0.25 /
+// step), out) (0.25 = 0x145e946f8), counted from bar 1 - so labels are >= 40 px apart and never finer than 1/16.
+function rulerTicks() {
+  const num = set ? set.sig.num : 4, beat = beatLen(), bar = beatsPerBar(), min = 20 / view.ppb;
+  let step, out = 2;
+  if (min > beat) {
+    if (min >= bar) { step = bar; while (min > step) step *= 2; }
+    else {
+      step = bar;
+      if (num > 3) for (let r = Math.floor(num / 2); r >= 2; r--) if (num % r === 0 && min < bar / r) { step = bar / r; out = r; break; }
+    }
+  } else {
+    step = beat;
+    while (min <= step / 2) step /= 2;
+    out = step === beat ? Math.max(2, num) : step === beat / 2 ? 2 : 4;
   }
-  return firstDivisionAbove(Math.max(bpb, LABEL_MIN_PX / ppb), bpb, 2);
+  return { step, out, label: Math.max(Math.trunc(0.25 / step), out) };
 }
 // "5", "5.2" or "5.2.3" (bar.beat.sixteenth), as Live labels its beat-time ruler
 function rulerLabel(b) {
@@ -1062,7 +1098,7 @@ function drawZebra(ctx, w, y, h, sel) {
     ctx.fillRect(Math.max(0, x0), y, Math.min(w, x1) - Math.max(0, x0), h);
   }
   const g = gridStep();
-  for (let b = Math.floor(view.beat0 / g) * g; b < b1; b += g) {
+  if (g > 0) for (let b = Math.floor(view.beat0 / g) * g; b < b1; b += g) {
     const x = Math.round(xOf(b));
     if (x < 0) continue;
     const k = Math.floor(b / block + 1e-9);
@@ -1074,7 +1110,7 @@ function drawZebra(ctx, w, y, h, sel) {
 function drawGrid(ctx, w, y, h, col) {
   const bpb = beatsPerBar(), g = gridStep(), b1 = bOf(w);
   const bar = shade(col, 0.675), sub = shade(col, 0.784);
-  for (let b = Math.floor(view.beat0 / g) * g; b < b1; b += g) {
+  if (g > 0) for (let b = Math.floor(view.beat0 / g) * g; b < b1; b += g) {
     const x = Math.round(xOf(b));
     if (x < 0) continue;
     const isBar = Math.abs(b / bpb - Math.round(b / bpb)) < 1e-6;
@@ -1237,12 +1273,18 @@ function drawRuler() {
   ctx.fillStyle = C.surface; ctx.fillRect(0, 0, w, 22);
   if (!set) return;
   drawZebra(ctx, w, 22, h - 22, false);
-  const step = labelStep();
+  // ticks (rulerTicks): long ones 6 px high, short ones 1 px at the bottom (0x144684060 draws them from y [+0x138]
+  // = 17 to [+0x13c] = 11 or [+0x144] = 16 of the 17 px ruler, read in the running Live); a labelled tick also gets
+  // a dot right of its top and the label text
+  const { step, out, label } = rulerTicks();
   ctx.font = FONT; ctx.textBaseline = 'alphabetic';
-  for (let b = Math.floor(view.beat0 / step) * step; b <= bOf(w); b += step) {
-    const x = Math.round(xOf(b));
+  for (let i = Math.floor(view.beat0 / step + 1e-9); i * step <= bOf(w); i++) {
+    const b = i * step, x = Math.round(xOf(b));
     ctx.fillStyle = T.RangeDisabledOff;
-    ctx.fillRect(x, 16, 1, 6); ctx.fillRect(x, 16, 2, 1);
+    if (i % out) { ctx.fillRect(x, 21, 1, 1); continue; }
+    ctx.fillRect(x, 16, 1, 6);
+    if (i % label) continue;
+    ctx.fillRect(x + 1, 16, 1, 1);
     ctx.fillStyle = C.ruler;
     ctx.fillText(rulerLabel(b), x + 5, 20);
   }
@@ -1296,7 +1338,7 @@ function drawSongRuler() {
   const tick = '#6b6b6b';
   ctx.fillStyle = tick;
   const g = gridStep();
-  for (let b = Math.ceil(view.beat0 / g) * g; b < bOf(w); b += g) ctx.fillRect(Math.round(xOf(b)), 0, 1, 2);
+  if (g > 0) for (let b = Math.ceil(view.beat0 / g) * g; b < bOf(w); b += g) ctx.fillRect(Math.round(xOf(b)), 0, 1, 2);
   for (let s = Math.max(0, Math.floor(s0 / step) * step); s <= s1; s += step) {
     const x = Math.round(xOf(tempoMap.beat(s)));
     ctx.fillStyle = tick; ctx.fillRect(x, 0, 1, 8); ctx.fillRect(x, 7, 2, 1);
@@ -1371,9 +1413,10 @@ function drawAll() {
     const cur = $('#insert-cursor');
     if (cursorAt && cursorAt.x >= 0 && cursorAt.x < lanesWidth()) Object.assign(cur.style, { display: 'block', left: cursorAt.x + 'px', top: (61 + cursorAt.y) + 'px', height: cursorAt.h + 'px' });
     else cur.style.display = 'none';
-    // grid size indicator in the bottom right corner of the lanes ("1/1" = one bar)
-    const g = gridStep() / beatsPerBar();
-    $('#oneone').textContent = g >= 1 ? (g === 1 ? '1/1' : `${g} Bars`) : `1/${Math.round(1 / g)}`;
+    // grid size indicator in the bottom right corner of the lanes: the grid value (see updateGrid), "1/1" = one bar
+    gridStep();
+    const gv = view.grid;
+    $('#oneone').textContent = gv[1] === GRID_OFF ? '' : gv[1] === 1 ? (gv[0] === 1 ? '1/1' : `${gv[0]} Bars`) : `1/${gv[1] / gv[0]}`;
 
   });
 }
@@ -1911,7 +1954,7 @@ function setupPanels() {
 function snap(b, free) {
   if (free) return Math.max(0, b);
   const g = gridStep();
-  return Math.max(0, Math.round(b / g) * g);
+  return g > 0 ? Math.max(0, Math.round(b / g) * g) : Math.max(0, b);
 }
 // re-draw the Track Activator / Solo switches after a keyboard change
 function refreshMixer() {
@@ -2041,7 +2084,7 @@ function showSet() {
   selected = null;
   buildRows();
   // Live's default zoom; zoomed out further only if the song would not fit
-  view.beat0 = 0; view.ext = null; view.range = null; updateExtent();
+  view.beat0 = 0; view.ext = null; view.range = null; view.grid = null; view.gridKey = null; updateExtent();
   view.ppb = Math.min(DEFAULT_PPB, lanesWidth() / (set.end + beatsPerBar()));
   setZoom(view.ppb, 0);
   // sample rate from the first frozen file
