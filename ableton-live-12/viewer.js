@@ -1673,10 +1673,16 @@ const engine = {
     const b = this.beatNow();
     showPos('cb-pos', fmtPos(b));
     $('#cb-tempo').textContent = tempoMap.tempoAt(b).toFixed(2);
-    // follow
+    // Follow, from Live 12.0's exe: while playing with Follow on, APlayLine slot 205 (0x143b55910) calls 0x143b55600,
+    // which (with the page-mode flag [0x142f8b8c0()+0x360] off, as in the running Live) asks the scroll setter
+    // 0x1437fea80 to put the playhead's pixel at int(viewport width x 0.5) (0.5 = 0x145e94a00) with force = 1:
+    // a continuous scroll that keeps the playhead centred once it passes the middle (the offset is clamped to the
+    // content, so the view stays put near the start and the end; see clampScroll). Traced in the running Live:
+    // the setter got the playhead pixel and 0.5 on every play-line update.
     if (follow) {
-      const w = lanesWidth(), x = xOf(b);
-      if (x > w * 0.9 || x < 0) { view.beat0 = b - (w * 0.05) / view.ppb; }
+      const w = lanesWidth();
+      view.beat0 = (Math.round(b * view.ppb) - Math.trunc(w * 0.5)) / view.ppb;
+      clampScroll();
     }
     drawAll();
   },
