@@ -586,7 +586,14 @@ themeColours();
 document.documentElement.style.setProperty('--title-sel-dark', rgbHex(hexRGB(T.SelectionBackground).slice(0, 3).map(v => v * 0.267)));
 // grid line colour over a given lane colour
 // Measured: Live draws the grid line on the plain lane colour (rounding down), then lays the tile shade over both.
-const gridLine = (sel, tiled) => { const l = over(sel ? T.SurfaceHighlight : T.SurfaceBackground, T.GridLineBase, Math.floor); return tiled ? over(l, T.ArrangerGridTiles) : l; };
+// Live draws three strengths of GridLineBase (0x144670630 scales its alpha by 0.375 / 0.666 / 1.0, constants
+// 0x145e93ab4 / 0x145e93cb8, truncated to an integer alpha) and 0x144670220 picks 1.0 for lines on a bar, 0.666 on a
+// beat, 0.375 otherwise. (Read in the running Live: the grid uses theme slot 303 = GridLineBase, the tiles slot 214 =
+// ArrangerGridTiles; sampled lines over #323232 / #363636 are #2c2c2c / #303030 (0.375) and #282828 / #2b2b2b (0.666).)
+const GRID_LEVEL = [0.375, 0.666, 1];
+const gridAlpha = (hex, f) => hex.slice(0, 7) + Math.trunc(parseInt(hex.slice(7, 9) || 'ff', 16) * f).toString(16).padStart(2, '0');
+const gridLine = (sel, tiled, level = 2) => { const l = over(sel ? T.SurfaceHighlight : T.SurfaceBackground, gridAlpha(T.GridLineBase, GRID_LEVEL[level]), Math.floor); return tiled ? over(l, T.ArrangerGridTiles) : l; };
+const gridLevel = b => { const on = u => Math.abs(b / u - Math.round(b / u)) < 1e-6; return on(beatsPerBar()) ? 2 : on(beatLen()) ? 1 : 0; };
 // a track's dark contrast colour on its own colour (fold button, name): the track colour at 26.7%
 const darkOf = hex => rgbHex(hexRGB(hex).slice(0, 3).map(v => v * 0.267));
 
@@ -1102,7 +1109,7 @@ function drawZebra(ctx, w, y, h, sel) {
     const x = Math.round(xOf(b));
     if (x < 0) continue;
     const k = Math.floor(b / block + 1e-9);
-    ctx.fillStyle = gridLine(sel, ((k % 2) + 2) % 2 === 0);
+    ctx.fillStyle = gridLine(sel, ((k % 2) + 2) % 2 === 0, gridLevel(b));
     ctx.fillRect(x, y, 1, h);
   }
 }
