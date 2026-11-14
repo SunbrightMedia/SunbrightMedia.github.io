@@ -45,6 +45,7 @@ const FOLDED_H = 17, MIN_H = 17, SEP = 2;
 // Small helpers
 
 const $ = (s, root = document) => root.querySelector(s);
+const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const kid = (el, tag) => { if (!el) return null; for (const c of el.children) if (c.tagName === tag) return c; return null; };
 const at = (el, ...tags) => tags.reduce((e, t) => kid(e, t), el);
 const val = (el, ...tags) => at(el, ...tags)?.getAttribute('Value') ?? null;
@@ -677,6 +678,14 @@ const SIDEBAR = [
   [19, 'cat', 'Places'], [20, '', 'Packs', 'sb_packs'], [21, 'dis', 'Cloud', 'sb_cloud'], [22, 'dis', 'Push', 'sb_push'], [23, '', 'User Library', 'sb_userLibrary'],
   [24, '', 'Current Project', 'sb_currentProject'], [25, '', 'Add Folder…', 'sb_addFolder'],
 ];
+// Info View title of each sidebar row (running Live; Favorites shows 'Assignable Colors')
+const SIDEBAR_INFO = {
+  Collections: 'Collections Section', Favorites: 'Assignable Colors', Library: 'Library Section', All: 'Browse All', Sounds: 'Browse Sounds',
+  Drums: 'Browse Drums', Instruments: 'Browse Instruments', 'Audio Effects': 'Browse Audio Effects', 'MIDI Effects': 'Browse MIDI Effects',
+  Modulators: 'Modulators', 'Max for Live': 'Browse Max for Live Devices', 'Plug-Ins': 'Browse Third-Party Plug-Ins', Clips: 'Browse Clips',
+  Samples: 'Browse Samples', Grooves: 'Browse Grooves', Tunings: 'Tunings', Templates: 'Browse Template Live Sets', Places: 'Places Section',
+  Packs: 'Packs', Cloud: 'Cloud', Push: 'Push', 'User Library': 'User Library', 'Current Project': 'Current Project', 'Add Folder…': 'Add Folder',
+};
 const FILTERS = ['Content', 'Type', 'Sounds', 'Drums', 'Character', 'Devices', 'Function', 'Format', 'Clips', 'Genres', 'Key', 'Grooves', 'Tunings', 'Creator'];
 const INFO = {
   // Info View texts as Live 12 shows them when hovering each element (read off the running Live 12; line breaks as Live wraps them)
@@ -709,57 +718,272 @@ function buildStatic() {
   for (const [k, cls, label, ic] of SIDEBAR) {
     const r = document.createElement('div');
     r.className = 'sbrow ' + cls; r.style.top = (1 + 19 * k) + 'px';
+    r.dataset.info = SIDEBAR_INFO[label] || ''; r.dataset.hit = '0 0 -7 0';
     r.innerHTML = `<span class="l"></span>`;
+    if (label === 'Collections' || label === 'Library') { const el = document.createElement('span'); el.className = 'hit'; el.dataset.info = 'Edit Labels'; el.dataset.hit = '0 -1 0 -2'; Object.assign(el.style, { left: '63px', width: '30px' }); r.append(el); }
     r.firstChild.textContent = label;
     if (ic) { const s = document.createElement('i'); s.dataset.ic = ic; s.style.left = '4px'; s.style.top = '0'; if (ic === 'sb_favorites') s.style.color = '#ff0505'; r.append(s); }
     sb.append(r);
   }
   const f = $('#filters');
   const head = document.createElement('div');
-  head.className = 'frow'; head.style.top = '0';
-  head.innerHTML = '<span id="br-ftoggle" class="abs" style="left:0;top:0;width:18px;height:19px"><i data-ic="br_filters" style="left:2px;top:1px"></i></span><span class="l" style="left:19px">Filters</span><span id="br-edit"><i data-ic="br_editIcon" style="left:2px;top:0"></i><span class="abs" style="left:15px;top:1px">Edit</span></span>';
+  head.className = 'frow'; head.style.top = '0'; head.dataset.info = 'Filters';
+  head.innerHTML = '<span id="br-ftoggle" data-info="Show Filters" data-hit="-2 -2 -1 -2" class="abs" style="left:0;top:0;width:18px;height:19px"><i data-ic="br_filters" style="left:2px;top:1px"></i></span><span class="l" style="left:19px">Filters</span><span id="br-edit" data-info="Show Tags Editor" data-hit="1 1 0 1"><i data-ic="br_editIcon" style="left:2px;top:0"></i><span class="abs" style="left:15px;top:1px">Edit</span></span>';
   f.append(head);
-  const sep0 = document.createElement('div'); sep0.className = 'frow line'; sep0.style.top = '19px'; sep0.style.background = 'var(--SurfaceArea)'; f.append(sep0);
+  const sep0 = document.createElement('div'); sep0.className = 'frow line'; sep0.dataset.info = 'Filters'; sep0.style.top = '19px'; sep0.style.background = 'var(--SurfaceArea)'; f.append(sep0);
   FILTERS.forEach((n, i) => {
-    const r = document.createElement('div'); r.className = 'frow'; r.style.top = (20 + 20 * i) + 'px';
+    const r = document.createElement('div'); r.className = 'frow'; r.style.top = (20 + 20 * i) + 'px'; r.dataset.info = 'Filters|row';
     r.innerHTML = '<span class="l"></span>';
     r.firstChild.textContent = n;
     f.append(r);
     const a = document.createElement('i'); a.dataset.ic = 'br_arrow'; a.style.top = '3px'; r.append(a);
     r._arrow = a;
-    const ln = document.createElement('div'); ln.className = 'frow line'; ln.style.top = (39 + 20 * i) + 'px'; f.append(ln);
+    const ln = document.createElement('div'); ln.className = 'frow line'; ln.dataset.info = 'Filters|row'; ln.style.top = (39 + 20 * i) + 'px'; f.append(ln);
   });
   const ln2 = document.createElement('div'); ln2.className = 'frow line'; ln2.style.cssText = 'top:300px;height:2px;background:var(--SurfaceArea)'; f.append(ln2);
   applyIcons();
   // the arrow sits 3 px after each filter label
   document.fonts.ready.then(() => { for (const r of f.querySelectorAll('.frow')) if (r._arrow) r._arrow.style.left = (7 + Math.round(r.firstChild.getBoundingClientRect().width)) + 'px'; });
   showInfo('Track Title Bar');
+  // controls whose parts have their own Info View text (hover areas read off the running Live on a 1 px scan):
+  // time signature numerator x 166..181 / denominator 188..203, metronome 208..235 / its settings menu 236..246
+  const sig = $('#cb-sig');
+  hitArea(sig, 2, 16, 'Time Signature Numerator', '0 -2 0 -2'); hitArea(sig, 24, 16, 'Time Signature Denominator', '0 -2 0 -2');
+  const met = $('#controlbar [data-info="Metronome"]');
+  met._hit = hitArea(met, 0, 28, 'Metronome'); met._hit2 = hitArea(met, 28, 11, 'Metronome Settings');
+  layoutControlBar();
 }
-document.addEventListener('mouseover', e => { const i = e.target.closest?.('[data-info]'); if (i && i.dataset.info && INFO[i.dataset.info]) showInfo(i.dataset.info); });
-// the lanes: Main Lane (MIDI tracks have no fades line), and below the last track the Clip/Device Drop Area (running Live)
+function hitArea(el, x, w, info, hit = '0 0 0 0') {
+  const s = document.createElement('span'); s.className = 'hit'; s.dataset.info = info; s.dataset.hit = hit;
+  Object.assign(s.style, { left: x + 'px', width: w + 'px' }); el.append(s); return s;
+}
+// ---------------------------------------------------------------------------
+// Which Info View text the mouse is over. Read off the running Live with a 1 px hover scan of its window:
+// - a control's hover area is its drawn box grown by 1 px on every side (header choosers, fields and buttons, the ruler's
+//   buttons, the control bar's buttons: e.g. Input Type drawn x 1718..1787 / y 130..142 answers on 1717..1788 / 129..143);
+//   data-hit="left top right bottom" overrides that per control (negative = smaller than the box);
+// - anything without a text of its own (window edges, gaps, separators, empty panels) empties the Info View;
+// - areas drawn on canvases (lanes, Overview strip, loop brace, grid-spacing corner) are resolved below.
+const HIT_DEFAULT = [1, 1, 1, 1];
+function hitOf(el) {
+  if (el.dataset.hit) return el.dataset.hit.split(' ').map(Number);
+  if (el.matches('.cb')) return HIT_DEFAULT;   // control bar buttons: drawn y 35..51, hover 34..52
+  return el.matches('.btn, .pill') ? HIT_DEFAULT : null;
+}
+const NEAR = [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1], [-2, 0], [2, 0], [0, -2], [0, 2],
+  [-2, -2], [2, -2], [-2, 2], [2, 2], [-3, -3], [3, -3], [-3, 3], [3, 3], [-4, 0], [4, 0], [-5, 0]];
+function infoAt(x, y) {
+  const seen = new Set(), bg = [];
+  for (const [dx, dy] of NEAR) {
+    for (const t of document.elementsFromPoint(x + dx, y + dy)) {
+      const el = t.closest('[data-info]');
+      if (!el || seen.has(el)) continue;
+      seen.add(el);
+      const h = hitOf(el), r = el.getBoundingClientRect();
+      const inBox = x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+      if (h) {
+        // a neighbour only counts with its margin: where its box is covered by something in front, that wins
+        // (a rounded corner is not under the point itself, so the box test alone decides there)
+        if ((!dx && !dy || !inBox || !bg.length) && x >= r.left - h[0] && x < r.right + h[2] && y >= r.top - h[1] && y < r.bottom + h[3]) return el.dataset.info;
+      } else if (!dx && !dy) bg.push(el);
+      if (!dx && !dy && !h) break;   // a background element: nothing under it counts
+    }
+  }
+  return bg.length ? bg[0].dataset.info : '';
+}
+// Canvas areas. Grid Spacing: an 83 x 80 px corner at the lanes' bottom right that runs 1 px into the header and ends
+// 4 px above the Time Ruler (Live: x 1537..1619, y 679..758 at 1920 x 1018). Loop brace: rows 0..11 of the scrub area;
+// 11 px at each end are the loop start / end point, the brace counts 10 px further out on both sides (Live: start point
+// x 336..346, end point 389..399, brace 326..410 for a loop whose end is drawn at x 399).
+function canvasInfoAt(x, y, t) {
+  if (!set) return null;
+  const sr = $('#songruler').getBoundingClientRect(), lr = $('#tracks').getBoundingClientRect();
+  const gx1 = lr.left + lanesWidth() + 1, gy1 = sr.top - 3;
+  if (x >= gx1 - 83 && x < gx1 && y >= gy1 - 80 && y < gy1) return 'Grid Spacing';
+  if (t.id === 'overview') return y - t.getBoundingClientRect().top >= 12 ? 'Overview' : 'Clip Overview/Zooming Hot Spot';
+  if (t.id === 'ruler-scrub') {
+    const r = t.getBoundingClientRect(), ly = y - r.top, lx = x - $('#ruler').getBoundingClientRect().left;
+    const lx0 = Math.round(xOf(set.loop.start)), lx1 = Math.round(xOf(set.loop.start + set.loop.length));
+    if (ly < 12 && lx >= lx0 - 10 && lx < lx1 + 12) {
+      if (lx >= lx0 && lx < lx0 + 11) return 'Loop Start/Punch-In Point|marker';
+      if (lx >= lx1 - 10 && lx < lx1 + 1) return 'Loop End/Punch-Out Point';
+      return 'Loop/Punch-Recording Region';
+    }
+    return null;
+  }
+  if (t.matches('#pinned .trow') && t.getBoundingClientRect().height <= 3) {
+    const r = t.getBoundingClientRect(), lx = x - lr.left - lanesWidth();
+    if (lx < 0) return 'Clip/Device Drop Area';
+    return lx >= 173 && y - r.top >= 1 ? 'Volume Section' : 'Mixer Drop Area';
+  }
+  if (t.closest('#tracks') && !t.closest('.theader')) {
+    const area = $('#tracks'), ay = y - lr.top + area.scrollTop;
+    const r = rows.find(r => ay >= r.y && ay < r.y + r.h);
+    if (x - lr.left >= lanesWidth()) return r ? null : 'Mixer Drop Area';   // right of the lanes, below the last header
+    return !r ? 'Clip/Device Drop Area' : r.track.type === 'midi' ? 'Main Lane|midi' : 'Main Lane';
+  }
+  return null;
+}
 document.addEventListener('mousemove', e => {
-  if (!set || !e.target.closest?.('#tracks') || e.target.closest('.theader')) return;
-  const area = $('#tracks');
-  if (e.clientX - area.getBoundingClientRect().left >= lanesWidth()) return;
-  const y = e.clientY - area.getBoundingClientRect().top + area.scrollTop;
-  const r = rows.find(r => y >= r.y && y < r.y + r.h);
-  const key = !r ? 'Clip/Device Drop Area' : r.track.type === 'midi' ? 'Main Lane|midi' : 'Main Lane';
-  if (showInfo.cur !== key) { showInfo.cur = key; showInfo(key); }
+  const t = e.target; if (!t?.closest) return;
+  let key = canvasInfoAt(e.clientX, e.clientY, t);
+  if (key == null) key = infoAt(e.clientX, e.clientY);
+  if (key && !(INFO[key] || INFO_HTML[key])) key = '';
+  if (showInfo.cur !== key) showInfo(key);
 });
 // Info View texts that are not plain lines: bullet lists as Live lays them out (running Live, "Clip/Device Drop Area":
 // a 3 x 3 px square 2 px right of the paragraph's left edge, item text 11 px right of it, items 2 px and 4 px further apart)
 const INFO_HTML = {
   'Clip/Device Drop Area': ['You can create new tracks by dropping files\nand devices into this area:', ['Drop MIDI files, MIDI effects and\ninstruments to create MIDI tracks.', 'Drop samples and audio effects to\ncreate audio tracks.']],
 };
+// *word* in a text is set in italics, as Live does (e.g. "Automation Arm": *always*)
+function infoText(el, t) {
+  t.split(/\*([^*\n]+)\*/).forEach((part, i) => { if (!part) return; if (i % 2) { const e = document.createElement('i'); e.className = 'it'; e.textContent = part; el.append(e); } else el.append(part); });
+}
 function showInfo(title, shown = title.replace(/\|.*/, '')) {
   showInfo.cur = title;
   $('#info-title').textContent = shown;
   const body = $('#info-body'), h = INFO_HTML[title];
-  if (!h) { body.textContent = INFO[title] || ''; return; }
   body.textContent = '';
-  const p = document.createElement('div'); p.textContent = h[0]; body.append(p);
-  h[1].forEach((t, i) => { const li = document.createElement('div'); li.className = 'li'; li.style.marginTop = (i ? 4 : 2) + 'px'; li.textContent = t; body.append(li); });
+  if (!h) { infoText(body, INFO[title] || ''); return; }
+  if (h[0] != null) { const p = document.createElement('div'); infoText(p, h[0]); body.append(p); }
+  h[1].forEach((t, i) => { const li = document.createElement('div'); li.className = 'li'; li.style.marginTop = (i ? 4 : h[0] != null ? 2 : 0) + 'px'; infoText(li, t); body.append(li); });
 }
+
+// Info View texts transcribed from the running Live 12.0 (hovering each element), with Live's line breaks.
+// *word* = italic in Live.
+Object.assign(INFO, {
+  'Key/MIDI In Indicator': 'This indicator flashes when Live receives\nMIDI or computer keyboard messages\nbelonging to the remote-control\nassignments of its interface controls.\nRemote-control assignments are made in\nKey and MIDI Map Modes, which can be\naccessed using the ‘KEY’ and ‘MIDI’\nswitches.',
+  'MIDI Track In Indicator': 'This indicator flashes when Live’s tracks\nreceive MIDI messages that they can use.',
+  'Key/MIDI Out Indicator': 'This indicator flashes when Live sends a MIDI\nmessage because of a new or changing\nremote-control assignment.\nRemote-control assignments are made in\nKey and MIDI Map Modes, which can be\naccessed using the ‘KEY’ and ‘MIDI’\nswitches.',
+  'MIDI Track Out Indicator': 'This indicator flashes when Live’s tracks\nsend MIDI messages.',
+  'Show/Hide Browser': 'Click here to show or hide the browser.',
+  'Show/Hide Browser Config Menu': 'Use the toggle to show or hide a menu where\nyou can expand or collapse the Tuning\nSystem and Groove Pool sections of the\nbrowser.',
+  'Tap Tempo': 'Click here once per beat to set Live’s tempo.\nThe metronome and all warped audio clips\nwill follow your tapping. If the Start Playback\nwith Tap Tempo preference is enabled,\ntapping can also be used to count in. If using\na 4/4 time signature, it takes four taps to\nstart playback at the tapped tempo.',
+  'Tempo': 'This is the project tempo. All warped clips\nwill play at this tempo. The tempo can also\nbe automated. Drag up/down to adjust the\nvalue, or click and type in a number.',
+  'Phase Nudge Down': 'Temporarily decrease song tempo to\nsynchronize to external music.',
+  'Phase Nudge Up': 'Temporarily increase song tempo to\nsynchronize to external music.',
+  'Metronome': 'Click here to activate the metronome. To\nadjust the metronome’s volume, use the\nPreview/Cue Volume control in the Main\ntrack’s mixer.\n\nOpen the chooser to the right to change the\nmetronome’s settings.',
+  'Quantization Menu': 'Click to choose the global launch\nquantization. Quantization is used to avoid\nrhythmical error when playing clips. It is also\nused to determine when playback will begin\nwhen using Link.',
+  'Scale Mode': 'Use this toggle to switch Scale Mode on or\noff. When on, the Current Scale Root Note\nand Current Scale Name choosers will reflect\nthe active scale in selected clips. The\nchoosers can also be used to set a scale for\nnew clips or change the scale of existing\nselected clips.',
+  'Current Scale Root Note': 'This chooser displays the scale root note of\nselected clips, and can also be used to set a\nscale root note for new or existing clips.',
+  'Current Scale Name': 'This chooser displays the scale name of\nselected clips, and can also be used to set a\nscale name for new or existing clips.',
+  'Follow': 'When enabled, the display will scroll during\nplayback to keep the current song position\nvisible. Follow behavior can be set to scroll\ncontinuously or on a page-by-page basis in\nthe Display/Language/Input Preferences.\n\n[Shift + Alt + F] Follow',
+  'Arrangement Position': 'In playback, this displays the current\nArrangement position as\nbars-beats-sixteenths.\nDrag vertically or click and type in numbers\nto set the Arrangement start position. Type\na comma or period to advance to the next\nfield. When Link is enabled, the position in\nrelation to the global launch quantization\nwill be shown in the background.',
+  'Play Button': 'Click to start playback.\n\n[Space] Toggle Play and Stop\n[Shift + Space] Continue Playback From Stop\n[Ctrl + Space] Play Arrangement Selection',
+  'Stop Button': 'Click to stop playback.\n\n[Space] Toggle Play and Stop\n[Double-Click] Stop and Return Song\nPosition to 1.1.1',
+  'Arrangement Record Button': 'If the Start Transport With Record button is\non in the Record/Warp/Launch Preferences,\npressing Arrangement Record will start\nrecording into the Arrangement. When this\npreference is off, the transport will not start\nuntil the Play button is pressed or Session\nclips are launched.\n\n[F9] Arrangement Record',
+  'MIDI Arrangement Overdub': 'When enabled, existing notes in MIDI clips in\nthe Arrangement will be mixed with, rather\nthan replaced by, newly recorded notes.',
+  'Automation Arm': 'When enabled, manual parameter changes\ncan be recorded to Session clips and the\nArrangement. The Record Session\nAutomation preference determines whether\nautomation will be recorded in all playing\nclips or only in armed tracks. Note that\nautomation in Session clips is *always*\nrecorded to the Arrangement, as are any\nmanual changes to parameters in tracks that\nare being recorded from the Session.',
+  'Re-Enable Automation': 'Re-enables automation for any parameters\nthat are currently overridden in the\nArrangement or in Session clips. Note that\nthis button is only active if you have\nmanually adjusted a parameter that is\nautomated.',
+  'Capture MIDI': 'Click here to capture the MIDI notes you just\nplayed. A new clip containing the phrase you\nplayed will be created on every monitored\nMIDI track. If the Set is empty and the\ntransport is stopped, Capture MIDI will\ndetect the tempo and place the notes on the\ngrid. If the Set contains other clips, or the\ntempo is synced or automated, the song\ntempo will not change. Capture MIDI can also\nbe used to overdub a playing clip.',
+  'Session Record Button': 'Toggles between playback and overdub\nrecording for clips which are currently\nplaying on armed tracks. In MIDI clips, both\nnotes and automation can be overdubbed. In\naudio clips, only automation can be\noverdubbed. If the Start Transport With\nRecord button is on in the\nRecord/Warp/Launch Preferences, pressing\nthis button will also start recording in the\nselected scene in all armed tracks.',
+  'Loop Start/Punch-In Point': 'These fields display the start of the\nArrangement loop or punch-recording\nregion as bars-beats-sixteenth notes.\nClick and drag vertically or type in numbers\nto change values. A comma or period will\nadvance the input to the next field.',
+  'Punch-In Switch': 'Activate this to prevent Arrangement\nrecording prior to the punch-in point (which\nis set by clicking and dragging on the\nleft-hand side of the loop brace).',
+  'Loop Switch': 'Click here to activate the Arrangement loop.',
+  'Punch-Out Switch': 'Activate this to prevent Arrangement\nrecording after the punch-out point. The\nlength of the punch-recording region from\nthe punch-in point is adjusted by clicking\nand dragging the loop brace’s right-hand\nside.',
+  'Loop/Punch-Region Length': 'These fields display the length of the\nArrangement loop or punch-region as\nbars-beats-sixteenth notes.\nClick and drag vertically or type in numbers\nto change values. A comma or period will\nadvance the input to the next field.',
+  'Draw Mode Switch': 'This switch turns Draw Mode on and off.\nDraw Mode is used in the Clip View for\ndrawing envelopes and MIDI, and in the\nArrangement View for drawing automation\ncurves.\n\n[B] Draw Mode',
+  'Computer MIDI Keyboard': 'Activate this switch to use your computer’s\nkeyboard to play notes into MIDI tracks.\n\n[M] Computer MIDI Keyboard On/Off\n[Z]/[X] Adjust Computer MIDI Keyboard\nOctave Range Down/Up\n[C]/[V] Adjust Computer MIDI Keyboard\nIncoming Note Velocity Down/Up',
+  'Key Map Mode Switch': 'This switch toggles Key Map Mode On/Off.\nIn Key Map Mode, Session slots and\nmixer/device controls display the computer\nkey they are assigned to. Pressing a key\nassigns that key to the selected slot/control.\n\n[Ctrl + K] Key Map Mode On/Off',
+  'MIDI Map Mode Switch': 'This switch toggles MIDI Map Mode On/Off.\nIn MIDI Map Mode, Session slots display their\nMIDI channel and note number, and mixer\nand device controls display their MIDI\nchannel and controller number. Sending a\nMIDI note/controller message assigns that\nmessage to the selected slot/control.\n\n[Ctrl + M] MIDI Map Mode On/Off',
+  'Sample Rate': 'The currently selected sample rate is shown\nhere. Click to open Live’s Audio Preferences\nand change the sample rate if needed.',
+  'CPU Load Meter': 'This meter shows the CPU load. Excessive\nCPU loads decrease the computer’s\nresponse to user interface activity.\nHeavy CPU load is mainly generated by\ninstruments and effects. Please see the Live\nReference Manual for information on how to\nreduce the CPU load.',
+  'Overload Indicator': 'This indicator lights up with the text ‘Disk’ if\nLive was not able to load audio from the disk\nin time, or ‘CPU’ if the CPU is overloaded.\nThese conditions usually result in short\ndropouts in audio.\nDisk overload can occur when playing or\nrecording too many clips at once, or abruptly\nchanging the song position.\nCPU overload can occur when there are too\nmany devices in use.',
+  'Session View Selector': 'Click to access the Session View, Live’s\nunique jamming facility. You can also use this\nshortcut:\n\n[Tab] Toggle Session and Arrangement Views',
+  'Arrangement View Selector': 'Click to access the Arrangement View. You\ncan also use this shortcut:\n\n[Tab] Toggle Session and Arrangement Views',
+  'Browse Back': 'Takes a step back in the browser’s history.\n\nCtrl + [ : Go Back',
+  'Browse Forward': 'Takes a step forward in the browser’s\nhistory.\n\nCtrl + ] : Go Forward',
+  'Set/Delete Locator': 'Locators can be set at any point in the\nArrangement during playback or recording.\nWhen the Arrangement is not playing,\nlocators are set at the insert marker or\nselection start. Locator position is subject to\nglobal quantization. A selected locator can\nalso be deleted with this button.',
+  'Automation Mode': 'Toggle between showing track content and\ntrack automation for all tracks.\n\n[A] Show/Hide Automation Lanes',
+  'Collections Section': 'The Collections section shows items that\nhave been tagged with color labels.',
+  'Show Filters': 'Use this toggle to show or hide Filters.',
+  'Filters': 'Default filters and user-created tag groups\nare displayed when the Filters view is active.',
+  'Filters|row': 'Apply filters to the selected browser\ncontent.',
+  'Show Tags Editor': 'Use this toggle to show or hide the Tags\nEditor.',
+  'Next Locator': 'Jump to the next locator or to the song end\nusing this button.',
+  'Assignable Colors': 'You can access all files tagged with this\ncolor here. The color labels can also be\nrenamed as needed.\n\n[Ctrl + R] Rename Color Label',
+  'Unfold Track Button': 'Click to fold or unfold the track. When the\ntrack is folded, you can select and move\nclips; when the track is unfolded, you can\nalso view and edit waveforms and breakpoint\nenvelopes. You can set an unfolded track’s\nheight by dragging the split line below it.\n\n[Alt + U] Fold/Unfold All Tracks\n[U] Fold/Unfold Selected Track',
+  'Input Type': 'This chooser selects an input for this track.\nIf the input you select here has multiple\nchannels or subcategories, you can select\nfrom among them in the Input Channel\nchooser below.\nThe list of available inputs depends on how\nthe relevant preferences for this track\n(Audio or MIDI/Sync) are configured. Note\nthat track-to-track routings only require\nusing one of the tracks’ In/Out chooser\npairs.',
+  'Track Activator': 'Activate this button to hear the track, or\ndeactivate it to mute the track.\nTo set the destination for the track’s signal,\nuse the Output Type and Output Channel\nchoosers, available in the mixer’s In/Out\nsection.',
+  'Solo/Cue': 'If the Solo/Cue switch in the Session mixer’s\nMain track is set to ‘Solo,’ then enabling this\nswitch will solo this track by muting all\nothers.\nIf the Solo/Cue switch is set to ‘Cue,’\nenabling this switch will send this track’s\noutput to the channels selected in the\nSession mixer’s Cue Out chooser. This is\nuseful for preparing clips in private, using\nheadphones.',
+  'Arm Recording': 'Turn this switch on to record-enable a track.\nArmed tracks will record the signal set in the\nInput Type and Input Channel choosers as\nnew clips. Use the Control Bar’s Record and\nPlay buttons to begin recording. Stop\nrecording with the Stop button. Arm\nmultiple tracks at once by holding down the\nCtrl modifier.',
+  'Input Channel': 'This chooser selects a channel or\nsubcategory of input for this track. A more\ngeneral setting must be selected from the\nInput Type chooser above before options will\nappear in this chooser.\nThe availability of inputs depends on how\nthe relevant preferences for this track\n(Audio or MIDI/Sync) are configured.',
+  'Library Section': 'The Library section contains all of the items\nin your library, which are sorted in different\ncategory labels. Labels that you have added\nfrom saved search results will also be shown\nhere.',
+  'Track Title Bar': 'Click to select this track; choose ‘Rename’\nfrom the Edit menu to rename the track;\nchoose ‘Delete’ to delete the track. Drag this\ntrack above or below another to reorder\nthem.\n\n[Arrow Left/Right] Fold track display in/out',
+  'Monitoring': 'When monitoring is active, a track’s input is\nplayed through its devices and heard at its\noutput.\nThis setting can generally be left on ‘Auto,’\nwhich turns monitoring on when the track is\narmed and off to play clips.\nTo hear a track’s instrument playing input\nfrom a MIDI keyboard, or an external audio\nsignal through a track’s effects, arm the\ntrack.',
+  'Browse All': 'You can access all of the browser’s content\nhere.',
+  'Output Type': 'This chooser selects this track’s output. If\nthis output has multiple channels or\nsubcategories, you can select from among\nthem in the Output Channel chooser below.\nThe list of available outputs depends on how\nthe relevant preferences for this track\n(Audio or MIDI/Sync) are configured.\nTrack-to-track routings only require using\none of the tracks’ In/Out chooser pairs.',
+  'Output Channel': 'This chooser selects a channel or\nsubcategory of output for this track. A more\ngeneral setting must be selected from the\nOutput Type chooser above before options\nwill appear in this chooser.\nThe availability of outputs depends on how\nthe relevant preferences for this track\n(Audio or MIDI/Sync) are configured.',
+  'Browse Sounds': 'You can access all Instrument Racks and\ninstrument presets here.',
+  'Browse Drums': 'You can access all drum presets, full drum\nkits, and individual drum hits here.',
+  'Browser Content Pane': 'Shows the contents of the selected browser\nlabel. Double-click or drag a file from here to\nload it in your Live Set.\n\nPress the right arrow key to preview\nselected samples, clips or presets. If an\ninstrument, audio/MIDI effect, or Rack\ndefault is selected, pressing the right arrow\nkey will expand its list of presets, if any.',
+  'Browse Instruments': 'You can access all Instrument Racks, default\nLive devices, and device presets here.',
+  'Browse Audio Effects': 'You can access all native audio effects,\npresets, and Audio Effect Racks here.',
+  'Browse MIDI Effects': 'You can access all native MIDI effects,\npresets, and MIDI Effect Racks here.',
+  'Modulators': 'You can access all modulator devices here.',
+  'Browse Max for Live Devices': 'You can access all Max for Live devices and\npresets here.',
+  'Browse Third-Party Plug-Ins': 'You can access all installed third-party\nplug-ins here.',
+  'Track Volume': 'This slider is used to adjust and display the\ntrack’s output signal level (peak level and\nRMS). Click and drag to adjust track volume.',
+  'Track Pan': 'Adjust the track’s position in the stereo field\nby clicking here and dragging up/down.',
+  'Browse Clips': 'You can access all Live Clips here.',
+  'Send': 'Click and drag up/down to adjust the track’s\ncontribution to the corresponding return\ntrack’s input.\n\nNote that the send controls in return tracks\nare disabled by default. To enable them,\nright-click on a return track’s send knob and\nselect ‘Enable Send’ or ‘Enable All Sends’.',
+  'Browse Samples': 'You can access all samples here.',
+  'Browse Grooves': 'You can access all grooves here.',
+  'Tunings': 'You can access all .ascl files here.',
+  'Browse Template Live Sets': 'You can access all template Live Sets from\ninstalled factory packs, the User Library, and\nPlaces here. Use the “Save Live Set as\nTemplate” command from the File menu to\nsave new template Sets.',
+  'Places Section': 'The Places section displays Packs, files from\nAbleton Cloud, files from Push, the User\nLibrary, and folders you have manually added\nto the browser’s sidebar.',
+  'Packs': 'You can access all of your Packs here. Each\nPack appears as a folder in the content\npane, which can be unfolded to reveal that\nPack’s contents.',
+  'Cloud': 'You can access all Note Sets that you have\nadded to Cloud here. Any changes that you\nmake to Sets in Note will be synced here as\nwell.',
+  'Push': 'You can access all files stored on Push here.\nIf no Push unit is connected this label will be\ngrayed out.',
+  'Current Project': 'You can access all of the files that are\ncontained in the currently active Project\nhere. If you’re working on a Live Set that you\nhaven’t yet saved, the current Project refers\nto a temporary location.',
+  'Add Folder': 'Add a folder or drive to access it in the\nPlaces section of the browser. Live will also\nscan its contents and show them in the\nappropriate Library labels.',
+  'Return Track Title Bar': 'Click to select this return track; choose\n‘Rename’ from the Edit menu to rename the\ntrack; choose ‘Delete’ to delete the track.\n\n[Arrow Left/Right] Fold track display in/out',
+  'Main Track Title Bar': 'Click to select the Main track and open the\nDevice View to display the track’s devices.',
+  'Main Out': 'In Live, you can preview Browser files and\ncue clips using a separate output. The Cue\nOut chooser above selects the output on\nyour hardware interface to be used for\ncueing. This chooser selects the output to\nwhich to rest of the mix will be sent.\nCueing is active when the Session mixer’s\nSolo/Cue Mode switch is set to ‘Cue.’',
+  'Preview/Cue Volume': 'Adjust the preview/cue volume by clicking\nhere and dragging up/down.',
+  'Browser File Preview': 'When enabled, a preview of the selected\nbrowser item will be played automatically. To\nadjust the previewing volume, use the\nPreview/Cue Volume control in the Main\ntrack’s mixer.',
+  'Waveform Vertical Zoom': 'Use this toggle to switch vertical zooming\nfor all waveforms in the Arrangement on or\noff. When on, vertical zooming will also be\napplied to waveforms when recording new\naudio clips into the Arrangement.',
+  'Waveform Vertical Zoom Level': 'Sets the vertical zoom level for all audio\nwaveforms. Use the right-click option to\nswitch the zoom factor from x (multiplied\nby) to dB.',
+  'Optimize Arrangement Height': 'Optimize track height to fit the\nArrangement View.\n\n[H] Optimize Arrangement Height',
+  'Optimize Arrangement Width': 'Optimize song width to fit the Arrangement\nView.\n\n[W] Optimize Arrangement Width',
+  'Show/Hide Info View': 'Click here to show or hide the Info View.\n\n[?] Show/Hide Info View',
+  'Clip View Toggle': 'Click to toggle Clip View.\n\n[Alt+Click] Toggle Clip and Device Views',
+  'Device View Toggle': 'Click to toggle Device View.\n\n[Alt+Click] Toggle Clip and Device Views',
+  'Mixer View Toggle': 'Use this toggle to show or hide the mixer.',
+  'Lock Envelopes': ' ',
+  'Pre/Post Toggle': ' ',
+});
+Object.assign(INFO_HTML, {
+  'Lock Envelopes': [null, ['If locked (to the song position),\nenvelopes are unaffected by clip editing.', 'If unlocked, envelopes follow the clip’s\nmovement.']],
+  'Pre/Post Toggle': [null, ['If set to ‘Pre,’ this return track taps each\nclip track’s signal pre-fader.', 'If set to ‘Post,’ this return track taps clip\ntracks post-fader.']],
+});
+// Info View texts found by hovering Live on a 24 x 16 px grid over the whole window (regions without a page control yet)
+Object.assign(INFO, {
+  'Time Signature Numerator': 'Drag up/down to adjust the number of beats\nper bar, or click and type in a number.',
+  'Time Signature Denominator': 'Drag up/down to adjust the length of a beat,\nor click and type in a number.',
+  'Metronome Settings': 'Click here to change various metronome\nsettings, including the recording count-in\nlength, the metronome sound, and the beat\ndivision at which the metronome ticks. The\n‘Enable Only While Recording’ option can\nalso be activated here.\n\nIf Link is enabled, the recording count-in will\nbe inactive.',
+  'Clip Overview/Zooming Hot Spot': 'This is a visual overview of the clip’s entire\ncontents. It also serves as a zooming hot\nspot.\n\nClick and drag horizontally to scroll.\nClick and drag vertically to zoom.\nDouble-click to zoom out all the way.\n\n[Ctrl + Scroll Wheel] Zoom In/Out',
+  'Browser Sidebar': 'Select a label in the browser’s sidebar to\nreveal its contents in the Content Pane.',
+  'Edit Labels': 'Click here to show or hide labels in the\nbrowser.',
+  'Loop Start/Punch-In Point|marker': 'Drag horizontally to change the loop\nstart/punch-in point. To activate the loop\nand/or punch-in point, or to change the\nposition numerically, use the respective\nControl Bar controls.',
+  'Loop/Punch-Recording Region': 'This shows the Arrangement loop and\npunch-recording area, which are activated\nin the Control Bar. Drag horizontally to move\nthe loop brace, or at the edges to change its\nlength. Move it left/right in large or small\nsteps with the four arrow keys; change its\nlength with Ctrl + the arrow keys. Click the\nbrace to select the material within for\nediting.',
+  'Loop End/Punch-Out Point': 'Drag horizontally to change the loop\nend/punch-out point. To activate the loop\nand/or punch-out point, or to change the\nposition numerically, use the respective\nControl Bar controls.',
+  'Assigned Colors': 'Shows the colors that are assigned to library\nitems. Up to three can be shown, but more\ncan be assigned.',
+  'In/Out Section': 'The mixer’s In/Out section is where routing\nof track signal sources and destinations\ntakes place.\n\n[Ctrl + Alt + I] Show/Hide In/Out Section',
+  'Mixer Drop Area': ' ',
+  'Grid Spacing': 'This display shows the current spacing\nbetween grid lines. You can use these menu\nshortcuts to work with the editing grid:\n\n[Ctrl + 1] Narrow Grid\n[Ctrl + 2] Widen Grid\n[Ctrl + 3] Triplet Grid\n[Ctrl + 4] Show/Hide Grid\n[Ctrl + 5] Toggle Zoom-Adaptive and Fixed\nGrid Modes',
+  'Info View': 'The Info View provides a brief description of\nthe user interface element that the mouse is\ncurrently over. For some elements, you can\ncreate your own text and it will appear in this\nwindow.\nTo save screen space, you can hide Info View\nby clicking the view control at the bottom\nleft corner of the Status Bar.\n\n[?] Show/Hide Info View',
+  'Status Bar': 'The Status Bar helps keep you updated on\nthe progress of various program activities.',
+  'Clip View Selector': 'This is a visual overview of the clip’s entire\ncontents. Click here to view and edit the\nselected clip’s properties. When the Clip\nView is open, the Clip Overview also acts as a\nzoomer/scroller: Click on any position in the\nclip and drag vertically to zoom.',
+  'Device View Selector': 'Click to view the highlighted track’s device\nchain. If the highlighted track has devices,\nthis selector contains a miniaturized display\nof the device chain. When the Device View is\nopen, the Device View selector also acts as a\nscroller.',
+  'Preview Tab': 'Select a clip in the Browser to preview it in\nthe Preview Tab. Enable the preview button\nto the left to autoplay samples.',
+  'Previous Locator': 'Jump to the previous locator or to the song\nstart using this button.',
+  'Show/Hide Mixer Config Menu': 'Use the toggle to show or hide a menu where\nyou can expand or collapse different mixer\ncontrols and return tracks.',
+});
+Object.assign(INFO_HTML, {
+  'Mixer Drop Area': ['You can create new tracks by dropping\ndevices into the empty space to the right of\nthe Session View mixer and below the\nArrangement View mixer:', ['Drop MIDI effects and instruments to\ncreate MIDI tracks.', 'Drop audio effects to create audio\ntracks.']],
+});
 
 // ---------------------------------------------------------------------------
 // State
@@ -839,13 +1063,15 @@ function hctl(hd, cls, x, y, w, text) {
   hd.append(d);
   return d;
 }
+// Chooser text is clipped mid-glyph 1 px left of the drop-down triangle, not elided: images/1.png shows
+// "All Channe" with the 'e' cut at x 1778 for a box at 1716 and the triangle starting at 1779.
 function dropdown(hd, x, y, w, text, textX, icon) {
   const d = hctl(hd, 'field', x, y, w, null);
   // Info View topic by row: Input Type, Input Channel, -, Output Type
-  d.dataset.info = ['Input Type', 'Input Channel', 'Monitoring', 'Output Type', ''][Math.round((y - 2) / 17)] || '';
+  d.dataset.info = ['Input Type', 'Input Channel', 'Monitoring', 'Output Type', 'Output Channel'][Math.round((y - 2) / 17)] || '';
   d.style.textAlign = 'left';
   const s = document.createElement('span'); s.className = 'abs'; s.textContent = text;
-  Object.assign(s.style, { left: textX + 'px', width: (57 - textX) + 'px', overflow: 'hidden', whiteSpace: 'nowrap' });
+  Object.assign(s.style, { left: textX + 'px', width: (60 - textX) + 'px', overflow: 'hidden', whiteSpace: 'nowrap' });
   d.append(s);
   if (icon) { const i = document.createElement('i'); i.dataset.ic = icon; i.style.left = '0'; d.append(i); }
   const tri = document.createElement('i'); tri.dataset.ic = 'hd_ddTri'; tri.style.left = '56px'; d.append(tri);
@@ -865,25 +1091,44 @@ function makeRow(t, y, h, pinned) {
   const ch = h - SEP;   // content height
   const hd = document.createElement('div');
   hd.className = 'theader' + (t === selected ? ' sel' : '');
+  hd.dataset.info = '';   // header parts without a text of their own empty the Info View; the row's 'Main Lane' is for the lane
+  if (t.type === 'main') { const s = document.createElement('div'); s.className = 'abs'; s.dataset.info = ''; Object.assign(s.style, { left: '0', right: '0', top: (h - SEP) + 'px', height: SEP + 'px' }); row.append(s); }
   hd.style.height = h + 'px';
   const isMain = t.type === 'main', isRet = t.type === 'return';
   const nameBg = t.color;
   const dark = darkOf(nameBg);
   hd.innerHTML = `<div class="bg" style="height:${ch}px" data-info="Volume Section"></div>
-    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${pinned || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit" data-info="Unfold Track Button"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn"></span></div>`;
+    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${pinned || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit" data-info="Unfold Track Button" data-hit="-2 -1 -1 -1"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn"></span></div>`;
   // a return's letter and name are placed apart: letter at the name's x, name 10 px further (user's Windows screenshot:
   // "A" and "B" at x 1644, "Reverb" and "Delay" both at 1654)
   if (isRet) { $('.name .tn', hd).innerHTML = '<span></span><span style="position:absolute;left:10px"></span>'; const [l, n] = $('.name .tn', hd).children; l.textContent = t.label; n.textContent = t.name; $('.name .tn', hd).style.left = '23px'; }
   else $('.name .tn', hd).textContent = t.name;
   if (isMain) $('.name .tn', hd).style.left = '25px';
-  const vsep = (x, w) => { const s = document.createElement('div'); s.className = 'vsep'; Object.assign(s.style, { left: x + 'px', width: w + 'px', height: ch + 'px' }); hd.append(s); };
+  // the In/Out column's background (x 97..171) has its own Info View text; the rest is "Volume Section" (running Live)
+  { const io = document.createElement('div'); io.className = 'abs'; Object.assign(io.style, { left: '97px', width: '74px', top: '0', height: ch + 'px' }); io.dataset.info = 'In/Out Section'; hd.append(io); }
+  $('.name', hd).dataset.info = isMain ? 'Main Track Title Bar' : isRet ? 'Return Track Title Bar' : 'Track Title Bar';
+  const vsep = (x, w) => { const s = document.createElement('div'); s.className = 'vsep'; s.dataset.info = 'Mixer Drop Area'; Object.assign(s.style, { left: x + 'px', width: w + 'px', height: ch + 'px' }); hd.append(s); };
+  // the 2 px separator under a header answers "Mixer Drop Area" left of the mixer column and "Volume Section" in it
+  // (running Live: x 1714..1791 / 1792..1910 at y 214..215); the Main track's has no text
+  for (const [x, info] of [[0, 'Clip/Device Drop Area'], [1, 'Mixer Drop Area']]) {
+    const s = document.createElement('div'); s.className = 'abs'; s.dataset.info = info;
+    Object.assign(s.style, { left: x + 'px', width: '1px', top: '0', height: h + 'px' }); hd.append(s);
+  }
+  if (!isMain) for (const [l, w, info] of [[0, 173, 'Mixer Drop Area'], [173, 119, 'Volume Section']]) {
+    const s = document.createElement('div'); s.className = 'abs'; s.dataset.info = info;
+    Object.assign(s.style, { left: l + 'px', width: w + 'px', top: ch + 'px', height: SEP + 'px' }); hd.append(s);
+  }
   const R = k => 2 + 17 * k;    // control row top
   if (isMain) {
     vsep(95, 5); vsep(174, 2); vsep(289, 3);
-    dropdown(hd, 102, R(0), 70, '1/2', 11, 'hd_mainMeterIcon');
-    const vol = hctl(hd, 'field', 178, R(0), 46, ''); vol.title = 'Main Volume';
+    for (const s of hd.querySelectorAll('.vsep')) { s.style.pointerEvents = 'none'; delete s.dataset.info; }
+    for (const x of [95, 171]) { const s = document.createElement('div'); s.className = 'abs'; s.dataset.info = 'Mixer Drop Area'; Object.assign(s.style, { left: x + 'px', width: '2px', top: '0', height: ch + 'px' }); hd.append(s); }
+    // the Main track's controls answer where a track's controls would (Live: Main Out x 1717..1788, volume 1793..1840,
+    // cue 1843..1890), 3 px left of where they are drawn
+    const mo = dropdown(hd, 102, R(0), 70, '1/2', 11, 'hd_mainMeterIcon'); mo.dataset.info = 'Main Out'; mo.dataset.hit = '4 1 -2 1';
+    const vol = hctl(hd, 'field', 178, R(0), 46, ''); vol.title = 'Main Volume'; vol.dataset.info = 'Track Volume'; vol.dataset.hit = '4 1 -2 1';
     fieldFill(vol, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
-    const cue = hctl(hd, 'field', 228, R(0), 46, ''); cue.title = 'Cue Volume';
+    const cue = hctl(hd, 'field', 228, R(0), 46, ''); cue.title = 'Cue Volume'; cue.dataset.info = 'Preview/Cue Volume'; cue.dataset.hit = '4 1 -2 1';
     fieldFill(cue, volFill(0.5012), 'var(--ChosenPreListen)', '-6.0');
     meter(hd, t, 278, 2, ch - 4, false);
   } else {
@@ -904,8 +1149,8 @@ function makeRow(t, y, h, pinned) {
       refreshMixer();
     });
     if (isRet) {
-      hctl(hd, 'flat', 99, R(0), 70, null);
-      hctl(hd, 'on', 246, R(0), 25, 'Post').title = 'Pre/Post';
+      hctl(hd, 'flat', 99, R(0), 70, null).dataset.info = 'Output Channel';
+      const pp = hctl(hd, 'on', 246, R(0), 25, 'Post'); pp.title = 'Pre/Post'; pp.dataset.info = 'Pre/Post Toggle';
       meter(hd, t, 275, 2, ch - 4, false);
     } else {
       const audio = t.type === 'audio' || t.type === 'group';
@@ -917,17 +1162,18 @@ function makeRow(t, y, h, pinned) {
       if (rowsFit >= 2 && t.type !== 'group') dropdown(hd, 99, R(1), 70, t.type === 'midi' ? 'All Channels' : String(1 + (Number(t.label) + 1) % 2), 11, t.type === 'midi' ? 'hd_chanMeter' : 'hd_inMeterEmpty');
       if (rowsFit >= 3) {
         const mon = t.type === 'midi' ? 1 : 2;
+        const mr = document.createElement('div'); mr.className = 'abs'; Object.assign(mr.style, { left: '98px', top: (R(2) - 1) + 'px', width: '72px', height: '15px' }); mr.dataset.info = 'Monitoring'; hd.append(mr);
         for (const [k, x, w, l] of [[0, 99, 17, 'In'], [1, 119, 27, 'Auto'], [2, 149, 20, 'Off']]) hctl(hd, mon === k ? 'on' : '', x, R(2), w, l).dataset.info = 'Monitoring';
       }
       if (rowsFit >= 4) dropdown(hd, 99, R(3), 70, t.type === 'midi' && !t.devices.length ? 'No Output' : 'Main', 2);
-      if (rowsFit >= 5) hctl(hd, 'flat', 99, R(4), 70, null).style.background = 'transparent';
+      if (rowsFit >= 5) { const oc = hctl(hd, 'flat', 99, R(4), 70, null); oc.style.background = 'transparent'; oc.dataset.info = 'Output Channel'; }
       // mixer
       if (audio && rowsFit >= 2) {
-        const vol = hctl(hd, 'field', 175, R(1), 46, ''); vol.title = 'Track Volume';
+        const vol = hctl(hd, 'field', 175, R(1), 46, ''); vol.title = 'Track Volume'; vol.dataset.info = 'Track Volume';
         fieldFill(vol, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
-        hctl(hd, 'field', 225, R(1), 46, panText(t.mixer.pan)).title = 'Track Panning';
+        const pan = hctl(hd, 'field', 225, R(1), 46, panText(t.mixer.pan)); pan.title = 'Track Panning'; pan.dataset.info = 'Track Pan';
       }
-      if (audio && rowsFit >= 3) t.mixer.sends.slice(0, 2).forEach((v, i) => hctl(hd, 'field', 175 + 33 * i, R(2), 30, dbText(v, '−∞')).title = 'Send');
+      if (audio && rowsFit >= 3) t.mixer.sends.slice(0, 2).forEach((v, i) => { const s = hctl(hd, 'field', 175 + 33 * i, R(2), 30, dbText(v, '−∞')); s.title = 'Send'; s.dataset.info = 'Send'; });
       if (audio || t.type === 'group') meter(hd, t, 275, 2, ch - 4, true);
       else if (t.unfolded) midiMeter(hd, ch);
       else foldedMidiMeter(hd, ch);
@@ -952,7 +1198,7 @@ function makeRow(t, y, h, pinned) {
 }
 // audio meter: two 3 px bars; the top tenth is the separate peak section
 function meter(hd, t, x, y, h, gapRow) {
-  const m = document.createElement('div'); m.className = 'meter';
+  const m = document.createElement('div'); m.className = 'meter'; m.dataset.info = 'Volume Section';
   Object.assign(m.style, { left: x + 'px', top: y + 'px', width: '7px', height: h + 'px' });
   const top = Math.max(1, Math.round(h * 0.1));
   for (const cx of [0, 4]) {
@@ -2012,7 +2258,82 @@ function clampPanels() {
 // When the lanes get wider Live keeps the scroll position and zoom: the range end follows the new visible end
 // (ASongArrangerMediator slot 6 = max(S, visible end)), so nothing is clamped (running Live: hiding the browser kept bar 6
 // at the left edge)
-function layoutAfterResize() { clampPanels(); if (set) { layoutCanvases(); view.range = Math.max(view.range ?? 0, bOf(lanesWidth() - 1)); drawAll(); } }
+// ---------------------------------------------------------------------------
+// Control bar at narrow widths: LTransportView's layout (vtable 0x145bce7f0, slot 53 = 0x1437e8090 -> 0x1437e2390).
+// overflow = (preferred width of the bar with every item at full size) - (bar width). Read from the running Live at
+// 1366 px: preferred 1243 for a 1249 px bar, i.e. the bar is the window less 117 px, so overflow = 1360 - W.
+// While overflow > 0, 0x1437e2390 shrinks its six spacers ([this+0x520], {view, min [+8], full [+0xc]} every 0x50 bytes)
+// by 1 px each per round, all of them in a round, until the total shrink reaches the overflow (full/min read from Live:
+// 17/4, 20/7, 19/6, 19/6 and 17/13, 15/11). Whatever overflow is left then collapses every item of [this+0x538] to its
+// minimum at once (0x1437e2730: metronome 28 -> 22, the two indicator columns 8 -> 4, punch-in / loop / punch-out
+// 23 -> 21, sample rate 50 -> 30, CPU 58 -> 50: 52 px), and anything still left collapses [this+0x550] (the three
+// position boxes 82 -> 76: 18 px). The 13 px spacers are the gaps quantization -> scale, left group -> centre group,
+// Session Record -> loop start and centre -> right group; the 4 px ones are position -> Play and Record -> Overdub.
+// Positions measured from Live at 1920, 1440, 1360, 1340, 1320, 1300, 1280, 1260, 1240, 1200, 1150, 1100 ... 800:
+// the centre group is centred (x = W / 2 - 245) unless that would leave less than the left gap after the left group,
+// the right group sits at the window's right edge unless that would leave less than 8 px after the centre group, and
+// it is cut off 64 px from the window's right edge (the view selectors stay at the right edge). Below the point where
+// the collapsed position boxes still do not fit, Live drops the loop start and length boxes and shows the three
+// punch/loop buttons at full size (1200 px and below).
+function layoutControlBar() {
+  const W = $('#app').clientWidth;
+  const grps = $$('#controlbar .grp');
+  if (getComputedStyle(grps[0]).display === 'none') return;   // phone layout keeps its own positions
+  const ov = 1360 - W;
+  let k = 0, shrunk = 0;
+  while (shrunk < ov && k < 13) { k++; shrunk += k <= 4 ? 6 : 4; }
+  let rem = ov - shrunk;
+  const c2 = rem > 0; if (c2) rem -= 52;
+  const c3 = rem > 0; if (c3) rem -= 18;
+  const compact = rem > 0;
+  const k13 = Math.min(k, 13), k4 = Math.min(k, 4);
+  const I = n => $(`#controlbar [data-info="${n}"]`);
+  const put = (el, x, w) => { el.style.left = x + 'px'; if (w != null) el.style.width = w + 'px'; };
+  // left group
+  const met = I('Metronome');
+  put(met, 208, c2 ? 33 : 39); $('i', met).style.left = (c2 ? 19 : 25) + 'px';
+  put(met._hit, 0, c2 ? 22 : 28); put(met._hit2, c2 ? 22 : 28, 11);
+  put(I('Quantization Menu'), c2 ? 243 : 249);
+  const ls = (c2 ? -6 : 0) - k13;
+  put(I('Scale Mode'), 315 + ls); put(I('Current Scale Root Note'), 334 + ls); put(I('Current Scale Name'), 380 + ls);
+  const leftEnd = 450 + ls, gapL = 21 - k13;
+  // centre group
+  const cx = Math.max(Math.round(W / 2 - 245), leftEnd + gapL);
+  grps[1].style.left = cx + 'px';
+  const bw = c3 ? 76 : 82;
+  put(I('Arrangement Position'), 23, bw);
+  let x = 23 + bw + 20 - k4 - 4;     // Play: 121 at full (position box 23..105, then the 4 px spacer)
+  put(I('Play Button'), x); put(I('Stop Button'), x + 22); put(I('Arrangement Record Button'), x + 45);
+  x += 82 - k4;                      // Overdub: 203 at full
+  put(I('MIDI Arrangement Overdub'), x); put(I('Automation Arm'), x + 19); put(I('Re-Enable Automation'), x + 38); put(I('Capture MIDI'), x + 57); put(I('Session Record Button'), x + 76);
+  x += 76 + 17 + 21 - k13;           // loop start box: 317 at full
+  let cend;
+  I('Loop Start/Punch-In Point').style.display = I('Loop/Punch-Region Length').style.display = compact ? 'none' : '';
+  if (compact) {
+    put(I('Punch-In Switch'), x, 21); put(I('Loop Switch'), x + 23, 21); put(I('Punch-Out Switch'), x + 46, 21);
+    cend = x + 46 + 21;
+  } else {
+    put(I('Loop Start/Punch-In Point'), x, bw); x += bw + 2;
+    const pw = c2 ? 19 : 21, pp = pw + 2;
+    put(I('Punch-In Switch'), x, pw); put(I('Loop Switch'), x + pp, pw); put(I('Punch-Out Switch'), x + 2 * pp, pw);
+    x += 3 * pp; put(I('Loop/Punch-Region Length'), x, bw); cend = x + bw;
+  }
+  // right group (its view selectors stay at the window's right edge)
+  const rw = c2 ? 280 : 316;
+  const rx = Math.max(W - rw, cx + cend + 8);
+  grps[2].style.left = rx + 'px'; grps[2].style.right = 'auto';
+  grps[2].style.width = Math.max(0, W - 64 - rx) + 'px'; grps[2].style.overflow = 'hidden';
+  const iw = c2 ? 4 : 8;
+  for (const n of ['Key/MIDI In Indicator', 'Key/MIDI Out Indicator']) put(I(n), 66, iw);
+  put(I('MIDI Map Mode Switch'), 66 + iw + 2);
+  put(I('Sample Rate'), 72 + iw + 26, c2 ? 28 : 48); I('Sample Rate').textContent = c2 ? '44.1' : '44.1 kHz';
+  const cpu = 98 + iw + (c2 ? 30 : 50);
+  put(I('CPU Load Meter'), cpu, c2 ? 48 : 56); $('i', I('CPU Load Meter')).style.left = (c2 ? 34 : 42) + 'px';
+  put(I('Overload Indicator'), cpu + (c2 ? 50 : 58));
+  for (const n of ['MIDI Track In Indicator', 'MIDI Track Out Indicator']) put(I(n), cpu + (c2 ? 80 : 88), iw);
+}
+
+function layoutAfterResize() { clampPanels(); layoutControlBar(); if (set) { layoutCanvases(); view.range = Math.max(view.range ?? 0, bOf(lanesWidth() - 1)); drawAll(); } }
 function focusPanel(id) {
   for (const p of ['browser', 'arrangement', 'detail']) $('#' + p).classList.toggle('focused', p === id);
 }
@@ -2075,10 +2396,14 @@ function focusControl(el) {
 function setInsert(b) {
   view.insert = b;
   showPos('cb-pos', fmtPos(b));
-  // Live's status bar after placing the insert marker, e.g. "Insert Mark 39.1.1 (Time: 1:16)" (seen in the running Live,
-  // on the Alert colour)
+  // Live's status bar after placing the insert marker, e.g. "Insert Mark 39.1.1 (Time: 1:16)". It is posted with level 0
+  // (gdb on 0x142a66a10 / 0x142a39e50 while clicking a lane: level 0, mode 1, from 0x142aa6920), and the status bar's
+  // style for level 0 is SurfaceBackground with ControlForeground text (0x142a4f750 picks theme colours 6 / 11 from
+  // 0x145a0de90 for state 0, and 16 / 49, 72 / 49, 48 (Alert) / 49 for states 1, 2, 3; 0x142aa66d0 picks the text colour
+  // 11 for 0, 49 for the others). The running Wine copy shows it on Alert only because its unauthorized-warning set the
+  // bar to state 3 earlier and a level-0 one-shot does not restyle it (no call to either style function on later clicks).
   const sec = Math.floor(tempoMap.sec(b) + 1e-6);
-  status(`Insert Mark ${fmtPos(b).join('.')} (Time: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')})`, true);
+  status(`Insert Mark ${fmtPos(b).join('.')} (Time: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')})`);
   if (engine.playing) engine.play(b);
   drawAll();
 }
@@ -2176,7 +2501,7 @@ function showSet() {
   document.title = `${set.name} - Ableton Live 12 Suite`;
   $('#win-title').textContent = document.title;
   $('#cb-tempo').textContent = set.tempo.toFixed(2);
-  $('#cb-sig .r').textContent = set.sig.num; $('#cb-sig .t:last-child').textContent = set.sig.den;
+  $('#cb-sig .r').textContent = set.sig.num; $$('#cb-sig .t')[1].textContent = set.sig.den;
   $('#cb-quant').textContent = set.quant;
   $('#cb-root').textContent = set.scale.root;
   $('#cb-scale').textContent = set.scale.name;
