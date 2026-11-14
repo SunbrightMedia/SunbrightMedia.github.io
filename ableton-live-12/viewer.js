@@ -620,7 +620,39 @@ const darkOf = hex => rgbHex(hexRGB(hex).slice(0, 3).map(v => v * 0.267));
 // ---------------------------------------------------------------------------
 // Icons traced from the reference screenshot (icons.js)
 
+// At a display scaling Live was traced at (125 %, 150 %), the icon is Live's own rendering at that scale (icons-hidpi.js):
+// an SVG whose cells are device pixels (viewBox in physical pixels, crispEdges), so it lands 1:1 on the screen's pixels.
+function makeIconHi(name) {
+  const s = window.devicePixelRatio, d = typeof ICONS_HI !== 'undefined' && ICONS_HI[String(s)]?.[name];
+  if (!d) return null;
+  const [dx, dy, w, h, hex] = d;
+  const svg = maskSvg(w, h, hex);
+  svg.setAttribute('width', w / s); svg.setAttribute('height', h / s);
+  svg.style.left = dx / s + 'px'; svg.style.top = dy / s + 'px';
+  return svg;
+}
+function maskSvg(w, h, s) {
+  const paths = new Map();
+  for (let y = 0; y < h; y++) {
+    let x = 0;
+    while (x < w) {
+      const a = parseInt(s.substr((y * w + x) * 2, 2), 16);
+      let e = x + 1;
+      while (e < w && parseInt(s.substr((y * w + e) * 2, 2), 16) === a) e++;
+      if (a) paths.set(a, (paths.get(a) || '') + `M${x} ${y}h${e - x}v1h${x - e}z`);
+      x = e;
+    }
+  }
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'ic'); svg.setAttribute('width', w); svg.setAttribute('height', h); svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  let html = '';
+  for (const [a, p] of paths) html += `<path fill="currentColor" fill-opacity="${(a / 255).toFixed(3)}" d="${p}"/>`;
+  svg.innerHTML = html;
+  return svg;
+}
 function makeIcon(name) {
+  const hi = makeIconHi(name);
+  if (hi) return hi;
   const d = ICONS[name];
   if (!d) return null;
   if (d[0] === 'rgb') {
@@ -637,23 +669,8 @@ function makeIcon(name) {
     return c;
   }
   const [dx, dy, w, h, s] = d;
-  const paths = new Map();
-  for (let y = 0; y < h; y++) {
-    let x = 0;
-    while (x < w) {
-      const a = parseInt(s.substr((y * w + x) * 2, 2), 16);
-      let e = x + 1;
-      while (e < w && parseInt(s.substr((y * w + e) * 2, 2), 16) === a) e++;
-      if (a) paths.set(a, (paths.get(a) || '') + `M${x} ${y}h${e - x}v1h${x - e}z`);
-      x = e;
-    }
-  }
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('class', 'ic'); svg.setAttribute('width', w); svg.setAttribute('height', h); svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  const svg = maskSvg(w, h, s);
   svg.style.left = dx + 'px'; svg.style.top = dy + 'px';
-  let html = '';
-  for (const [a, p] of paths) html += `<path fill="currentColor" fill-opacity="${(a / 255).toFixed(3)}" d="${p}"/>`;
-  svg.innerHTML = html;
   return svg;
 }
 function applyIcons(root = document) {
