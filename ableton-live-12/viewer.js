@@ -299,6 +299,7 @@ function parseClip(el, root) {
     if (c.notes.length) { c.lo = Math.min(...c.notes.map(n => n.key)); c.hi = Math.max(...c.notes.map(n => n.key)); }
   } else {
     c.file = resolveRef(at(el, 'SampleRef', 'FileRef'), root);
+    c.filePath = val(at(el, 'SampleRef', 'FileRef'), 'Path') || '';
     c.warped = val(el, 'IsWarped') !== 'false';
     c.gain = num(el, 'SampleVolume') ?? 1;
     c.markers = kids(el, 'WarpMarkers').map(m => ({ sec: Number(m.getAttribute('SecTime')), beat: Number(m.getAttribute('BeatTime')) })).sort((a, b) => a.beat - b.beat);
@@ -492,7 +493,7 @@ function pcmSource(dv, off, size, ch, sr, bits, float, le) {
   else if (bits === 32) read = p => dv.getInt32(p, le) / 2147483648;
   else return null;
   return {
-    kind: 'pcm', sr, ch, frames,
+    kind: 'pcm', sr, ch, frames, bits,
     read(start, count) {
       start = Math.max(0, Math.floor(start)); count = Math.max(0, Math.min(Math.floor(count), frames - start));
       const out = [];
@@ -2635,8 +2636,16 @@ function setupInteraction() {
     if (hit) {
       view.selClip = hit;
       view.tsel = { b0: hit.start, b1: hit.end, tracks: [r.track] };
-      status(`${hit.name ? hit.name + '  ' : ''}Start: ${fmtPos(hit.start).join('.')}  End: ${fmtPos(hit.end).join('.')}  Length: ${fmtLen(hit.end - hit.start).join('.')}`);
-      showPos('cb-pos', fmtPos(hit.end));   // the position field then shows the clip's end (running Live: 3.1.1)
+      // audio clips add the file: "Loud  Start: 1.1.1  End: 3.1.1  Length: 2.0.0  C:\users\...\Loud.wav | 44.1 kHz |
+      // 16 Bit | 2 Ch" (running Live; the path as the Set stores it)
+      const src = hit.file ? sources.get(hit.file) : null;
+      const info = hit.kind === 'audio' && hit.filePath && src
+        ? `  ${hit.filePath.replace(/\//g, '\\')} | ${+(src.sr / 1000).toFixed(1)} kHz | ${src.bits ?? 32} Bit | ${src.ch} Ch` : '';
+      status(`${hit.name ? hit.name + '  ' : ''}Start: ${fmtPos(hit.start).join('.')}  End: ${fmtPos(hit.end).join('.')}  Length: ${fmtLen(hit.end - hit.start).join('.')}${info}`);
+      // the position field shows the selection edge that moved: the end when the clip starts at the insert marker
+      // ("Chords" 1.1.1-3.1.1 clicked with the marker at 1.1.1: 3.1.1), else the start ("Loud" 1.1.1-3.1.1 clicked
+      // with the marker at 21.1.1: 1.1.1) - two captures of the running Live, the rule behind them is not traced
+      showPos('cb-pos', fmtPos(Math.abs(hit.start - view.insert) < 1e-9 ? hit.end : hit.start));
       drawAll();
       return;
     }
