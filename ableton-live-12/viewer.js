@@ -1113,6 +1113,30 @@ function optimizeHeight() {
   for (const t of open) t.laneHeight = 17 * k;
   buildRows(); drawAll();
 }
+// Optimize Arrangement Width (W), from Live 12.0's exe: the handler (0x143ac5480) is a toggle. The first press keeps
+// the visible range and zooms to the clips' span ([0x142fc1970]; nothing happens without clips) widened by
+// 0x143af2990 to whole bars with one more bar at each end (start = max(0, bar floor - 1 bar), end = bar ceiling + 1
+// bar; gdb: clips 0 .. 20 -> 0 .. 24), as a zoom factor range / span for the content width (0x1437ff9b0); the next
+// press goes back to the kept range. (Live animates the change; the page shows the end state.)
+let widthPrev = null;
+function optimizeWidth() {
+  if (!set) return;
+  if (widthPrev) {
+    Object.assign(view, widthPrev); widthPrev = null;
+    clampScroll(); drawAll(); return;
+  }
+  let s = Infinity, e = -Infinity;
+  for (const t of set.tracks) for (const c of t.clips) { s = Math.min(s, c.start); e = Math.max(e, c.end); }
+  if (!(e > s)) return;
+  const bar = beatsPerBar(), eps = 2.6015651015651016e-07;
+  const t0 = Math.max(0, Math.floor((Math.max(0, Math.floor(s / bar) * bar) - eps) / bar) * bar);
+  const t1 = Math.ceil((Math.max(0, Math.ceil(e / bar) * bar) + eps) / bar) * bar;
+  widthPrev = { beat0: view.beat0, ppb: view.ppb, range: view.range };
+  const r = rangeEnd(), vw = lanesWidth();
+  const w = clamp(Math.round(vw * r / (t1 - t0)), vw, ZOOM_MAX_W);
+  view.ppb = (w - 1) / r; view.range = r; view.beat0 = t0;
+  clampScroll(); drawAll();
+}
 function buildRows() {
   const rowsEl = $('#rows'), pinEl = $('#pinned-rows');
   rowsEl.innerHTML = ''; pinEl.innerHTML = '';
@@ -2417,6 +2441,7 @@ function setupInteraction() {
   // (Live 12 manual, Arrangement View > Arrangement Playback)
   $('#cb-stop').addEventListener('dblclick', () => { if (set) setInsert(0); });
   $('#songruler [data-info="Optimize Arrangement Height"]').addEventListener('click', optimizeHeight);   // acts on release (running Live)
+  $('#songruler [data-info="Optimize Arrangement Width"]').addEventListener('click', optimizeWidth);
   $('#cb-loop').addEventListener('click', () => {
     if (!set) return;
     set.loop.on = !set.loop.on; $('#cb-loop').classList.toggle('on', set.loop.on);
@@ -2433,6 +2458,7 @@ function setupInteraction() {
     }
     if (e.key === 'Home') { setInsert(0); }
     if ((e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.metaKey && !e.altKey) optimizeHeight();   // [H] (Info View)
+    if ((e.key === 'w' || e.key === 'W') && !e.ctrlKey && !e.metaKey && !e.altKey) optimizeWidth();    // [W] (Info View)
     // Live 12 manual, Keyboard Shortcuts: + / - zoom, S solo, 0 deactivate, U fold/unfold, F1-F8 Track Activators.
     // Zoom keys: LArrangerView slot 210 (0x143ac5990) -> 0x1437fe1c0 with 1.6 / 0.625 (0x145e94e70 / 0x145e94ad0).
     // 0x1437fe1c0 asks slot 187 (0x143b0aa00) for an anchor: while Follow is scrolling playback that is the play
