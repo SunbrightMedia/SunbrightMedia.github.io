@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>KiCad 10.0</title>
+  <link rel="icon" href="images/kicad-32.png">
+  <!--
+    Sources:
+    - images/kicad-32.png (and ../images/desktop/kicad-10-app*.png): frames of KiCad's own Windows
+      application icon, resources/bitmaps_png/icons/icon_kicad.ico in the KiCad source at tag 10.0.8
+      (https://gitlab.com/kicad/code/kicad), GPL-3.0-or-later per the repository's LICENSE.README.
+    - js/newstroke-*.js: KiCad's stroke font table from common/newstroke_font.cpp (licences in the file).
+    - textures/oak_veneer_01_*: "Oak Veneer 01" by Jenelle van Heerden, Poly Haven, CC0
+      (https://polyhaven.com/a/oak_veneer_01). textures/studio_small_09_1k.hdr: "Studio Small 09"
+      by Sergej Majboroda, Poly Haven, CC0 (https://polyhaven.com/a/studio_small_09).
+    - vendor/fflate.js: fflate (MIT), see vendor/fflate.LICENSE.
+  -->
+
+  <style>
+    :root { color-scheme: light; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #b9b6b0; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: #222; }
+    #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+    #ui { position: fixed; left: max(12px, env(safe-area-inset-left)); top: max(12px, env(safe-area-inset-top)); right: 12px;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
+    #ui > * { pointer-events: auto; }
+    button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(0,0,0,.25); background: rgba(255,255,255,.85); cursor: pointer; }
+    button:hover { background: #fff; }
+    #status:empty { display: none; }
+    #status { background: rgba(255,255,255,.8); padding: 4px 8px; border-radius: 6px; max-width: 100%; }
+    #boards { display: flex; flex-direction: column; gap: 4px; max-width: min(420px, 100%); max-height: 50vh; overflow: auto; }
+    #boards details { background: rgba(255,255,255,.8); border-radius: 6px; padding: 4px 8px; }
+    #boards summary { cursor: pointer; }
+    #boards .body { font-size: 12px; color: #444; overflow-wrap: anywhere; }
+    #boards .body p { margin: 4px 0; }
+    #boards ul.missing { margin: 4px 0; padding-left: 18px; }
+    body.over #view { outline: 3px dashed rgba(255,255,255,.9); outline-offset: -10px; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
+  <script src="vendor/fflate.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+      "@dimforge/rapier3d-compat": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.14.0/rapier.es.js",
+      "fzstd": "https://cdn.jsdelivr.net/npm/fzstd@0.1.1/esm/index.mjs"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="ui">
+    <button id="open" type="button">Open .zip…</button>
+    <input id="file" type="file" accept=".zip,application/zip" multiple hidden>
+    <div id="status"></div>
+    <div id="boards" hidden></div>
+  </div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
