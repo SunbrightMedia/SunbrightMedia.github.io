@@ -633,18 +633,70 @@ const darkOf = hex => rgbHex(hexRGB(hex).slice(0, 3).map(v => v * 0.267));
 // ---------------------------------------------------------------------------
 // Icons traced from the reference screenshot (icons.js)
 
-// At a display scaling Live was traced at (125 %, 150 %), the icon is Live's own rendering at that scale (icons-hidpi.js):
-// an SVG whose cells are device pixels (viewBox in physical pixels, crispEdges), so it lands 1:1 on the screen's pixels.
+// At a display scaling Live was traced at (125 %, 150 %), the icon is Live's own rendering at that scale (icons-hidpi.js).
+// Chrome positions elements in 1/64 CSS px and snaps them to the device grid in ways that can move a drawing by a
+// device pixel, so these icons are not drawn by the element itself: the element is an empty placeholder of the icon's
+// size, and one viewport-sized canvas with exactly one canvas pixel per device pixel draws every visible icon at
+// round(owner origin x ratio + traced offset), clipped like the element, in the element's current colour.
 function makeIconHi(name) {
   const s = window.devicePixelRatio, d = typeof ICONS_HI !== 'undefined' && ICONS_HI[String(s)]?.[name];
   if (!d) return null;
-  const [dx, dy, w, h, hex] = d;
-  const svg = maskSvg(w, h, hex);
-  svg.setAttribute('width', w / s); svg.setAttribute('height', h / s);
-  svg.style.left = dx / s + 'px'; svg.style.top = dy / s + 'px';
-  return svg;
+  const [dx, dy, w, h] = d;
+  const e = document.createElement('span'); e.className = 'ic';
+  Object.assign(e.style, { left: dx / s + 'px', top: dy / s + 'px', width: w / s + 'px', height: h / s + 'px' });
+  e._hi = d; hiPaint.els.add(e); hiPaint.dirty();
+  return e;
 }
-function maskSvg(w, h, s) {
+function hiPaint() {
+  hiPaint.queued = false;
+  const s = window.devicePixelRatio, cv = hiPaint.cv;
+  const W = Math.round(innerWidth * s), H = Math.round(innerHeight * s);
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, W, H);
+  for (const e of hiPaint.els) {
+    if (!e.isConnected) { hiPaint.els.delete(e); continue; }
+    if (!e.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
+    const [dx, dy, w, h] = e._hi, o = e.parentElement.getBoundingClientRect();
+    const x = Math.round(o.left * s + dx), y = Math.round(o.top * s + dy);
+    // clip to every scrolling / overflow-hidden ancestor
+    let cx0 = 0, cy0 = 0, cx1 = W, cy1 = H;
+    for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+      const r = a.getBoundingClientRect();
+      cx0 = Math.max(cx0, Math.round(r.left * s)); cy0 = Math.max(cy0, Math.round(r.top * s));
+      cx1 = Math.min(cx1, Math.round(r.right * s)); cy1 = Math.min(cy1, Math.round(r.bottom * s));
+    }
+    if (cx1 <= cx0 || cy1 <= cy0 || x >= cx1 || y >= cy1 || x + w <= cx0 || y + h <= cy0) continue;
+    ctx.save(); ctx.beginPath(); ctx.rect(cx0, cy0, cx1 - cx0, cy1 - cy0); ctx.clip();
+    ctx.drawImage(hiMask(e._hi, getComputedStyle(e).color), x, y);
+    ctx.restore();
+  }
+}
+// one coloured copy of each mask per colour
+function hiMask(d, color) {
+  const key = color, c = (d._c ||= new Map());
+  if (c.has(key)) return c.get(key);
+  const [, , w, h, hex] = d, m = document.createElement('canvas'); m.width = w; m.height = h;
+  const ctx = m.getContext('2d'), img = ctx.createImageData(w, h), rgb = color.match(/[\d.]+/g).map(Number);
+  for (let i = 0; i < w * h; i++) {
+    img.data[i * 4] = rgb[0]; img.data[i * 4 + 1] = rgb[1]; img.data[i * 4 + 2] = rgb[2];
+    img.data[i * 4 + 3] = Math.round(parseInt(hex.substr(i * 2, 2), 16) * (rgb[3] ?? 1));
+  }
+  ctx.putImageData(img, 0, 0); c.set(key, m); return m;
+}
+hiPaint.els = new Set();
+hiPaint.dirty = () => {
+  if (!hiPaint.cv) {
+    const cv = hiPaint.cv = document.createElement('canvas'); cv.id = 'hi-icons';
+    Object.assign(cv.style, { position: 'fixed', left: '0', top: '0', width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: '3' });
+    document.body.append(cv);
+    new MutationObserver(hiPaint.dirty).observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ['class', 'style', 'hidden'] });
+    for (const ev of ['scroll', 'resize', 'mousemove', 'mousedown', 'mouseup', 'mouseover', 'mouseout']) addEventListener(ev, hiPaint.dirty, { capture: true, passive: true });
+  }
+  if (!hiPaint.queued) { hiPaint.queued = true; requestAnimationFrame(hiPaint); }
+};
+function maskSvg(w, h, s, u = 1) {
   const paths = new Map();
   for (let y = 0; y < h; y++) {
     let x = 0;
@@ -652,7 +704,7 @@ function maskSvg(w, h, s) {
       const a = parseInt(s.substr((y * w + x) * 2, 2), 16);
       let e = x + 1;
       while (e < w && parseInt(s.substr((y * w + e) * 2, 2), 16) === a) e++;
-      if (a) paths.set(a, (paths.get(a) || '') + `M${x} ${y}h${e - x}v1h${x - e}z`);
+      if (a) paths.set(a, (paths.get(a) || '') + `M${x * u} ${y * u}h${(e - x) * u}v${u}h${(x - e) * u}z`);
       x = e;
     }
   }
