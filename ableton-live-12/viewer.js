@@ -74,12 +74,123 @@ function deviceThumb(t) {
   const d = t?.devices?.length === 1 && typeof DEVICE_THUMBS !== 'undefined' && DEVICE_THUMBS[t.devices[0].tag];
   return d && d.sig === JSON.stringify(t.devices[0].params) ? d : null;
 }
+// Live's text width (the measure 0x14297d960 behind ATextField's width 0x142a6ac30 and the aligned-text origin
+// 0x14297c670): the string is shaped (HarfBuzz-style glyph records: cmap glyphs, GPOS 'kern' pair adjustments, no
+// ligatures) at 64 units per em, each value scaled as HarfBuzz's em_mult does it, and the advances are summed;
+// width = ceil(float(float(sum * size) * 0.0141328126)) + 1, size being the font's integer size (11 for the
+// status bar's bold name). Advances read from Live with gdb matched this for every glyph checked.
+const SHAPER = {};
+function parseFont(buf) {
+  const d = new DataView(buf), u16 = o => d.getUint16(o), s16 = o => d.getInt16(o), u32 = o => d.getUint32(o);
+  const tab = {};
+  for (let i = 0, n = u16(4); i < n; i++) { const r = 12 + 16 * i; tab[String.fromCharCode(d.getUint8(r), d.getUint8(r + 1), d.getUint8(r + 2), d.getUint8(r + 3))] = u32(r + 8); }
+  const upem = u16(tab.head + 18), nH = u16(tab.hhea + 34);
+  const adv = g => u16(tab.hmtx + 4 * Math.min(g, nH - 1));
+  // cmap: Windows Unicode subtable, format 12 preferred over 4
+  let cm = null;
+  for (let i = 0, n = u16(tab.cmap + 2); i < n; i++) {
+    const r = tab.cmap + 4 + 8 * i, pid = u16(r), eid = u16(r + 2), o = tab.cmap + u32(r + 4), fmt = u16(o);
+    if (pid === 3 && eid === 10 && fmt === 12) { cm = { fmt, o }; break; }
+    if (pid === 3 && eid === 1 && fmt === 4 && !cm) cm = { fmt, o };
+  }
+  const glyph = cp => {
+    const o = cm.o;
+    if (cm.fmt === 12) {
+      for (let i = 0, n = u32(o + 12); i < n; i++) { const r = o + 16 + 12 * i, a = u32(r), b = u32(r + 4); if (cp >= a && cp <= b) return u32(r + 8) + cp - a; }
+      return 0;
+    }
+    const seg = u16(o + 6) / 2, ends = o + 14, starts = ends + 2 * seg + 2, deltas = starts + 2 * seg, ranges = deltas + 2 * seg;
+    for (let i = 0; i < seg; i++) {
+      if (cp > u16(ends + 2 * i)) continue;
+      const st = u16(starts + 2 * i); if (cp < st) return 0;
+      const ro = u16(ranges + 2 * i);
+      if (!ro) return (cp + s16(deltas + 2 * i)) & 0xffff;
+      const g = u16(ranges + 2 * i + ro + 2 * (cp - st)); return g ? (g + s16(deltas + 2 * i)) & 0xffff : 0;
+    }
+    return 0;
+  };
+  const coverage = (o, g) => {
+    if (u16(o) === 1) { for (let i = 0, n = u16(o + 2); i < n; i++) if (u16(o + 4 + 2 * i) === g) return i; return -1; }
+    for (let i = 0, n = u16(o + 2); i < n; i++) { const r = o + 4 + 6 * i; if (g >= u16(r) && g <= u16(r + 2)) return u16(r + 4) + g - u16(r); }
+    return -1;
+  };
+  const classOf = (o, g) => {
+    if (u16(o) === 1) { const s = u16(o + 2), n = u16(o + 4); return g >= s && g < s + n ? u16(o + 6 + 2 * (g - s)) : 0; }
+    for (let i = 0, n = u16(o + 2); i < n; i++) { const r = o + 4 + 6 * i; if (g >= u16(r) && g <= u16(r + 2)) return u16(r + 4); }
+    return 0;
+  };
+  // lookups of one feature for the 'latn' script's default language (DFLT if absent), with their subtables
+  const lookups = (t, tag) => {
+    if (!t) return [];
+    const sl = t + u16(t + 4), fl = t + u16(t + 6), ll = t + u16(t + 8);
+    let sc = 0;
+    for (let i = 0, n = u16(sl); i < n; i++) { const r = sl + 2 + 6 * i, st = String.fromCharCode(d.getUint8(r), d.getUint8(r + 1), d.getUint8(r + 2), d.getUint8(r + 3)); if (st === 'latn' || (st === 'DFLT' && !sc)) sc = sl + u16(r + 4); }
+    if (!sc || !u16(sc)) return [];
+    const ls = sc + u16(sc), out = [];
+    for (let i = 0, n = u16(ls + 4); i < n; i++) {
+      const fi = u16(ls + 6 + 2 * i), fr = fl + 2 + 6 * fi;
+      if (String.fromCharCode(d.getUint8(fr), d.getUint8(fr + 1), d.getUint8(fr + 2), d.getUint8(fr + 3)) !== tag) continue;
+      const f = fl + u16(fr + 4);
+      for (let j = 0, m = u16(f + 2); j < m; j++) {
+        const lo = ll + u16(ll + 2 + 2 * u16(f + 4 + 2 * j)); let type = u16(lo);
+        const subs = [];
+        for (let k = 0, c = u16(lo + 4); k < c; k++) {
+          let so = lo + u16(lo + 6 + 2 * k);
+          if (type === 9) { type = u16(so + 2); so += u32(so + 4); }
+          subs.push(so);
+        }
+        out.push({ type, subs });
+      }
+    }
+    return out.sort((a, b) => a.subs[0] - b.subs[0]);
+  };
+  const kern = lookups(tab.GPOS, 'kern').filter(l => l.type === 2);
+  const mult = Math.floor(64 * 65536 / upem), scale = v => Math.floor((v * mult + 32768) / 65536);
+  const vsize = vf => { let n = 0; for (let b = vf; b; b >>= 1) n += b & 1; return 2 * n; };
+  const xadv = (vf, o) => (vf & 4) ? s16(o + vsize(vf & 3)) : 0;
+  function pairAdj(sub, a, b) {   // [matched, x-advance adjustment of a] for one PairPos subtable
+    const ci = coverage(sub + u16(sub + 2), a); if (ci < 0) return [false, 0];
+    const vf1 = u16(sub + 4), vf2 = u16(sub + 6), rs = vsize(vf1) + vsize(vf2);
+    if (u16(sub) === 1) {
+      const ps = sub + u16(sub + 10 + 2 * ci);
+      for (let i = 0, n = u16(ps); i < n; i++) { const r = ps + 2 + i * (2 + rs); if (u16(r) === b) return [true, xadv(vf1, r + 2)]; }
+      return [false, 0];
+    }
+    const c1 = classOf(sub + u16(sub + 8), a), c2 = classOf(sub + u16(sub + 10), b), n2 = u16(sub + 14);
+    return [true, xadv(vf1, sub + 16 + (c1 * n2 + c2) * rs)];
+  }
+  return {
+    advances(str) {
+      const g = Array.from(str, ch => glyph(ch.codePointAt(0)));   // no GSUB: Live shapes "Affix" as A f f i x
+      const a = g.map(x => scale(adv(x)));
+      for (const l of kern) for (let i = 0; i + 1 < g.length; i++) {
+        for (const sub of l.subs) { const [m, v] = pairAdj(sub, g[i], g[i + 1]); if (m) { a[i] += scale(v); break; } }
+      }
+      return a;
+    },
+  };
+}
+async function loadShaper(key, url) {
+  try { const r = await fetch(url); if (r.ok) SHAPER[key] = parseFont(await r.arrayBuffer()); } catch (e) {}
+}
+const LIVE_TEXT_K = Math.fround(0.01413281261920929);
+function liveTextWidth(str, size, bold) {
+  const sh = SHAPER[bold ? 'bold' : 'regular'];
+  if (!str) return 0;
+  if (!sh) return null;
+  const sum = sh.advances(str).reduce((p, v) => p + v, 0);
+  return Math.ceil(Math.fround(Math.fround(sum * size) * LIVE_TEXT_K)) + 1;
+}
 function layoutStatusBar(name, t) {
   const c = layoutStatusBar.c || (layoutStatusBar.c = document.createElement('canvas').getContext('2d'));
   const cs = getComputedStyle($('#status-track'));
   c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
   const th = deviceThumb(t), tw = th ? th.w : 0;
-  const area = Math.max(45, Math.round(c.measureText(name || '').width) + 13), w = 20 + area + tw;
+  // The name sits in an AMargins cell (left 5, right 6) holding an ATextField as wide as the text (0x142a436f0,
+  // read from the running Live): text area = Live's text width at bold size 11 + 11, no minimum
+  // (1-MIDI 45, 4-Audio 50, A-Reverb 58, B-Delay 50, Main 36).
+  const lw = liveTextWidth(name || '', 11, true);
+  const area = (lw ?? Math.ceil(c.measureText(name || '').width) + 1) + 11, w = 20 + area + tw;
   let img = $('#status-thumb');
   if (!img) { img = document.createElement('img'); img.id = 'status-thumb'; img.dataset.info = 'Device View Selector'; $('#statusbar').append(img); }
   img.hidden = !th;
@@ -1476,9 +1587,8 @@ function select(t) {
   document.querySelectorAll('.theader').forEach(x => x.classList.toggle('sel', x._t === t));
   const stName = t ? (t.type === 'main' ? t.name : (t.effName || (t.type === 'return' ? t.label + '-' + t.name : t.name)).replace(/ /g, '-')) : '';
   $('#status-track').textContent = stName;
-  // Live sizes this box to the name: text area = text width + 13 px, right edge fixed, the Arrangement position field and the
-  // message field move with it (running Live: "1-MIDI" 45 px, "A-Reverb" 58 px; "4-Audio" 49 px, 2 px less than this
-  // rule gives - Live's own glyph advances/kerning differ slightly from the browser's)
+  // Live sizes this box to the name (layoutStatusBar), right edge fixed; the Arrangement position field and the message
+  // field move with it
   layoutStatusBar(stName, t);
   renderDevices(t);
   drawAll();
@@ -3068,7 +3178,8 @@ document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTra
 // particular draws with a fallback serif if they are not loaded yet. Load them before the first draw and
 // redraw whenever any font finishes loading.
 const fontsReady = Promise.all([FONT, 'bold ' + FONT, '9px "Ableton Sans Small 9"', '18px "Ableton Sans Light"']
-  .map(f => document.fonts.load(f).catch(() => {})));
+  .map(f => document.fonts.load(f).catch(() => {}))
+  .concat([loadShaper('regular', 'fonts/AbletonSansSmall-Regular.ttf'), loadShaper('bold', 'fonts/AbletonSansSmall-Bold.ttf')]));
 document.fonts.addEventListener?.('loadingdone', () => { if (set) drawAll(); });
 fontsReady.then(() => { if (set) { layoutCanvases(); drawAll(); } });
 
