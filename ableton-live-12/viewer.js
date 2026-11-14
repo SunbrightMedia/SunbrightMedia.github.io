@@ -2589,7 +2589,7 @@ function showSet() {
   document.title = `${set.name} - Ableton Live 12 Suite`;
   $('#win-title').textContent = document.title;
   $('#cb-tempo').textContent = set.tempo.toFixed(2);
-  $('#cb-sig .r').textContent = set.sig.num; $$('#cb-sig .t')[1].textContent = set.sig.den;
+  $('#cb-sig .r').textContent = set.sig.num; $$('#cb-sig .t')[0].textContent = set.sig.den;
   $('#cb-quant').textContent = set.quant;
   $('#cb-root').textContent = set.scale.root;
   $('#cb-scale').textContent = set.scale.name;

@@ -146,7 +146,7 @@
     #browser .hint { position: absolute; left: 48px; top: 1px; line-height: 21px; color: var(--BrowserBarOverlayHintTextColor); }
     #sidebar { position: absolute; left: 0; top: 23px; width: var(--sbw); bottom: 0; overflow: hidden; }
     .sbrow { position: absolute; left: 0; width: var(--sbw); height: 18px; line-height: 18px; white-space: nowrap; overflow: hidden; }
-    .sbrow .l { position: absolute; left: 25px; top: 0; }
+    .sbrow .l { position: absolute; left: 25px; right: 8px; top: 0; overflow: hidden; }   /* labels are cut at x 100 (running Live: "Current Proje") */
     .sbrow.cat .l { left: 5px; color: var(--TreeRowCategoryForeground); }
     .sbrow.sel { background: var(--StandbySelectionBackground); color: var(--StandbySelectionForeground); }
     .sbrow.dis { color: var(--BrowserDisabledItem); }
@@ -205,6 +205,8 @@
     #songruler { position: absolute; left: 0; right: 0; bottom: 0; height: 21px; }
     #songruler canvas { position: absolute; left: 0; top: 0; }
     #songruler .side { position: absolute; right: 0; top: 0; width: 292px; height: 21px; background: var(--SurfaceBackground); }
+    /* the H and W letters sit 1 px lower than the button centre (images/1.png and the running Live: ink y 769..775) */
+    #songruler .side [data-info^="Optimize"] { line-height: 15px; }
     #oneone { position: absolute; right: 294px; bottom: 22px; color: var(--MainViewFocusIndicator); font: 18px/18px "Ableton Sans Light"; -webkit-text-stroke: 0.3px currentColor; pointer-events: none; }
 
     /* ---------- Info view / Detail view / status bar ---------- */
@@ -296,7 +298,7 @@
         <span data-info="Tempo" class="cb hv c" id="cb-tempo" style="left:82px;width:42px">120.00</span>
         <span data-info="Phase Nudge Down" class="cb hv" style="left:126px;width:17px" data-ic="nudgeDown"></span>
         <span data-info="Phase Nudge Up" class="cb hv" style="left:145px;width:17px" data-ic="nudgeUp"></span>
-        <span class="cb" id="cb-sig" style="left:164px;width:42px"><span class="r" style="right:29px">4</span><span class="t" style="left:19px">/</span><span class="t" style="left:29px">4</span></span>
+        <span class="cb" id="cb-sig" style="left:164px;width:42px"><span class="r" style="right:29px">4</span><i data-ic="sigSlash"></i><span class="t" style="left:29px">4</span></span>
         <span data-info="Metronome" data-hit="0 0 0 0" class="cb hv" style="left:208px;width:39px" data-ic="metronome"><i data-ic="ddTriangle" style="left:25px"></i></span>
         <span data-info="Quantization Menu" data-hit="0 0 0 0" class="cb hv" id="cb-quant-box" style="left:249px;width:45px"><span class="t" id="cb-quant" style="left:4px">1 Bar</span><i data-ic="ddTriangle" style="left:31px"></i></span>
         <span data-info="Scale Mode" class="cb hv" id="cb-scale-btn" style="left:315px;width:17px" data-ic="scaleAware" title="Scale"></span>
@@ -403,10 +405,10 @@
   <input type="file" id="file-input" accept=".zip,application/zip">
 
   <script src="icons.js?v=f3e4bd10ca"></script>
-  <script src="icons-live.js?v=147810bae7"></script>
+  <script src="icons-live.js?v=74d8017091"></script>
   <script src="device-thumbs.js?v=e259c2f009"></script>
   <script src="icons-hidpi.js?v=d00d666705"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="viewer.js?v=b268a77fa8"></script>
+  <script src="viewer.js?v=dda3e8edda"></script>
 </body>
 </html>
