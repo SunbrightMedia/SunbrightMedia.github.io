@@ -1604,7 +1604,9 @@ function drawGroupSummary(ctx, g, y, h, w) {
 
 function drawClip(ctx, c, x0, x1, y, h, w) {
   const col = c.disabled ? T.MutedAuditionClip : c.color;
-  const edge = shade(col, 0.53);
+  // edges: the clip colour x 135 / 255, rounded (running Live: 71,135,55 on 135,255,103 and 20,135,89 on 37,255,168,
+  // i.e. black at the theme's ClipBorderAlpha 120 over the clip colour)
+  const edge = shade(col, (255 - T.ClipBorderAlpha) / 255);
   const cx0 = Math.max(-2, Math.round(x0)), cx1 = Math.min(w + 2, Math.round(x1));
   const headH = h >= 30 ? 15 : h - 1;
   ctx.save();
@@ -1616,18 +1618,25 @@ function drawClip(ctx, c, x0, x1, y, h, w) {
     ctx.fillStyle = edge; ctx.fillRect(cx0, by, cx1 - cx0, 1);
     const bodyY = by + 1, bodyH = y + h - bodyY;
     drawGrid(ctx, w, bodyY, bodyH, col);
-    if (c.kind === 'midi') drawNotes(ctx, c, x0, x1, bodyY + 2, bodyH - 4, w);
-    else drawWave(ctx, c, x0, x1, bodyY + 1, bodyH - 2, w);
+    if (c.kind === 'midi') drawNotes(ctx, c, x0, x1, bodyY, bodyH, w);
+    else drawWave(ctx, c, x0, x1, bodyY, bodyH, w);
     if (c.loop.on) {
-      ctx.fillStyle = edge;
+      // where the loop repeats, Live marks the clip with 3 px notches under the top edge and at the bottom, not with a
+      // line through it (running Live, harness clip Set: 19,41,32 on 37,255,168 and 18,41,20 on 26,255,47 = 17,17,17 at
+      // alpha 229; the bottom one 18,36,29 over the bar line 26,172,114 = 17,17,17 at alpha 224; theme keys not traced)
       let d = nextWrap(c, 0);
-      for (let k = 0; k < 2000 && c.start + d < c.end - 1e-9; k++) { const x = Math.round(xOf(c.start + d)); if (x > w) break; if (x >= 0) ctx.fillRect(x, by, 1, h - (by - y)); d = nextWrap(c, d + 1e-9); }
+      for (let k = 0; k < 2000 && c.start + d < c.end - 1e-9; k++) {
+        const x = Math.round(xOf(c.start + d)); if (x > w) break;
+        if (x >= 0) { ctx.fillStyle = 'rgba(17,17,17,0.898)'; ctx.fillRect(x, y + 1, 1, 3); ctx.fillStyle = 'rgba(17,17,17,0.878)'; ctx.fillRect(x, y + h - 3, 1, 3); }
+        d = nextWrap(c, d + 1e-9);
+      }
     }
   }
   ctx.fillStyle = luminance(col) < 0.4 ? '#efefef' : T.ClipText;
   ctx.font = FONT;
   ctx.textBaseline = 'middle';
-  if (c.name && cx1 - cx0 > 12) ctx.fillText(c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5, Math.max(0, cx1 - Math.max(x0, 0) - 6));
+  // the name is cut off by the clip's end, never squeezed (running Live: "Chord" in a 31 px clip, "Lo" in 16 px)
+  if (c.name) ctx.fillText(c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5);
   ctx.restore();
   ctx.fillStyle = edge;
   // Live 12 draws only the clip's start edge (1 px, clip colour x0.53), no end edge (measured)
@@ -1637,11 +1646,16 @@ const shade = (hex, f) => { const n = parseInt(hex.slice(1, 7), 16); const c = v
 
 function drawNotes(ctx, c, x0, x1, y, h, w) {
   if (!c.notes.length || h < 2) return;
-  const lo = c.lo - 1, hi = c.hi + 1, range = hi - lo + 1;
-  const rowH = h / range, nh = clamp(rowH > 3 ? rowH - 1 : rowH, 1, 8);
+  // Rows of whole pixels for the clip's key range, centred (running Live, 69 px body: 13 keys -> rows of 5 starting
+  // 2 px down, 8 keys -> rows of 8 starting 3 px down); a note fills its row but the last pixel, and runs from half a
+  // pixel after its rounded start (that column half covered) to its rounded end
+  const lo = c.lo, hi = c.hi, range = hi - lo + 1;
+  const rowH = Math.max(1, Math.floor(h / range)), nh = Math.max(1, rowH - 1), top = y + Math.ceil((h - rowH * range) / 2);
   const len = c.end - c.start;
-  // MIDI notes: #181818 at 94% opacity over the clip colour (measured in Live 12: #182621 on #25ffa8)
-  ctx.fillStyle = 'rgba(24,24,24,0.94)';
+  // colour: 23,23,23 at alpha 238 over the clip colour, rounded (fits 30,38,28 on 135,255,103 and 24,38,33 on
+  // 37,255,168; the half-covered first column is 146 green on 255 and 117 on a 200 grid line)
+  const cn = parseInt((c.disabled ? T.MutedAuditionClip : c.color).slice(1, 7), 16);
+  ctx.fillStyle = 'rgb(' + [cn >> 16, (cn >> 8) & 255, cn & 255].map(v => Math.round((23 * 238 + v * 17) / 255)).join(',') + ')';
   let d = 0;
   for (let k = 0; k < 4000 && d < len; k++) {
     const cs = contentAt(c, d);
@@ -1653,10 +1667,9 @@ function drawNotes(ctx, c, x0, x1, y, h, w) {
       for (const n of c.notes) {
         if (n.t + n.d <= cs || n.t >= ce) continue;
         const s = Math.max(n.t, cs), e = Math.min(n.t + n.d, ce);
-        const nx0 = xOf(c.start + d + (s - cs)), nx1 = xOf(c.start + d + (e - cs));
-        const ny = y + (hi - n.key) * (h / range) + (h / range - nh) / 2;
+        const nx0 = Math.round(xOf(c.start + d + (s - cs))), nx1 = Math.round(xOf(c.start + d + (e - cs)));
         ctx.globalAlpha = n.on ? 1 : 0.35;
-        ctx.fillRect(nx0, Math.round(ny), Math.max(1, nx1 - nx0 - 0.5), nh);
+        ctx.fillRect(nx0 + 0.5, top + (hi - n.key) * rowH, Math.max(0.5, nx1 - nx0 - 0.5), nh);
       }
     }
     if (pieceEnd === Infinity) break;
@@ -1669,7 +1682,9 @@ function drawWave(ctx, c, x0, x1, y, h, w) {
   const pk = c.file ? peaks.get(c.file) : null;
   if (!pk) return;
   const chs = pk.ch, band = h / chs;
-  ctx.fillStyle = T.WaveformColor;
+  // WaveformColor (#171717 at alpha 0xef) over the clip colour, rounded down (running Live: 23,37,24 on 26,255,47)
+  const wc = parseInt(T.WaveformColor.slice(1, 9), 16), wa = wc & 255, cc = parseInt((c.disabled ? T.MutedAuditionClip : c.color).slice(1, 7), 16);
+  ctx.fillStyle = 'rgb(' + [24, 16, 8].map(s => Math.floor((((wc >>> s) & 255) * wa + ((cc >> (s - 8)) & 255) * (255 - wa)) / 255)).join(',') + ')';
   const xs = Math.max(0, Math.floor(x0)), xe = Math.min(w, Math.ceil(x1));
   const clipStartSec = tempoMap.sec(c.start);
   for (let x = xs; x < xe; x++) {
@@ -1688,7 +1703,9 @@ function drawWave(ctx, c, x0, x1, y, h, w) {
       const stride = Math.max(1, Math.floor((k1 - k0) / 64));
       for (let k = k0; k < k1; k += stride) { if (mn[k] < lo) lo = mn[k]; if (mx[k] > hi) hi = mx[k]; }
       if (lo > hi) continue;
-      const mid = y + band * ch + band / 2, amp = (band / 2 - 1) * c.gain ** 0.5;
+      // each channel's zero line on a whole row, floor(top + band x (channel + 1/2)) (running Live, 69 px body, two
+      // channels: rows 17 and 51; silence shows as that 1 px line in WaveformColor)
+      const mid = Math.floor(y + band * ch + band / 2), amp = (band / 2 - 2) * c.gain ** 0.5;
       const top = mid - (hi / 127) * amp, bot = mid - (lo / 127) * amp;
       ctx.fillRect(x, top, 1, Math.max(1, bot - top));
     }
