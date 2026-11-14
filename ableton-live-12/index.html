@@ -37,7 +37,11 @@
     svg.ic { shape-rendering: crispEdges; overflow: visible; }
 
     /* Geometry: measured from a 1920×1041 Live 12 window (Windows, 100% scale, default theme). */
-    #app { position: fixed; inset: 0; min-width: 1100px; min-height: 600px; }
+    #app { position: fixed; inset: 0; min-width: 1100px; min-height: 600px;
+      --bw: 287px;   /* browser width (drag the gap right of it) */
+      --sbw: 100px;  /* browser sidebar width (drag the browser's middle divider) */
+      --iw: 210px;   /* Info View width (drag the dotted handle) */
+      --dh: 188px;   /* height of the Info/Detail row (drag the gap above it) */ }
     /* No Windows title bar: the page starts at Live's menu bar (layout below is measured with it, so shift up by its 23px) */
     #app { top: -23px; }
     #titlebar { display: none !important; }
@@ -61,33 +65,58 @@
     .cb .t { position: absolute; top: 0; }
     .cb .r { position: absolute; top: 0; text-align: right; }
     .cb.half { height: 8px; }
+    /* playing: the Play triangle turns ChosenPlay green (Ableton press screenshot 5) */
+    #cb-play.playing { color: var(--ChosenPlay); }
     #cb-scale-btn { background: var(--ScaleAwareness); color: var(--ControlOnForeground); }
     .clickable { cursor: default; }
 
     /* ---------- Panels ---------- */
     .panel { position: absolute; background: var(--SurfaceBackground); border-radius: 3px; overflow: hidden; }
-    #browser { left: 9px; top: 90px; width: 287px; bottom: 235px; }
-    #arrangement { left: 305px; right: 9px; top: 90px; bottom: 235px; outline: 2px solid var(--MainViewFocusIndicator); border-radius: 3px; overflow: visible; }
-    #info { left: 9px; width: 210px; bottom: 38px; height: 188px; }
-    #detail { left: 228px; right: 9px; bottom: 38px; height: 188px; }
-    #splitter { position: absolute; left: 221px; bottom: 76px; width: 4px; height: 107px; }
+    #browser { left: 9px; top: 90px; width: var(--bw); bottom: calc(var(--dh) + 47px); }
+    #arrangement { left: calc(var(--bw) + 18px); right: 9px; top: 90px; bottom: calc(var(--dh) + 47px); outline: 2px solid var(--MainViewFocusIndicator); border-radius: 3px; overflow: visible; }
+    #info { left: 9px; width: var(--iw); bottom: 38px; height: var(--dh); }
+    #detail { left: calc(var(--iw) + 18px); right: 9px; bottom: 38px; height: var(--dh); }
+    #splitter { position: absolute; left: calc(var(--iw) + 12px); bottom: calc(var(--dh) - 112px); width: 4px; height: 107px; }
+    /* Show/hide states (Control Bar browser toggle, status bar Info View toggle and Device View selector) */
+    #app.no-browser #browser { display: none; }
+    #app.no-browser #arrangement { left: 9px; }
+    #app.no-info #info, #app.no-info #splitter { display: none; }
+    #app.no-info #detail { left: 9px; }
+    #app.no-detail #detail, #app.no-detail #splitter { display: none; }
+    #app.no-detail #arrangement { bottom: 38px; }
+    #app.no-detail.no-browser:not(.no-info) #arrangement { bottom: calc(var(--dh) + 47px); }
+    #app.no-info.no-detail #browser { bottom: 38px; }
+    /* drag handles in the 9 px gaps between panels */
+    .grip { position: absolute; z-index: 5; }
+    #grip-browser { top: 90px; width: 9px; left: calc(var(--bw) + 9px); bottom: calc(var(--dh) + 47px); cursor: col-resize; }
+    #app.no-detail.no-info #grip-browser { bottom: 38px; }
+    #grip-info { width: 9px; left: calc(var(--iw) + 9px); bottom: 38px; height: var(--dh); cursor: col-resize; }
+    #grip-row { left: 9px; right: 9px; height: 9px; bottom: calc(var(--dh) + 38px); cursor: row-resize; }
+    #app.no-browser #grip-browser, #app.no-info #grip-info, #app.no-detail.no-info #grip-row { display: none; }
+    #grip-sidebar { top: 23px; bottom: 0; width: 4px; left: calc(var(--sbw) - 1px); cursor: col-resize; z-index: 5; }
 
     /* ---------- Browser ---------- */
     #browser .bar { position: absolute; left: 0; right: 0; top: 0; height: 21px; }
     #browser .sep { position: absolute; background: var(--SurfaceArea); }
     #browser .hint { position: absolute; left: 49px; top: 0; line-height: 21px; color: var(--BrowserBarOverlayHintTextColor); }
-    #sidebar { position: absolute; left: 0; top: 23px; width: 100px; bottom: 0; }
-    .sbrow { position: absolute; left: 0; width: 100px; height: 18px; line-height: 18px; white-space: nowrap; overflow: hidden; }
+    #sidebar { position: absolute; left: 0; top: 23px; width: var(--sbw); bottom: 0; overflow: hidden; }
+    .sbrow { position: absolute; left: 0; width: var(--sbw); height: 18px; line-height: 18px; white-space: nowrap; overflow: hidden; }
     .sbrow .l { position: absolute; left: 25px; top: 0; }
     .sbrow.cat .l { left: 5px; color: var(--TreeRowCategoryForeground); }
     .sbrow.sel { background: var(--StandbySelectionBackground); color: var(--StandbySelectionForeground); }
     .sbrow.dis { color: var(--BrowserDisabledItem); }
-    #filters { position: absolute; left: 102px; right: 0; top: 23px; }
+    #filters { position: absolute; left: calc(var(--sbw) + 2px); right: 0; top: 23px; }
+    #browser.filters-hidden #filters .frow:not(:first-child) { display: none; }
+    #browser.filters-hidden #br-namehead { top: 44px !important; }
+    #br-ftoggle { cursor: default; }
+    /* Filters hidden: the disclosure triangle turns to point right, the same ▼/▶ convention Live uses for track
+       fold buttons (images/1.png and the manual's Track Controls figure). Not seen in a reference: unverified. */
+    #browser.filters-hidden #br-ftoggle .ic { transform: rotate(-90deg); transform-origin: 7.5px 8.5px; }
     .frow { position: absolute; left: 0; right: 0; height: 19px; line-height: 19px; }
     .frow .l { position: absolute; left: 5px; top: 0; white-space: nowrap; }
     .frow.line { height: 1px; background: var(--Desktop); }
-    #br-edit { position: absolute; left: 144px; top: 3px; width: 39px; height: 13px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); line-height: 13px; }
-    #br-namehead { position: absolute; left: 102px; right: 0; height: 19px; background: var(--TreeColumnHeadBackground); color: var(--TreeColumnHeadForeground); line-height: 19px; }
+    #br-edit { position: absolute; right: 2px; top: 3px; width: 39px; height: 13px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); line-height: 13px; }
+    #br-namehead { position: absolute; left: calc(var(--sbw) + 2px); right: 0; height: 19px; background: var(--TreeColumnHeadBackground); color: var(--TreeColumnHeadForeground); line-height: 19px; }
     #br-namehead .bar1 { position: absolute; right: 10px; top: 4px; width: 1px; height: 11px; background: var(--TreeColumnHeadControl); }
 
     /* ---------- Arrangement ---------- */
@@ -99,6 +128,8 @@
     .pill { position: absolute; height: 13px; border-radius: 6.5px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); text-align: center; line-height: 13px; }
     .btn { position: absolute; height: 13px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); text-align: center; line-height: 13px; white-space: nowrap; overflow: hidden; }
     .btn > span.abs { top: 1px; }
+    /* Solo on: ChosenPreListen (the theme's blue; Live 12 manual "Mixing", GroupTrackSoloButtonHalfColored.png shows solo in blue) */
+    .btn.solo.on { background: var(--ChosenPreListen); color: var(--ControlOnForeground); }
     .btn.on { background: var(--ChosenDefault); color: var(--ControlOnForeground); }
     .btn.field { background: var(--ControlTextBack); }
     .btn.flat { background: var(--SurfaceBackground); }
@@ -160,6 +191,11 @@
     #status-play .div { position: absolute; left: 19px; top: 0; width: 1px; height: 19px; background: var(--SurfaceArea); }
     #status-trk { position: absolute; right: 56px; top: 0; width: 65px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; overflow: hidden; }
     #status-trk .up { position: absolute; left: 0; top: 0; width: 19px; height: 19px; background: var(--ChosenDefault); color: var(--ControlOnForeground); }
+    #status-trk .up .cl { display: none; }
+    /* Device View hidden: the selector shows a grey ▶ on SurfaceBackground (press screenshot 5) */
+    #status-trk.closed .up { background: var(--SurfaceBackground); color: var(--ControlForeground); }
+    #status-trk.closed .up .cl { display: block; }
+    #status-trk.closed .up i:first-child { display: none; }
     #status-trk .div { position: absolute; left: 19px; top: 0; width: 1px; height: 19px; background: var(--SurfaceArea); }
     #status-track { position: absolute; left: 20px; right: 0; top: 0; line-height: 19px; text-align: center; white-space: nowrap; }
 
@@ -200,7 +236,7 @@
 
     <div id="controlbar">
       <div class="grp" style="left:0;width:460px">
-        <span class="cb ghost" style="left:12px;width:17px;color:var(--ViewControlOn)" data-ic="browserToggle" title="Show/Hide Browser"></span>
+        <span class="cb ghost" id="cb-browser" style="left:12px;width:17px;color:var(--ViewControlOn)" data-ic="browserToggle" title="Show/Hide Browser"></span>
         <span class="cb ghost" style="left:31px;width:12px;color:var(--ViewControlOff)" data-ic="ddTriangleDim"></span>
         <span class="cb c" style="left:54px;width:26px">Tap</span>
         <span class="cb c" id="cb-tempo" style="left:82px;width:42px">120.00</span>
@@ -254,12 +290,13 @@
         <span class="hint">Search (Ctrl + F)</span>
       </div>
       <span class="sep" style="left:0;right:0;top:21px;height:2px"></span>
-      <span class="sep" style="left:100px;top:23px;width:2px;bottom:0"></span>
+      <span class="sep" style="left:var(--sbw);top:23px;width:2px;bottom:0"></span>
       <div id="sidebar"></div>
       <div id="filters"></div>
-      <div id="br-namehead" style="top:325px"><span class="abs" style="left:3px;top:1px">Name</span><i data-ic="br_nameTri" style="left:161px;top:3px"></i><span class="bar1"></span></div>
-      <span class="sep" style="left:102px;right:0;top:694px;height:1px"></span>
-      <span class="abs" style="left:104px;top:696px;width:17px;height:17px" data-ic="br_preview"></span>
+      <div id="br-namehead" style="top:325px"><span class="abs" style="left:3px;top:1px">Name</span><i data-ic="br_nameTri" style="left:auto;right:24px;top:3px"></i><span class="bar1"></span></div>
+      <span class="sep" style="left:calc(var(--sbw) + 2px);right:0;bottom:21px;height:1px"></span>
+      <span class="abs" style="left:calc(var(--sbw) + 4px);bottom:3px;width:17px;height:17px" data-ic="br_preview"></span>
+      <span class="grip" id="grip-sidebar" title="Drag to change the sidebar width"></span>
     </div>
 
     <div class="panel" id="arrangement">
@@ -294,18 +331,19 @@
     <span id="splitter" data-ic="sp_dots"></span>
     <div class="panel" id="detail"><div id="devices"><div class="empty">Drop an Instrument or Sample Here</div></div></div>
 
+    <span class="grip" id="grip-browser"></span><span class="grip" id="grip-info"></span><span class="grip" id="grip-row"></span>
     <div id="statusbar">
-      <span class="abs" style="left:9px;top:0;width:19px;height:19px" data-ic="st_info"></span>
+      <span class="abs" id="st-info" style="left:9px;top:0;width:19px;height:19px;color:var(--ViewControlOn)" data-ic="st_info" title="Show/Hide Info View"></span>
       <span id="status-text"></span>
       <span id="status-play"><span class="abs" style="left:0;top:0;width:19px;height:19px" data-ic="st_play"></span><span class="div"></span></span>
-      <span id="status-trk"><span class="up" data-ic="st_up"></span><span class="div"></span><span id="status-track"></span></span>
+      <span id="status-trk"><span class="up" title="Show/Hide Device View"><i data-ic="st_up"></i><i class="cl" data-ic="st_play"></i></span><span class="div"></span><span id="status-track"></span></span>
       <span class="abs" style="right:5px;top:0;width:45px;height:19px;color:var(--ViewControlOff)" data-ic="st_meter"></span>
     </div>
   </div>
   <input type="file" id="file-input" accept=".zip,application/zip">
 
-  <script src="icons.js?v=296c543c47"></script>
+  <script src="icons.js?v=f3e4bd10ca"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="viewer.js?v=5f66a9fe5f"></script>
+  <script src="viewer.js?v=8712a92e32"></script>
 </body>
 </html>

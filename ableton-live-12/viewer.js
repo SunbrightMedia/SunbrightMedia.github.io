@@ -667,7 +667,7 @@ function buildStatic() {
   const f = $('#filters');
   const head = document.createElement('div');
   head.className = 'frow'; head.style.top = '0';
-  head.innerHTML = '<i data-ic="br_filters" style="left:2px;top:1px"></i><span class="l" style="left:19px">Filters</span><span id="br-edit"><i data-ic="br_editIcon" style="left:2px;top:0"></i><span class="abs" style="left:15px">Edit</span></span>';
+  head.innerHTML = '<span id="br-ftoggle" class="abs" style="left:0;top:0;width:18px;height:19px"><i data-ic="br_filters" style="left:2px;top:1px"></i></span><span class="l" style="left:19px">Filters</span><span id="br-edit"><i data-ic="br_editIcon" style="left:2px;top:0"></i><span class="abs" style="left:15px">Edit</span></span>';
   f.append(head);
   const sep0 = document.createElement('div'); sep0.className = 'frow line'; sep0.style.top = '19px'; sep0.style.background = 'var(--SurfaceArea)'; f.append(sep0);
   FILTERS.forEach((n, i) => {
@@ -793,7 +793,7 @@ function makeRow(t, y, h, pinned) {
   const nameBg = t.color;
   const dark = darkOf(nameBg);
   hd.innerHTML = `<div class="bg" style="height:${ch}px"></div>
-    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i data-ic="${pinned ? 'hd_foldRet' : 'hd_fold'}"></i><span></span></div>`;
+    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${pinned || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span></span></div>`;
   $('.name span', hd).textContent = (isRet ? t.label + ' ' : '') + t.name;
   if (isMain) $('.name span', hd).style.left = '26px';
   const vsep = (x, w) => { const s = document.createElement('div'); s.className = 'vsep'; Object.assign(s.style, { left: x + 'px', width: w + 'px', height: ch + 'px' }); hd.append(s); };
@@ -808,7 +808,7 @@ function makeRow(t, y, h, pinned) {
     meter(hd, t, 278, 2, ch - 4, false);
   } else {
     vsep(95, 2); vsep(171, 2);
-    const act = hctl(hd, 'on', 175, R(0), 46, t.label);
+    const act = hctl(hd, 'act on', 175, R(0), 46, t.label);
     act.title = 'Track Activator';
     act.classList.toggle('on', t.mixer.on);
     act.addEventListener('mousedown', e => { e.stopPropagation(); t.mixer.on = !t.mixer.on; act.classList.toggle('on', t.mixer.on); engine.updateMix(); });
@@ -829,8 +829,9 @@ function makeRow(t, y, h, pinned) {
     } else {
       const audio = t.type === 'audio' || t.type === 'group';
       if (t.type === 'midi' || t.type === 'audio') { const a = hctl(hd, '', 250, R(0), 21, null); a.title = 'Arm Recording'; a.dataset.ic = t.type === 'midi' ? 'hd_armMidi' : 'hd_armAudio'; }
-      const rowsFit = Math.floor((ch - 2 + 4) / 17);
-      // In/Out section
+      const rowsFit = t.unfolded ? Math.floor((ch - 2 + 4) / 17) : 0;
+      // In/Out section (a folded track shows an empty box, as in Live 12's manual, "Track Controls")
+      if (!t.unfolded) hctl(hd, 'flat', 99, R(0), 70, null);
       if (rowsFit >= 1) dropdown(hd, 99, R(0), 70, t.type === 'midi' ? 'All Ins' : t.type === 'group' ? '' : 'Ext. In', 2);
       if (rowsFit >= 2 && t.type !== 'group') dropdown(hd, 99, R(1), 70, t.type === 'midi' ? 'All Channels' : String(1 + (Number(t.label) + 1) % 2), 11, t.type === 'midi' ? 'hd_chanMeter' : 'hd_inMeterEmpty');
       if (rowsFit >= 3) {
@@ -849,12 +850,20 @@ function makeRow(t, y, h, pinned) {
       }
       if (audio && rowsFit >= 3) t.mixer.sends.slice(0, 2).forEach((v, i) => hctl(hd, 'field', 175 + 33 * i, R(2), 30, dbText(v, '−∞')).title = 'Send');
       if (audio || t.type === 'group') meter(hd, t, 275, 2, ch - 4, true);
-      else midiMeter(hd, ch);
+      else if (t.unfolded) midiMeter(hd, ch);
+      else foldedMidiMeter(hd, ch);
     }
   }
   hd._t = t;
   hd.addEventListener('mousedown', e => {
-    if (e.target.closest('.name') && e.offsetX < 20 && !pinned) { t.unfolded = !t.unfolded; buildRows(); return; }
+    // the fold button: the 13 px circle at the left of the title bar
+    const nr = $('.name', hd).getBoundingClientRect();
+    if (!pinned && e.clientX - nr.left < 18 && e.clientY - nr.top < 17) {
+      const to = !t.unfolded;
+      // "unfold all of your tracks at once by holding down the Alt modifier when clicking the button" (manual)
+      for (const o of e.altKey ? set.tracks : [t]) o.unfolded = to;
+      buildRows(); return;
+    }
     select(t);
   });
   hd.addEventListener('mouseover', e => { const i = e.target.closest('[data-info]'); if (i) showInfo(i.dataset.info); });
@@ -876,6 +885,14 @@ function meter(hd, t, x, y, h, gapRow) {
   }
   t._meter = m;
   hd.append(m);
+}
+// Folded MIDI track: Live 12's manual (ArrangementViewTrackControls.png, 2x) shows the dots shrunk to 3 px at a 3 px pitch
+function foldedMidiMeter(hd, ch) {
+  for (let k = 0; k < 4; k++) {
+    const d = document.createElement('i');
+    Object.assign(d.style, { position: 'absolute', left: '276px', top: (2 + 3 * k) + 'px', width: '3px', height: '3px', borderRadius: '1.5px', background: 'var(--MeterBackground)' });
+    hd.append(d);
+  }
 }
 function midiMeter(hd, ch) {
   const n = Math.floor((ch - 5) / 8);
@@ -1228,6 +1245,8 @@ function drawAll() {
   rafPending = true;
   requestAnimationFrame(() => {
     rafPending = false;
+    // The Arrangement starts at bar 1: Live never scrolls to negative time (the user, about Live 12)
+    view.beat0 = Math.max(0, view.beat0);
     const tr = $('#tracks'), pn = $('#pinned');
     drawLanes(lanesCanvas.getContext('2d'), rows, tr.scrollTop, tr.clientHeight, false);
     drawLanes(pinCanvas.getContext('2d'), pinnedRows, pn.scrollTop, pn.clientHeight, true);
@@ -1376,7 +1395,7 @@ const engine = {
     // make sure every needed file is ready
     const need = new Set();
     for (const t of set.tracks) for (const c of this.playClips(t)) if (c.file && !c.disabled) need.add(c.file);
-    status(`Preparing ${need.size} audio file${need.size === 1 ? '' : 's'}…`);
+    // (Live's status bar shows nothing while starting playback, so neither do we)
     for (const p of need) await getSource(p);
     this.playing = true;
     $('#cb-play').classList.add('playing');
@@ -1389,7 +1408,7 @@ const engine = {
     this.timer = setInterval(() => this.tick(), 40);
     this.tick();
     const silent = set.tracks.filter(t => (t.type === 'midi') && !t.freezeClips.length && t.clips.length);
-    status(silent.length ? `Playing. ${silent.length} MIDI track${silent.length === 1 ? ' has' : 's have'} no frozen audio and can't be heard.` : 'Playing');
+    $('#status-text').title = silent.length ? `${silent.length} MIDI track${silent.length === 1 ? ' has' : 's have'} no frozen audio and can't be heard.` : '';
     this.meters();
   },
   // a segment maps a stretch of real time to a stretch of the arrangement (loops add more segments)
@@ -1505,7 +1524,7 @@ const engine = {
     for (const n of this.live) { try { n.stop(); } catch (e) {} }
     this.live.clear();
     this.queue = []; this.segs = [];
-    if (this.playing && !silent) status('Stopped');
+    // no status message on stop (Live shows none)
     this.playing = false;
     $('#cb-play').classList.remove('playing');
     cancelAnimationFrame(this.meterRaf);
@@ -1574,7 +1593,7 @@ function setupInteraction() {
     if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
       e.preventDefault();
       view.beat0 += (e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX) / view.ppb;
-      view.beat0 = Math.max(-4, view.beat0);
+      view.beat0 = Math.max(0, view.beat0);
       drawAll();
     }
   };
@@ -1606,6 +1625,26 @@ function setupInteraction() {
     };
     ruler.addEventListener('pointermove', move); ruler.addEventListener('pointerup', up);
   });
+  // "If nothing is selected, double-clicking the beat-time ruler zooms out to show the entire Arrangement" (manual, Layout)
+  const zoomAll = () => { view.ppb = Math.min(DEFAULT_PPB, clamp(lanesWidth() / (set.end + beatsPerBar()), 0.05, 2000)); view.beat0 = 0; drawAll(); };
+  ruler.addEventListener('dblclick', () => { if (set) zoomAll(); });
+  // Overview: "click and drag horizontally to scroll left or right, or click and drag vertically to zoom in or out.
+  // To zoom out to the full Arrangement, double-click anywhere within the black outline." (manual, Layout)
+  // Time ruler: "You can click and drag in the time ruler to scroll left or right." (manual, Layout)
+  const dragNav = (el, zoom) => el.addEventListener('pointerdown', e => {
+    if (!set) return;
+    el.setPointerCapture(e.pointerId);
+    const x0 = e.clientX, y0 = e.clientY, b0 = view.beat0, p0 = view.ppb;
+    const move = ev => {
+      if (zoom) view.ppb = clamp(p0 * Math.exp((ev.clientY - y0) * 0.012), 0.05, 2000);
+      view.beat0 = b0 - (ev.clientX - x0) / view.ppb;
+      drawAll();
+    };
+    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
+  });
+  dragNav($('#overview'), true); dragNav($('#song-canvas'), false);
+  $('#overview').addEventListener('dblclick', () => { if (set) zoomAll(); });
   const laneClick = (e, area, list) => {
     if (!set) return;
     const rect = area.getBoundingClientRect();
@@ -1613,13 +1652,17 @@ function setupInteraction() {
     if (x > lanesWidth()) return;
     const r = list.find(r => y >= r.y && y < r.y + r.h);
     if (r) select(r.track);
-    setInsert(snap(bOf(x)));
+    setInsert(snap(bOf(x), e.altKey));
   };
   tracks.addEventListener('mousedown', e => laneClick(e, tracks, rows));
   pinned.addEventListener('mousedown', e => laneClick(e, pinned, pinnedRows));
 
-  $('#cb-play').addEventListener('click', () => { if (set) engine.play(view.insert); });
-  $('#cb-stop').addEventListener('click', () => { if (set) { if (!engine.playing) setInsert(0); engine.stop(); } });
+  // Live's transport reacts on mouse down
+  $('#cb-play').addEventListener('mousedown', () => { if (set) engine.play(view.insert); });
+  $('#cb-stop').addEventListener('mousedown', () => { if (set) engine.stop(); });
+  // "To return the insert marker to the starting play position, you can double-click the Stop button or press the Home key"
+  // (Live 12 manual, Arrangement View > Arrangement Playback)
+  $('#cb-stop').addEventListener('dblclick', () => { if (set) setInsert(0); });
   $('#cb-loop').addEventListener('click', () => {
     if (!set) return;
     set.loop.on = !set.loop.on; $('#cb-loop').classList.toggle('on', set.loop.on);
@@ -1635,11 +1678,72 @@ function setupInteraction() {
       if (engine.playing) engine.stop(); else engine.play(view.insert);
     }
     if (e.key === 'Home') { setInsert(0); }
+    // Live 12 manual, Keyboard Shortcuts: + / - zoom, S solo, 0 deactivate, U fold/unfold, F1-F8 Track Activators
+    const w = lanesWidth() / 2;
+    if (e.key === '+' || e.key === '=') { const c = bOf(w); view.ppb = clamp(view.ppb * 2, 0.05, 2000); view.beat0 = c - w / view.ppb; drawAll(); }
+    if (e.key === '-') { const c = bOf(w); view.ppb = clamp(view.ppb / 2, 0.05, 2000); view.beat0 = c - w / view.ppb; drawAll(); }
+    if (selected && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === 's' || e.key === 'S') { const was = selected.mixer.solo; for (const o of allTracks()) o.mixer.solo = false; selected.mixer.solo = !was; refreshMixer(); }
+      if (e.key === '0') { selected.mixer.on = !selected.mixer.on; refreshMixer(); }
+      if ((e.key === 'u' || e.key === 'U') && selected.type !== 'return' && selected.type !== 'main') { selected.unfolded = !selected.unfolded; buildRows(); }
+    }
+    const fk = /^F([1-8])$/.exec(e.key);
+    if (fk) { e.preventDefault(); const t = set.tracks.filter(isVisible)[Number(fk[1]) - 1]; if (t) { t.mixer.on = !t.mixer.on; refreshMixer(); } }
+    // Live's shortcuts (Live 12 manual): Ctrl Alt 5 = browser, ? = Info View
+    if (e.ctrlKey && e.altKey && e.key === '5') { e.preventDefault(); togglePanel('no-browser'); }
+    if (e.key === '?') togglePanel('no-info');
   });
 }
-function snap(b) {
-  const g = view.ppb > 30 ? 0.25 : view.ppb > 8 ? 1 : beatsPerBar();
+// ---------------------------------------------------------------------------
+// Panels: show/hide toggles and drag-to-resize splitters
+
+function togglePanel(cls, force) {
+  const app = $('#app');
+  app.classList.toggle(cls, force);
+  const on = c => !app.classList.contains(c);
+  // ViewControlOn when the view is shown, ViewControlOff when hidden (press screenshots 3 and 5)
+  $('#cb-browser').style.color = on('no-browser') ? 'var(--ViewControlOn)' : 'var(--ViewControlOff)';
+  $('#st-info').style.color = on('no-info') ? 'var(--ViewControlOn)' : 'var(--ViewControlOff)';
+  $('#status-trk').classList.toggle('closed', !on('no-detail'));
+  layoutAfterResize();
+}
+function layoutAfterResize() { if (set) { layoutCanvases(); drawAll(); } }
+function setupPanels() {
+  $('#cb-browser').addEventListener('mousedown', () => togglePanel('no-browser'));
+  $('#st-info').addEventListener('mousedown', () => togglePanel('no-info'));
+  $('#status-trk .up').addEventListener('mousedown', () => togglePanel('no-detail'));
+  $('#br-ftoggle').addEventListener('mousedown', () => $('#browser').classList.toggle('filters-hidden'));
+  const app = $('#app');
+  const px = v => parseFloat(getComputedStyle(app).getPropertyValue(v));
+  const drag = (el, axis, begin, set) => el.addEventListener('pointerdown', e => {
+    e.preventDefault(); el.setPointerCapture(e.pointerId);
+    const start = axis === 'x' ? e.clientX : e.clientY, b0 = begin();
+    const move = ev => { set(b0, (axis === 'x' ? ev.clientX : ev.clientY) - start); layoutAfterResize(); };
+    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
+  });
+  // Limits are not documented by Ableton; these only stop a panel collapsing to nothing or pushing others off screen.
+  drag($('#grip-browser'), 'x', () => px('--bw'), (b, d) => app.style.setProperty('--bw', clamp(b + d, px('--sbw') + 120, innerWidth * 0.5) + 'px'));
+  drag($('#grip-sidebar'), 'x', () => px('--sbw'), (b, d) => app.style.setProperty('--sbw', clamp(b + d, 60, px('--bw') - 120) + 'px'));
+  drag($('#grip-info'), 'x', () => px('--iw'), (b, d) => app.style.setProperty('--iw', clamp(b + d, 120, innerWidth * 0.4) + 'px'));
+  drag($('#grip-row'), 'y', () => px('--dh'), (b, d) => app.style.setProperty('--dh', clamp(b - d, 120, innerHeight * 0.5) + 'px'));
+  if ('ResizeObserver' in window) new ResizeObserver(layoutAfterResize).observe($('#arrangement'));
+}
+
+// "the cursor will snap to grid lines that represent the meter subdivisions"; Alt bypasses snapping (manual, Using the Editing Grid)
+function snap(b, free) {
+  if (free) return Math.max(0, b);
+  const g = gridStep();
   return Math.max(0, Math.round(b / g) * g);
+}
+// re-draw the Track Activator / Solo switches after a keyboard change
+function refreshMixer() {
+  document.querySelectorAll('.theader').forEach(x => {
+    if (!x._t) return;
+    x.querySelector('.solo')?.classList.toggle('on', x._t.mixer.solo);
+    x.querySelector('.act')?.classList.toggle('on', x._t.mixer.on);
+  });
+  engine.updateMix();
 }
 function setInsert(b) {
   view.insert = b;
@@ -1785,11 +1889,12 @@ setupInteraction();
 $('#file-input').addEventListener('change', e => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ''; });
 $('#menu-file').addEventListener('click', () => openDialog());
 buildStatic();
+setupPanels();
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f && /\.zip$/i.test(f.name)) loadFile(f); });
 
 (async () => {
-  status('Ableton Live 12');
+  status('');
   let manifest = null;
   try { const r = await fetch('projects/manifest.json', { cache: 'no-cache' }); if (r.ok) manifest = await r.json(); } catch (e) {}
   const list = manifest?.projects || [];
