@@ -1759,12 +1759,16 @@ function drawClip(ctx, c, x0, x1, y, h, w) {
     else { drawWave(ctx, c, x0, x1, bodyY, bodyH, w); drawFadeWedges(ctx, c, x0, x1, bodyY, bodyH); }
     if (c.loop.on) {
       // where the loop repeats, Live marks the clip with 3 px notches under the top edge and at the bottom, not with a
-      // line through it (running Live, harness clip Set: 19,41,32 on 37,255,168 and 18,41,20 on 26,255,47 = 17,17,17 at
-      // alpha 229; the bottom one 18,36,29 over the bar line 26,172,114 = 17,17,17 at alpha 224; theme keys not traced)
+      // line through it. gdb on the renderer's rect fill: alpha 0xef and a premultiplied colour that follows the clip
+      // colour (17,26,22 for 37,255,168, 17,25,26 for 25,233,255: 16 + 0.039 x channel, rounded down, a fit to these
+      // six values; the formula's code is not traced); Live's pixels = that + destination x 16 / 256 (19,41,32 and,
+      // over the bar line, 18,36,29)
+      const cn = parseInt(col.slice(1, 7), 16), a = 0xef / 255;
+      const notchCol = 'rgba(' + [cn >> 16, (cn >> 8) & 255, cn & 255].map(v => Math.floor(16 + 0.039 * v) / a).join(',') + ',' + a + ')';
       let d = nextWrap(c, 0);
       for (let k = 0; k < 2000 && c.start + d < c.end - 1e-9; k++) {
         const x = Math.round(xOf(c.start + d)); if (x > w) break;
-        if (x >= 0) { ctx.fillStyle = 'rgba(17,17,17,0.898)'; ctx.fillRect(x, y + 1, 1, 3); ctx.fillStyle = 'rgba(17,17,17,0.878)'; ctx.fillRect(x, y + h - 3, 1, 3); }
+        if (x >= 0) { ctx.fillStyle = notchCol; ctx.fillRect(x, y + 1, 1, 3); ctx.fillRect(x, y + h - 3, 1, 3); }
         d = nextWrap(c, d + 1e-9);
       }
     }
@@ -1818,8 +1822,9 @@ function drawNotes(ctx, c, x0, x1, y, h, w, fill) {
   const lo = c.lo, hi = c.hi, range = hi - lo + 1;
   const rowH = Math.max(1, Math.floor(h / range)), nh = Math.max(1, rowH - 1), top = y + Math.ceil((h - rowH * range) / 2);
   const len = c.end - c.start;
-  // colour: 23,23,23 at alpha 238 over the clip colour, rounded (fits 30,38,28 on 135,255,103 and 24,38,33 on
-  // 37,255,168; the half-covered first column is 146 green on 255 and 117 on a 200 grid line)
+  // colour: gdb on the renderer's rect fill shows each note as WaveformColor (0xef161616, premultiplied #171717ef) with
+  // its first column at alpha 0x77 (0x770b0b0b); Live's pixels are 30,38,28 on 135,255,103 and 24,38,33 on 37,255,168,
+  // which 23,23,23 at alpha 238 over the clip colour, rounded, reproduces; the first column is the half-covered one
   const cn = parseInt((c.disabled ? T.MutedAuditionClip : c.color).slice(1, 7), 16);
   ctx.fillStyle = fill || 'rgb(' + [cn >> 16, (cn >> 8) & 255, cn & 255].map(v => Math.round((23 * 238 + v * 17) / 255)).join(',') + ')';
   let d = 0;
