@@ -1084,6 +1084,11 @@ let selected = null;
 // 1314 px of lanes show 335 beats)
 const DEFAULT_PPB = 1314 / 335;
 const view = { beat0: 0, ppb: DEFAULT_PPB, insert: 0, ext: null, range: null };
+// The song time after Stop (running Live, harness Set: played from 1.1.1 and stopped, the position field shows 12.4.1,
+// the Overview's time line sits at 47 beats and the white play line stays in the lanes; a click in a lane puts all
+// three back on the insert marker). null = the song time is the insert marker.
+let stoppedAt = null;
+const songTime = () => engine.playing ? engine.beatNow() : stoppedAt ?? view.insert;
 const HW = 292;  // track header width incl. its 2 px divider
 const FONT = '10px "Ableton Sans Small"';
 
@@ -1129,7 +1134,7 @@ function buildRows() {
     py += h;
   }
   pinEl.style.height = py + 'px';
-  const top = document.createElement('div'); top.className = 'trow'; top.style.cssText = 'top:0;height:3px;background:var(--SurfaceArea)'; pinEl.prepend(top);
+  const top = document.createElement('div'); top.className = 'trow'; top.style.cssText = 'top:0;left:auto;width:292px;height:3px;background:var(--SurfaceArea)'; pinEl.prepend(top);
   $('#pinned').style.height = Math.min(py, 200) + 'px';
   applyIcons($('#tracks-wrap'));
   refreshMixerClasses();
@@ -1565,7 +1570,11 @@ function drawLanes(ctx, list, scrollTop, viewH, pinned) {
     if (t === selected && !engine.playing && !pinned && !view.tsel) cursorAt = { x: Math.round(xOf(view.insert)), y, h };
   }
   if (pinned) { ctx.fillStyle = C.area; ctx.fillRect(0, 0, w, 3); }
-  else if (viewH - end >= 18) {   // shown in an 18 px gap too (running Live after Optimize Height); smaller gaps not measured
+  // the play line (while playing, and after Stop until the insert marker moves), drawn before the drop hint: in the
+  // running Live the hint's box covers it, and it covers the 3 px above the Main track but not the 2 px under it
+  const ph = engine.playing ? engine.beatNow() : stoppedAt;
+  if (ph != null) { const x = Math.round(xOf(ph)); if (x >= 0 && x <= w) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x, 0, 1, pinned ? viewH - SEP : viewH); } }
+  if (!pinned && viewH - end >= 18) {   // shown in an 18 px gap too (running Live after Optimize Height); smaller gaps not measured
     // centred hint on a SurfaceBackground plate that hides the grid (as measured)
     const msg = 'Drop Files and Devices Here';
     ctx.font = FONT; ctx.textBaseline = 'alphabetic';
@@ -1573,8 +1582,6 @@ function drawLanes(ctx, list, scrollTop, viewH, pinned) {
     ctx.fillStyle = C.surface; ctx.fillRect(tx - 1, by - 8, tw + 1, 11);
     ctx.fillStyle = T.ControlForeground; ctx.fillText(msg, tx, by);
   }
-  const ph = engine.playing ? engine.beatNow() : null;
-  if (ph != null) { const x = Math.round(xOf(ph)); if (x >= 0 && x <= w) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x, 0, 1, viewH); } }
 }
 
 function drawGroupSummary(ctx, g, y, h, w) {
@@ -1731,7 +1738,7 @@ function drawRuler() {
     ctx.fillStyle = C.insert;
     for (let k = 0; k < 4; k++) ctx.fillRect(ix - 3 + k, 41 + k, 7 - 2 * k, 1);
   }
-  if (engine.playing) { const px = Math.round(xOf(engine.beatNow())); ctx.fillStyle = '#ffffff'; ctx.fillRect(px, 22, 1, h - 22); }
+  // (no play line in the beat ruler: the running Live draws none there, playing or stopped)
 }
 // Left end of the loop brace, 10 x 11 px of LoopColor coverage measured from Live (the right end is its mirror image)
 const BRACE = [[0.91,0.95,1,1,1,1,1,1,1,1],[0.74,0.11,0.68,0.56,0.04,0,0,0,0,0],[0.74,0,0,0.31,0.78,0.31,0,0,0,0],[0.74,0,0,0,0.04,0.56,0.67,0.11,0,0],
@@ -1798,9 +1805,25 @@ function drawOverview() {
       for (const c of t.clips) { ctx.fillStyle = c.color; ctx.fillRect(1 + sx(c.start), y0, Math.max(1, sx(c.end - c.start)), Math.max(1, y1 - y0)); }
     });
   }
+  // the song time as a 1 px line over the strip's 12 rows: 0x14467cad0 draws it at trunc((time - start) x px per beat)
+  // in theme colour 11 ([theme+0x2c], ControlForeground, see setInsert). Running Live, zoomed out, insert marker at 4,
+  // 8, ... 212 beats: columns 27, 55, 83, 110, 138, 193, 249, 359, 581, 858, 1135, 1467 of the 1606 px strip (span 232),
+  // in 181,181,181. It follows the play position while playing, the stop position after Stop, else the insert marker.
+  // (While playing, Live repaints it less often than the lanes: up to a beat behind in the captures.)
+  ctx.fillStyle = T.ControlForeground; ctx.fillRect(Math.trunc(songTime() * W / span), 0, 1, 12);
   const px = (x, y, v) => { ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(x, y, 1, 1); };
-  const fx0 = Math.round(1 + sx(view.beat0)) - 1, fx1 = Math.round(1 + sx(bOf(lanesWidth())));
-  if (fx0 <= 0 && fx1 >= W - 1) {
+  // The frame is the thumb of a scroll bar (LScrollBarXView, vtable 0x145a2aa80) that AArrangementOverviewControlView's
+  // layout (0x143abe9c0) places 2 px left of / above the strip and 4 px wider (1610 px for the 1606 px strip). Its thumb
+  // (0x142b13860, integer pixels of the Arrangement's content: gdb read min = -scroll offset, max = min + content width,
+  // visible = 0 .. lanes width, insets 2 + 2, minimum 12) is
+  //   width w = max(12, trunc((track - 4) x visible / content)) + 4,
+  //   x = trunc(offset x (track - w) / (content - visible) + 0.5) (float32), drawn from x to x + w - 1,
+  // and it fills the whole track when the content is not wider than the lanes. Checked against the running Live at
+  // 15 scroll offsets (455 .. 1295 px at 25.72 px per beat): every left and right side column equal. The content width
+  // gdb read was px per beat x the current range (S or the visible end) + 1: 5968, 3730, 2331 and 1457 px at 25.72,
+  // 16.07, 10.04 and 6.28 px per beat with S = 232.
+  const content = Math.round(view.ppb * rangeEnd() + 1), vis = lanesWidth(), track = W + 4;
+  if (!(vis < content)) {
     // the frame fills the strip (as in the reference screenshot of a new Set)
     ctx.fillStyle = F;
     ctx.fillRect(0, 0, 1, 14); ctx.fillRect(W - 1, 0, 1, 14); ctx.fillRect(0, 12, W, 2);
@@ -1812,7 +1835,9 @@ function drawOverview() {
   // a partial frame: 3 px sides and a 2 px bottom in MainViewFocusIndicator, SurfaceArea under the rest
   // (pixel pattern measured in Live 12 with the view zoomed in)
   ctx.fillStyle = C.area; ctx.fillRect(0, 12, W, 2);
-  const L = Math.max(0, fx0), R = Math.min(W - 1, fx1);
+  const tw = Math.max(12, Math.trunc((track - 4) * vis / content)) + 4;
+  const s = Math.fround(Math.fround(track - tw) / Math.fround(content - vis));
+  const L = Math.trunc(Math.fround(Math.round(view.beat0 * view.ppb) * s + 0.5)) - 2, R = L + tw - 1;
   ctx.fillStyle = F; ctx.fillRect(L + 2, 12, R - L - 3, 1); ctx.fillRect(L + 5, 13, R - L - 9, 1);
   const side = (x, dir) => {
     const c = (dx, y, v) => px(x + dir * dx, y, v);
@@ -2126,11 +2151,12 @@ const engine = {
     this.live.clear();
     this.queue = []; this.segs = [];
     // no status message on stop (Live shows none)
+    if (this.playing) stoppedAt = this.beatNow();
     this.playing = false;
     $('#cb-play').classList.remove('playing');
     cancelAnimationFrame(this.meterRaf);
     for (const t of set?.tracks || []) if (t._meter) t._meter.querySelectorAll('b').forEach(b => b.style.height = '0');
-    showPos('cb-pos', fmtPos(view.insert));
+    showPos('cb-pos', fmtPos(songTime()));
     drawAll();
   },
   meters() {
@@ -2535,7 +2561,7 @@ function timeSelStatus() {
   status(`Time Selection     Start: ${fmtPos(b0).join('.')}     End: ${fmtPos(b1).join('.')}     Length: ${fmtLen(b1 - b0).join('.')}  (Duration: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')})`);
 }
 function setInsert(b) {
-  view.insert = b;
+  view.insert = b; stoppedAt = null;
   showPos('cb-pos', fmtPos(b));
   // Live's status bar after placing the insert marker, e.g. "Insert Mark 39.1.1 (Time: 1:16)". It is posted with level 0
   // (gdb on 0x142a66a10 / 0x142a39e50 while clicking a lane: level 0, mode 1, from 0x142aa6920), and the status bar's
@@ -2649,7 +2675,7 @@ function showSet() {
   showPos('cb-ls', fmtPos(set.loop.start));
   showPos('cb-ll', fmtLen(set.loop.length));
   $('#cb-loop').classList.toggle('on', set.loop.on);
-  view.insert = 0;
+  view.insert = 0; stoppedAt = null;
   showPos('cb-pos', fmtPos(0));
   selected = null;
   buildRows();
