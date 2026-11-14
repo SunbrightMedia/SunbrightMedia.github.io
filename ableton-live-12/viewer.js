@@ -994,6 +994,7 @@ Object.assign(INFO, {
   'Status Bar': 'The Status Bar helps keep you updated on\nthe progress of various program activities.',
   'Clip View Selector': 'This is a visual overview of the clip’s entire\ncontents. Click here to view and edit the\nselected clip’s properties. When the Clip\nView is open, the Clip Overview also acts as a\nzoomer/scroller: Click on any position in the\nclip and drag vertically to zoom.',
   'Device View Selector': 'Click to view the highlighted track’s device\nchain. If the highlighted track has devices,\nthis selector contains a miniaturized display\nof the device chain. When the Device View is\nopen, the Device View selector also acts as a\nscroller.',
+  'User Library': 'You can access your User Library here, which\nis the default location for content you save\nmanually such as preset defaults, custom\ndevice and Rack presets, etc.',
   'Preview Tab': 'Select a clip in the Browser to preview it in\nthe Preview Tab. Enable the preview button\nto the left to autoplay samples.',
   'Previous Locator': 'Jump to the previous locator or to the song\nstart using this button.',
   'Show/Hide Mixer Config Menu': 'Use the toggle to show or hide a menu where\nyou can expand or collapse different mixer\ncontrols and return tracks.',
