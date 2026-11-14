@@ -2151,7 +2151,16 @@ setupPanels();
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f && /\.zip$/i.test(f.name)) loadFile(f); });
 
+// Canvas text (rulers, labels) uses Live's web fonts, which a canvas cannot wait for on its own: Safari in
+// particular draws with a fallback serif if they are not loaded yet. Load them before the first draw and
+// redraw whenever any font finishes loading.
+const fontsReady = Promise.all([FONT, 'bold ' + FONT, '9px "Ableton Sans Small 9"', '18px "Ableton Sans Light"']
+  .map(f => document.fonts.load(f).catch(() => {})));
+document.fonts.addEventListener?.('loadingdone', () => { if (set) drawAll(); });
+fontsReady.then(() => { if (set) { layoutCanvases(); drawAll(); } });
+
 (async () => {
+  await fontsReady;
   status('');
   let manifest = null;
   try { const r = await fetch('projects/manifest.json', { cache: 'no-cache' }); if (r.ok) manifest = await r.json(); } catch (e) {}

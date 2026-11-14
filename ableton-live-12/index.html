@@ -31,6 +31,7 @@
     @font-face { font-family: "Segoe UI Live"; src: url(../fonts/segoeui.ttf); ascent-override: 108.3333%; descent-override: 25%; line-gap-override: 0%; }
     :root { --font: "Ableton Sans Small", sans-serif; }
     * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }  /* stop iOS enlarging text on its own */
     html, body { margin: 0; height: 100%; overflow: hidden; background: var(--Desktop); color: var(--ControlForeground);
       font: 10px/1 var(--font); user-select: none;
       /* Live draws text with ClearType on Windows, which inks glyphs ~13% heavier than Chromium's greyscale
@@ -386,6 +387,6 @@
   <script src="icons.js?v=f3e4bd10ca"></script>
   <script src="icons-live.js?v=147810bae7"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="viewer.js?v=476d3d4e6e"></script>
+  <script src="viewer.js?v=e24e9a1a7f"></script>
 </body>
 </html>
