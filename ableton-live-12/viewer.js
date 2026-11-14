@@ -1760,26 +1760,38 @@ function drawLoopBrace(ctx, lx0, lx1, on) {
   ctx.fillStyle = T.RangeDisabledOff; ctx.fillRect(lx0, 21, 1, 1); ctx.fillRect(lx1, 21, 1, 1);
 }
 
+// Time ruler steps (LTimeBarView, draw 0x143b2ed40): 0x143b2e910 asks for labels at least label width + 22 px apart,
+// the label width being 55 px in the default (minutes) format (gdb: [this+0xf0] = 55, [+0xf4] = 34, mode 0), so
+// min = seconds per pixel x 77; 0x142eeac70 then picks the label step and the tick step:
+const TIME_STEPS = [[1800, 3600, 600], [1200, 1800, 300], [900, 1200, 300], [600, 900, 300], [300, 600, 120], [120, 300, 60],
+  [60, 120, 30], [30, 60, 10], [20, 30, 5], [15, 20, 5], [10, 15, 5], [5, 10, 2], [2, 5, 1], [1, 2, 0.5]];
+const TIME_STEPS_MS = [[500, 1, 0.2], [200, 0.5, 0.1], [100, 0.2, 0.05], [50, 0.1, 0.02], [20, 0.05, 0.01], [10, 0.02, 0.005],
+  [5, 0.01, 0.002], [2, 0.005, 0.001], [1, 0.002, 0.0005], [-Infinity, 0.001, 0.0002]];
+function timeSteps(min) {
+  if (min > 3600) { let step = 7200, sub = 1800; while (min > step) { step *= 2; sub *= 2; } return [step, sub]; }
+  if (min > 1) { for (const [t, step, sub] of TIME_STEPS) if (min > t) return [step, sub]; }
+  for (const [t, step, sub] of TIME_STEPS_MS) if (min * 1000 > t) return [step, sub];
+}
 function drawSongRuler() {
   const cv = songCanvas, w = lanesWidth(), h = 21, ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = C.surface; ctx.fillRect(0, 0, w, h);
   if (!set) return;
   const s0 = tempoMap.sec(view.beat0), s1 = tempoMap.sec(bOf(w));
-  const pxPerSec = w / Math.max(0.001, s1 - s0);
-  let step = 1;
-  for (const s of [1, 2, 5, 10, 15, 30, 60, 120, 300, 600]) { step = s; if (s * pxPerSec >= 50) break; }
+  const [step, sub] = timeSteps((s1 - s0) / w * (55 + 22));
   ctx.font = FONT; ctx.textBaseline = 'alphabetic';
   // measured tick colour of the time ruler (a little lighter than the beat ruler's)
   const tick = '#6b6b6b';
   ctx.fillStyle = tick;
-  const g = gridStep();
-  if (g > 0) for (let b = Math.ceil(view.beat0 / g) * g; b < bOf(w); b += g) ctx.fillRect(Math.round(xOf(b)), 0, 1, 2);
-  for (let s = Math.max(0, Math.floor(s0 / step) * step); s <= s1; s += step) {
-    const x = Math.round(xOf(tempoMap.beat(s)));
+  // short ticks every tick step (running Live at 32 px per second: every second, labels every 5)
+  for (let k = Math.max(0, Math.ceil(s0 / sub - 1e-9)); k * sub <= s1; k++) ctx.fillRect(Math.round(xOf(tempoMap.beat(k * sub))), 0, 1, 2);
+  for (let k = Math.max(0, Math.floor(s0 / step)); k * step <= s1; k++) {
+    const s = k * step, x = Math.round(xOf(tempoMap.beat(s)));
     ctx.fillStyle = tick; ctx.fillRect(x, 0, 1, 8); ctx.fillRect(x, 7, 2, 1);
     ctx.fillStyle = C.ruler;
-    ctx.fillText(`${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`, x + 3, 11);
+    // below a second Live adds milliseconds after a colon ("0:18:500")
+    const ms = Math.round(s * 1000), txt = `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+    ctx.fillText(step < 1 ? `${txt}:${String(ms % 1000).padStart(3, '0')}` : txt, x + 3, 11);
   }
   // insert marker, pointing up
   const ix = Math.round(xOf(view.insert));
