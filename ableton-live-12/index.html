@@ -64,13 +64,13 @@
     /* ---------- Control bar ---------- */
     #controlbar { position: absolute; left: 0; right: 0; top: 43px; height: 45px; }
     #controlbar .grp { position: absolute; top: 0; height: 45px; }
-    .cb { position: absolute; top: 15px; height: 17px; background: var(--TransportOffBackground); color: var(--TransportOffForeground); line-height: 17px; white-space: pre; }
+    .cb { position: absolute; top: 15px; height: 17px; padding-top: 1px; background: var(--TransportOffBackground); color: var(--TransportOffForeground); line-height: 17px; white-space: pre; }
     .cb.ghost { background: transparent; }
     .cb.on { background: var(--ChosenDefault); color: var(--ControlOnForeground); }
     .cb.dim { color: var(--ControlOffDisabledForeground); }
     .cb.c { text-align: center; }
-    .cb .t { position: absolute; top: 0; }
-    .cb .r { position: absolute; top: 0; text-align: right; }
+    .cb .t { position: absolute; top: 1px; }
+    .cb .r { position: absolute; top: 1px; text-align: right; }
     .cb.half { height: 8px; }
     /* playing: the Play triangle turns ChosenPlay green (Ableton press screenshot 5) */
     #cb-play.playing { color: var(--ChosenPlay); }
@@ -133,7 +133,7 @@
     /* ---------- Browser ---------- */
     #browser .bar { position: absolute; left: 0; right: 0; top: 0; height: 21px; }
     #browser .sep { position: absolute; background: var(--SurfaceArea); }
-    #browser .hint { position: absolute; left: 49px; top: 0; line-height: 21px; color: var(--BrowserBarOverlayHintTextColor); }
+    #browser .hint { position: absolute; left: 48px; top: 1px; line-height: 21px; color: var(--BrowserBarOverlayHintTextColor); }
     #sidebar { position: absolute; left: 0; top: 23px; width: var(--sbw); bottom: 0; overflow: hidden; }
     .sbrow { position: absolute; left: 0; width: var(--sbw); height: 18px; line-height: 18px; white-space: nowrap; overflow: hidden; }
     .sbrow .l { position: absolute; left: 25px; top: 0; }
@@ -148,7 +148,7 @@
        fold buttons (images/1.png and the manual's Track Controls figure). Not seen in a reference: unverified. */
     #browser.filters-hidden #br-ftoggle .ic { transform: rotate(-90deg); transform-origin: 7.5px 8.5px; }
     .frow { position: absolute; left: 0; right: 0; height: 19px; line-height: 19px; }
-    .frow .l { position: absolute; left: 5px; top: 0; white-space: nowrap; }
+    .frow .l { position: absolute; left: 5px; top: 1px; white-space: nowrap; }
     .frow.line { height: 1px; background: var(--Desktop); }
     #br-edit { position: absolute; right: 2px; top: 3px; width: 39px; height: 13px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); line-height: 13px; }
     #br-namehead { position: absolute; left: calc(var(--sbw) + 2px); right: 0; height: 19px; background: var(--TreeColumnHeadBackground); color: var(--TreeColumnHeadForeground); line-height: 19px; }
@@ -160,7 +160,7 @@
     #ruler canvas { position: absolute; left: 0; top: 0; }
     #ruler-side { position: absolute; right: 0; top: 14px; height: 45px; width: 292px; background: var(--SurfaceBackground); }
     #ruler-side .sidesep { position: absolute; left: 0; bottom: 0; width: 1px; height: 0; }
-    .pill { position: absolute; height: 13px; border-radius: 6.5px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); text-align: center; line-height: 13px; }
+    .pill { position: absolute; height: 13px; border-radius: 6.5px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); text-align: center; line-height: 13px; padding-top: 1px; }
     .btn { position: absolute; height: 13px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); text-align: center; line-height: 13px; white-space: nowrap; overflow: hidden; }
     .btn > span.abs { top: 1px; }
     /* Solo on: ChosenPreListen (the theme's blue; Live 12 manual "Mixing", GroupTrackSoloButtonHalfColored.png shows solo in blue) */
@@ -183,7 +183,7 @@
     .theader .bg { position: absolute; left: 2px; right: 0; top: 0; background: var(--SurfaceBackground); }
     .theader.sel .bg { background: var(--SurfaceHighlight); }
     .theader .name { position: absolute; left: 2px; top: 0; width: 93px; overflow: hidden; }
-    .theader .name .tn { position: absolute; left: 23px; top: 3px; height: 13px; line-height: 13px; font-weight: bold; white-space: nowrap; }
+    .theader .name .tn { position: absolute; left: 24px; top: 3px; height: 13px; line-height: 13px; font-weight: bold; white-space: nowrap; }
     /* a clicked title bar shows SelectionBackground (text/fold in its 26.7% dark) while the Arrangement has focus (Live 12) */
     #arrangement.focused .theader.tsel .name { background: var(--SelectionBackground) !important; color: var(--title-sel-dark) !important; }
     .theader .vsep { position: absolute; top: 0; width: 2px; background: var(--SurfaceArea); }
@@ -198,8 +198,8 @@
     #oneone { position: absolute; right: 294px; bottom: 22px; color: var(--MainViewFocusIndicator); font: 18px/18px "Ableton Sans Light"; -webkit-text-stroke: 0.3px currentColor; pointer-events: none; }
 
     /* ---------- Info view / Detail view / status bar ---------- */
-    #info .title { position: absolute; left: 0; right: 0; top: 0; height: 17px; background: var(--SurfaceHighlight); line-height: 17px; padding-left: 5px; font-weight: bold; }
-    #info .body { position: absolute; font-size: 9px; font-family: "Ableton Sans Small 9", sans-serif; left: 6px; right: 4px; top: 17px; line-height: 15px; padding-top: 2px; white-space: pre; }
+    #info .title { position: absolute; left: 0; right: 0; top: 0; height: 17px; background: var(--SurfaceHighlight); line-height: 17px; padding-left: 5px; padding-top: 1px; font-weight: bold; }
+    #info .body { position: absolute; font-size: 9px; font-family: "Ableton Sans Small 9", sans-serif; left: 7px; right: 3px; top: 17px; line-height: 15px; padding-top: 3px; white-space: pre; }
     #devices { position: absolute; inset: 0; display: flex; gap: 3px; padding: 3px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #555 transparent; }
     #devices .empty { position: absolute; left: 0; right: 0; top: 89px; text-align: center; line-height: 10px; pointer-events: none; }
     .device { flex: none; display: flex; flex-direction: column; background: var(--DetailViewBackground); border-radius: 3px; min-width: 150px; max-width: 620px; }
@@ -227,6 +227,7 @@
 
     #statusbar { position: absolute; left: 0; right: 0; bottom: 10px; height: 19px; }
     #status-text { position: absolute; left: 42px; right: 359px; top: 0; height: 19px; padding-left: 6px; background: var(--SurfaceBackground); border-radius: 3px; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #status-text.alert { background: var(--Alert); color: var(--ControlOnForeground); }
     #status-play { position: absolute; right: 130px; top: 0; width: 220px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; }
     #status-play .div { position: absolute; left: 19px; top: 0; width: 1px; height: 19px; background: var(--SurfaceArea); }
     #status-trk { position: absolute; right: 56px; top: 0; width: 65px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; overflow: hidden; }
@@ -237,7 +238,7 @@
     #status-trk.closed .up .cl { display: block; }
     #status-trk.closed .up i:first-child { display: none; }
     #status-trk .div { position: absolute; left: 19px; top: 0; width: 1px; height: 19px; background: var(--SurfaceArea); }
-    #status-track { position: absolute; left: 20px; right: 0; top: 0; line-height: 19px; text-align: center; white-space: nowrap; }
+    #status-track { position: absolute; left: 20px; right: 0; top: 1px; line-height: 19px; text-align: center; white-space: nowrap; }
 
     /* ---------- Open / loading overlay ---------- */
     #overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(30,30,30,.55); z-index: 10; }
@@ -355,7 +356,7 @@
       <div id="songruler"><canvas id="song-canvas" data-info="Time Ruler"></canvas>
         <div class="side">
           <span class="btn on" style="left:2px;top:4px;width:15px" data-ic="sr_wave"></span>
-          <span class="btn field" data-info="Waveform Vertical Zoom Level" style="left:20px;top:4px;width:35px;overflow:hidden"><i id="zoom-fill" style="position:absolute;left:1px;top:1px;bottom:1px;width:10px;background:var(--RangeEditField)"></i><span id="zoom-label" style="position:relative">1.00x</span></span>
+          <span class="btn field" data-info="Waveform Vertical Zoom Level" style="left:20px;top:4px;width:35px;overflow:hidden"><i id="zoom-fill" style="position:absolute;left:1px;top:1px;bottom:1px;width:10px;background:var(--RangeEditField)"></i><span id="zoom-label" style="position:relative;top:1px">1.00x</span></span>
           <span class="btn" data-info="Optimize Arrangement Height" style="left:61px;top:4px;width:15px">H</span>
           <span class="btn" style="left:79px;top:4px;width:15px">W</span>
         </div>
@@ -387,6 +388,6 @@
   <script src="icons.js?v=f3e4bd10ca"></script>
   <script src="icons-live.js?v=147810bae7"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="viewer.js?v=e24e9a1a7f"></script>
+  <script src="viewer.js?v=644a603f86"></script>
 </body>
 </html>

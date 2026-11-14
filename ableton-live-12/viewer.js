@@ -66,7 +66,7 @@ function fmtVal(v) {
   if (Math.abs(n) >= 100) return n.toFixed(1);
   return String(Number(n.toFixed(3)));
 }
-const status = t => { $('#status-text').textContent = t; };
+const status = (t, alert) => { const el = $('#status-text'); el.textContent = t; el.classList.toggle('alert', !!(alert && t)); };
 
 // ---------------------------------------------------------------------------
 // Reading the zip and the Set
@@ -198,6 +198,12 @@ function parseSet(xmlText, setPath) {
   return set;
 }
 
+function displayName(el, type) {
+  const user = val(el, 'Name', 'UserName'), eff = val(el, 'Name', 'EffectiveName') || '';
+  if (user) return user;
+  if (type === 'return') return eff.replace(/^[A-Z]-/, '');
+  return eff.replace(/^(\d+)-/, '$1 ');
+}
 function parseTrack(el, root) {
   const type = { MidiTrack: 'midi', AudioTrack: 'audio', GroupTrack: 'group', ReturnTrack: 'return' }[el.tagName] || 'main';
   const chain = kid(el, 'DeviceChain');
@@ -207,7 +213,10 @@ function parseTrack(el, root) {
   const unfoldedRaw = val(el, 'TrackUnfolded');
   const t = {
     el, id: el.getAttribute('Id'), type,
-    name: val(el, 'Name', 'EffectiveName') || val(el, 'Name', 'UserName') || '',
+    // Live shows the user's name if there is one, else its own: EffectiveName "1-MIDI" / "A-Reverb" is shown as "1 MIDI"
+    // in the header (and "1-MIDI" in the status bar), "A Reverb" for a return (letter + name; seen in the running Live)
+    name: displayName(el, type),
+    effName: val(el, 'Name', 'EffectiveName') || '',
     colorIndex: num(el, 'Color') ?? num(el, 'ColorIndex') ?? -1,
     groupId: num(el, 'TrackGroupId') ?? -1,
     unfolded: unfoldedRaw == null ? true : unfoldedRaw === 'true',
@@ -696,7 +705,7 @@ function buildStatic() {
   const f = $('#filters');
   const head = document.createElement('div');
   head.className = 'frow'; head.style.top = '0';
-  head.innerHTML = '<span id="br-ftoggle" class="abs" style="left:0;top:0;width:18px;height:19px"><i data-ic="br_filters" style="left:2px;top:1px"></i></span><span class="l" style="left:19px">Filters</span><span id="br-edit"><i data-ic="br_editIcon" style="left:2px;top:0"></i><span class="abs" style="left:15px">Edit</span></span>';
+  head.innerHTML = '<span id="br-ftoggle" class="abs" style="left:0;top:0;width:18px;height:19px"><i data-ic="br_filters" style="left:2px;top:1px"></i></span><span class="l" style="left:19px">Filters</span><span id="br-edit"><i data-ic="br_editIcon" style="left:2px;top:0"></i><span class="abs" style="left:15px;top:1px">Edit</span></span>';
   f.append(head);
   const sep0 = document.createElement('div'); sep0.className = 'frow line'; sep0.style.top = '19px'; sep0.style.background = 'var(--SurfaceArea)'; f.append(sep0);
   FILTERS.forEach((n, i) => {
@@ -738,7 +747,10 @@ const FONT = '10px "Ableton Sans Small"';
 // Layout of track rows
 
 function isVisible(t) { let p = t.parent; while (p) { if (!p.unfolded) return false; p = p.parent; } return true; }
-function laneH(t) { return (t.unfolded ? Math.max(MIN_H, t.laneHeight) : FOLDED_H) + SEP; }  // row = content + 2 px divider
+// A track's lane, unfolded, is 17 x round(LaneHeight / 17) + 18 px: read off the running Live with LaneHeight 17, 34, 51,
+// 68, 85, 99, 100, 101, 150, 200 in a Live-saved Set -> 35, 52, 69, 86, 103, 120, 120, 120, 171, 222 px (17 px rows + 1).
+const laneContentH = h => 17 * Math.round(h / 17) + 18;
+function laneH(t) { return (t.unfolded ? laneContentH(t.laneHeight) : FOLDED_H) + SEP; }  // row = content + 2 px divider
 
 function buildRows() {
   const rowsEl = $('#rows'), pinEl = $('#pinned-rows');
@@ -826,8 +838,11 @@ function makeRow(t, y, h, pinned) {
   const dark = darkOf(nameBg);
   hd.innerHTML = `<div class="bg" style="height:${ch}px" data-info="Volume Section"></div>
     <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${pinned || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit" data-info="Unfold Track Button"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn"></span></div>`;
-  $('.name .tn', hd).textContent = (isRet ? t.label + ' ' : '') + t.name;
-  if (isMain) $('.name .tn', hd).style.left = '26px';
+  // a return's letter and name are placed apart: letter at the name's x, name 10 px further (user's Windows screenshot:
+  // "A" and "B" at x 1644, "Reverb" and "Delay" both at 1654)
+  if (isRet) { $('.name .tn', hd).innerHTML = '<span></span><span style="position:absolute;left:10px"></span>'; const [l, n] = $('.name .tn', hd).children; l.textContent = t.label; n.textContent = t.name; $('.name .tn', hd).style.left = '23px'; }
+  else $('.name .tn', hd).textContent = t.name;
+  if (isMain) $('.name .tn', hd).style.left = '25px';
   const vsep = (x, w) => { const s = document.createElement('div'); s.className = 'vsep'; Object.assign(s.style, { left: x + 'px', width: w + 'px', height: ch + 'px' }); hd.append(s); };
   const R = k => 2 + 17 * k;    // control row top
   if (isMain) {
@@ -936,7 +951,7 @@ function allTracks() { return [...set.tracks, ...set.returns, set.main]; }
 function select(t) {
   selected = t;
   document.querySelectorAll('.theader').forEach(x => x.classList.toggle('sel', x._t === t));
-  $('#status-track').textContent = t ? (t.type === 'return' || t.type === 'main' ? t.name : t.name.replace(/ /g, '-')) : '';
+  $('#status-track').textContent = t ? (t.type === 'return' || t.type === 'main' ? t.name : (t.effName || t.name).replace(/ /g, '-')) : '';
   renderDevices(t);
   drawAll();
 }
@@ -1850,7 +1865,9 @@ function setupInteraction() {
     const rect = area.getBoundingClientRect();
     const x = e.clientX - rect.left, y = e.clientY - rect.top + area.scrollTop;
     if (x > lanesWidth()) return;
-    const r = list.find(r => y >= r.y && y < r.y + r.h);
+    // below the last track Live selects the last track (seen in the running Live: a click in the empty area selected
+    // 4 Audio and set the insert marker there)
+    const r = list.find(r => y >= r.y && y < r.y + r.h) || (list.length && y >= list[list.length - 1].y ? list[list.length - 1] : null);
     if (r) select(r.track);
     setInsert(snap(bOf(x), e.altKey));
   };
@@ -2005,6 +2022,10 @@ function focusControl(el) {
 function setInsert(b) {
   view.insert = b;
   showPos('cb-pos', fmtPos(b));
+  // Live's status bar after placing the insert marker, e.g. "Insert Mark 39.1.1 (Time: 1:16)" (seen in the running Live,
+  // on the Alert colour)
+  const sec = Math.floor(tempoMap.sec(b) + 1e-6);
+  status(`Insert Mark ${fmtPos(b).join('.')} (Time: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')})`, true);
   if (engine.playing) engine.play(b);
   drawAll();
 }
