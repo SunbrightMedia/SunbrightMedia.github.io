@@ -653,7 +653,28 @@ const SIDEBAR = [
 ];
 const FILTERS = ['Content', 'Type', 'Sounds', 'Drums', 'Character', 'Devices', 'Function', 'Format', 'Clips', 'Genres', 'Key', 'Grooves', 'Tunings', 'Creator'];
 const INFO = {
+  // Info View texts as Live 12 shows them when hovering each element (read off the running Live 12; line breaks as Live wraps them)
   'Track Title Bar': 'Click to select this track; choose ‘Rename’\nfrom the Edit menu to rename the track;\nchoose ‘Delete’ to delete the track. Drag this\ntrack above or below another to reorder\nthem.\n\n[Arrow Left/Right] Fold track display in/out',
+  'Main Lane': 'Displays all clips that normally play through\nthe track’s mixer. Click and drag to select\ntime, then use any available Edit menu\ncommand to edit.\n\n[Ctrl + Arrow Up/Down] Insert Clips from\nPrevious/Next Take Lane\n[Ctrl + Alt + Drag] Scroll Display\n[Ctrl + Scroll Wheel] Zoom In/Out\n[Alt + Scroll Wheel] Adjust Lane Height\nHold [F] to View and Edit Fades',
+  'Beat-Time Ruler': 'Drag left/right to scroll.\nDrag up/down to zoom out/in.\nDouble-click to zoom in to the current\nselection.\n\n[+/-] Zoom In/Out\n[Ctrl + Scroll Wheel] Zoom In/Out',
+  'Scrub Area': 'Click here to make playback jump to this\npoint. The size of the jump will be quantized\nby the global quantization setting.\nHold the mouse down over the scrub area to\nrepeatedly play a section the size of the\nchosen quantization setting. Set\nquantization to small settings or ‘None’ to\nscrub through the music.\n\n[Ctrl + Scroll Wheel] Zoom In/Out',
+  'Overview': 'This section gives an overview of the entire\nArrangement.\nIn the Arrangement View, the Overview can\nbe used for navigation: Click to jump, drag\nvertically to zoom and drag horizontally to\nscroll.\n\n[Ctrl + Alt + O] Show/Hide Overview',
+  'Time Ruler': 'Drag left/right to scroll.',
+  'Unfold Track Button': 'Click to fold or unfold the track. When the\ntrack is folded, you can select and move\nclips; when the track is unfolded, you can\nalso view and edit waveforms and breakpoint\nenvelopes. You can set an unfolded track’s\nheight by dragging the split line below it.\n\n[Alt + U] Fold/Unfold All Tracks\n[U] Fold/Unfold Selected Track',
+  'Track Activator': 'Activate this button to hear the track, or\ndeactivate it to mute the track.\nTo set the destination for the track’s signal,\nuse the Output Type and Output Channel\nchoosers, available in the mixer’s In/Out\nsection.',
+  'Solo/Cue': 'If the Solo/Cue switch in the Session mixer’s\nMain track is set to ‘Solo,’ then enabling this\nswitch will solo this track by muting all\nothers.\nIf the Solo/Cue switch is set to ‘Cue,’\nenabling this switch will send this track’s\noutput to the channels selected in the\nSession mixer’s Cue Out chooser. This is\nuseful for preparing clips in private, using\nheadphones.',
+  'Arm Recording': 'Turn this switch on to record-enable a track.\nArmed tracks will record the signal set in the\nInput Type and Input Channel choosers as\nnew clips. Use the Control Bar’s Record and\nPlay buttons to begin recording. Stop\nrecording with the Stop button. Arm\nmultiple tracks at once by holding down the\nCtrl modifier.',
+  'Input Type': 'This chooser selects an input for this track.\nIf the input you select here has multiple\nchannels or subcategories, you can select\nfrom among them in the Input Channel\nchooser below.\nThe list of available inputs depends on how\nthe relevant preferences for this track\n(Audio or MIDI/Sync) are configured. Note\nthat track-to-track routings only require\nusing one of the tracks’ In/Out chooser\npairs.',
+  'Input Channel': 'This chooser selects a channel or\nsubcategory of input for this track. A more\ngeneral setting must be selected from the\nInput Type chooser above before options will\nappear in this chooser.\nThe availability of inputs depends on how\nthe relevant preferences for this track\n(Audio or MIDI/Sync) are configured.',
+  'Monitoring': 'When monitoring is active, a track’s input is\nplayed through its devices and heard at its\noutput.\nThis setting can generally be left on ‘Auto,’\nwhich turns monitoring on when the track is\narmed and off to play clips.\nTo hear a track’s instrument playing input\nfrom a MIDI keyboard, or an external audio\nsignal through a track’s effects, arm the\ntrack.',
+  'Output Type': 'This chooser selects this track’s output. If\nthis output has multiple channels or\nsubcategories, you can select from among\nthem in the Output Channel chooser below.\nThe list of available outputs depends on how\nthe relevant preferences for this track\n(Audio or MIDI/Sync) are configured.\nTrack-to-track routings only require using\none of the tracks’ In/Out chooser pairs.',
+  'Volume Section': 'Volume Section',
+  'Play Button': 'Click to start playback.\n\n[Space] Toggle Play and Stop\n[Shift + Space] Continue Playback From Stop\n[Ctrl + Space] Play Arrangement Selection',
+  'Stop Button': 'Click to stop playback.\n\n[Space] Toggle Play and Stop\n[Double-Click] Stop and Return Song\nPosition to 1.1.1',
+  'Loop Switch': 'Click here to activate the Arrangement loop.',
+  'Follow': 'When enabled, the display will scroll during\nplayback to keep the current song position\nvisible. Follow behavior can be set to scroll\ncontinuously or on a page-by-page basis in\nthe Display/Language/Input Preferences.\n\n[Shift + Alt + F] Follow',
+  'Waveform Vertical Zoom Level': 'Sets the vertical zoom level for all audio\nwaveforms. Use the right-click option to\nswitch the zoom factor from x (multiplied\nby) to dB.',
+  'Optimize Arrangement Height': 'Optimize track height to fit the\nArrangement View.\n\n[H] Optimize Arrangement Height',
 };
 function buildStatic() {
   const sb = $('#sidebar');
@@ -686,6 +707,7 @@ function buildStatic() {
   document.fonts.ready.then(() => { for (const r of f.querySelectorAll('.frow')) if (r._arrow) r._arrow.style.left = (7 + Math.round(r.firstChild.getBoundingClientRect().width)) + 'px'; });
   showInfo('Track Title Bar');
 }
+document.addEventListener('mouseover', e => { const i = e.target.closest?.('[data-info]'); if (i && i.dataset.info && INFO[i.dataset.info]) showInfo(i.dataset.info); });
 function showInfo(title) {
   $('#info-title').textContent = title;
   $('#info-body').textContent = INFO[title] || '';
@@ -767,6 +789,8 @@ function hctl(hd, cls, x, y, w, text) {
 }
 function dropdown(hd, x, y, w, text, textX, icon) {
   const d = hctl(hd, 'field', x, y, w, null);
+  // Info View topic by row: Input Type, Input Channel, -, Output Type
+  d.dataset.info = ['Input Type', 'Input Channel', 'Monitoring', 'Output Type', ''][Math.round((y - 2) / 17)] || '';
   d.style.textAlign = 'left';
   const s = document.createElement('span'); s.className = 'abs'; s.textContent = text;
   Object.assign(s.style, { left: textX + 'px', width: (57 - textX) + 'px', overflow: 'hidden', whiteSpace: 'nowrap' });
@@ -785,7 +809,7 @@ function fieldFill(d, frac, colour, text) {
 
 function makeRow(t, y, h, pinned) {
   const row = document.createElement('div');
-  row.className = 'trow'; row.style.top = y + 'px'; row.style.height = h + 'px';
+  row.className = 'trow'; row.style.top = y + 'px'; row.style.height = h + 'px'; row.dataset.info = 'Main Lane';
   const ch = h - SEP;   // content height
   const hd = document.createElement('div');
   hd.className = 'theader' + (t === selected ? ' sel' : '');
@@ -793,8 +817,8 @@ function makeRow(t, y, h, pinned) {
   const isMain = t.type === 'main', isRet = t.type === 'return';
   const nameBg = t.color;
   const dark = darkOf(nameBg);
-  hd.innerHTML = `<div class="bg" style="height:${ch}px"></div>
-    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${pinned || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn"></span></div>`;
+  hd.innerHTML = `<div class="bg" style="height:${ch}px" data-info="Volume Section"></div>
+    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${pinned || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit" data-info="Unfold Track Button"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn"></span></div>`;
   $('.name .tn', hd).textContent = (isRet ? t.label + ' ' : '') + t.name;
   if (isMain) $('.name .tn', hd).style.left = '26px';
   const vsep = (x, w) => { const s = document.createElement('div'); s.className = 'vsep'; Object.assign(s.style, { left: x + 'px', width: w + 'px', height: ch + 'px' }); hd.append(s); };
@@ -810,11 +834,11 @@ function makeRow(t, y, h, pinned) {
   } else {
     vsep(95, 2); vsep(171, 2);
     const act = hctl(hd, 'act on', 175, R(0), 46, t.label);
-    act.title = 'Track Activator';
+    act.title = 'Track Activator'; act.dataset.info = 'Track Activator';
     act.classList.toggle('on', t.mixer.on);
     act.addEventListener('mousedown', e => { e.stopPropagation(); focusControl(act); t.mixer.on = !t.mixer.on; refreshMixer(); });
     const solo = hctl(hd, 'solo' + (t.mixer.solo ? ' on' : ''), 225, R(0), isRet ? 17 : 21, 'S');
-    solo.title = 'Solo';
+    solo.title = 'Solo'; solo.dataset.info = 'Solo/Cue';
     solo.addEventListener('mousedown', e => {
       e.stopPropagation();
       focusControl(solo);
@@ -829,7 +853,7 @@ function makeRow(t, y, h, pinned) {
       meter(hd, t, 275, 2, ch - 4, false);
     } else {
       const audio = t.type === 'audio' || t.type === 'group';
-      if (t.type === 'midi' || t.type === 'audio') { const a = hctl(hd, '', 250, R(0), 21, null); a.title = 'Arm Recording'; a.dataset.ic = t.type === 'midi' ? 'hd_armMidi' : 'hd_armAudio'; }
+      if (t.type === 'midi' || t.type === 'audio') { const a = hctl(hd, '', 250, R(0), 21, null); a.title = 'Arm Recording'; a.dataset.info = 'Arm Recording'; a.dataset.ic = t.type === 'midi' ? 'hd_armMidi' : 'hd_armAudio'; }
       const rowsFit = t.unfolded ? Math.floor((ch - 2 + 4) / 17) : 0;
       // In/Out section (a folded track shows an empty box, as in Live 12's manual, "Track Controls")
       if (!t.unfolded) hctl(hd, 'flat', 99, R(0), 70, null);
@@ -837,9 +861,7 @@ function makeRow(t, y, h, pinned) {
       if (rowsFit >= 2 && t.type !== 'group') dropdown(hd, 99, R(1), 70, t.type === 'midi' ? 'All Channels' : String(1 + (Number(t.label) + 1) % 2), 11, t.type === 'midi' ? 'hd_chanMeter' : 'hd_inMeterEmpty');
       if (rowsFit >= 3) {
         const mon = t.type === 'midi' ? 1 : 2;
-        hctl(hd, mon === 0 ? 'on' : '', 99, R(2), 17, 'In');
-        hctl(hd, mon === 1 ? 'on' : '', 119, R(2), 27, 'Auto');
-        hctl(hd, mon === 2 ? 'on' : '', 149, R(2), 20, 'Off');
+        for (const [k, x, w, l] of [[0, 99, 17, 'In'], [1, 119, 27, 'Auto'], [2, 149, 20, 'Off']]) hctl(hd, mon === k ? 'on' : '', x, R(2), w, l).dataset.info = 'Monitoring';
       }
       if (rowsFit >= 4) dropdown(hd, 99, R(3), 70, t.type === 'midi' && !t.devices.length ? 'No Output' : 'Main', 2);
       if (rowsFit >= 5) hctl(hd, 'flat', 99, R(4), 70, null).style.background = 'transparent';
@@ -869,7 +891,6 @@ function makeRow(t, y, h, pinned) {
     // clicking the title bar itself selects the title: SelectionBackground while the Arrangement has focus (Live 12)
     if (e.target.closest('.name')) setTitleSel(t);
   });
-  hd.addEventListener('mouseover', e => { const i = e.target.closest('[data-info]'); if (i) showInfo(i.dataset.info); });
   row.append(hd);
   return row;
 }
@@ -1247,26 +1268,47 @@ function drawSongRuler() {
 
 // Overview strip above the ruler, framed in MainViewFocusIndicator grey
 const OV_ROWS = [0x36, 0x36, 0x29, 0x31, 0x36, 0x2d, 0x2d, 0x36, 0x31, 0x29, 0x36, 0x36];
+// Beats the Overview spans. Live shows the visible range as a frame inside it; how Live sizes the whole
+// span is not known (unverified): here the larger of the Set's length and the visible range.
+function overviewSpan() { return Math.max(set ? set.end + beatsPerBar() : 16, bOf(lanesWidth())); }
 function drawOverview() {
   const W = $('#arrangement').clientWidth, ctx = ovCanvas.getContext('2d');
   const F = T.MainViewFocusIndicator;
   ctx.clearRect(0, 0, W, 14);
   OV_ROWS.forEach((v, y) => { ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(1, y, W - 2, 1); });
+  const span = overviewSpan(), sx = b => b / span * (W - 2);
   if (set) {
-    // clips, squeezed into the 12 px strip
-    const lw = lanesWidth(), all = set.tracks.filter(isVisible), total = Math.max(set.end + beatsPerBar(), bOf(lw));
+    const all = set.tracks.filter(isVisible);
     all.forEach((t, i) => {
       const y0 = 1 + Math.floor(i * 10 / all.length), y1 = 1 + Math.floor((i + 1) * 10 / all.length);
-      for (const c of t.clips) { ctx.fillStyle = c.color; ctx.fillRect(1 + c.start / total * (W - 2), y0, Math.max(1, (c.end - c.start) / total * (W - 2)), Math.max(1, y1 - y0)); }
+      for (const c of t.clips) { ctx.fillStyle = c.color; ctx.fillRect(1 + sx(c.start), y0, Math.max(1, sx(c.end - c.start)), Math.max(1, y1 - y0)); }
     });
   }
-  ctx.fillStyle = F;
-  ctx.fillRect(0, 0, 1, 14); ctx.fillRect(W - 1, 0, 1, 14); ctx.fillRect(0, 12, W, 2);
-  // rounded inner corners, as measured
   const px = (x, y, v) => { ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(x, y, 1, 1); };
-  px(1, 0, 0x61); px(2, 0, 0x3d); px(W - 2, 0, 0x61); px(W - 3, 0, 0x3e);
-  px(1, 11, 0x53); px(2, 11, 0x3a); px(W - 2, 11, 0x53); px(W - 3, 11, 0x3a);
-  px(0, 13, 0x3d); px(1, 13, 0x60); px(2, 13, 0x6f); px(W - 1, 13, 0x3d); px(W - 2, 13, 0x60); px(W - 3, 13, 0x6f);
+  const fx0 = Math.round(1 + sx(view.beat0)) - 1, fx1 = Math.round(1 + sx(bOf(lanesWidth())));
+  if (fx0 <= 0 && fx1 >= W - 1) {
+    // the frame fills the strip (as in the reference screenshot of a new Set)
+    ctx.fillStyle = F;
+    ctx.fillRect(0, 0, 1, 14); ctx.fillRect(W - 1, 0, 1, 14); ctx.fillRect(0, 12, W, 2);
+    px(1, 0, 0x61); px(2, 0, 0x3d); px(W - 2, 0, 0x61); px(W - 3, 0, 0x3e);
+    px(1, 11, 0x53); px(2, 11, 0x3a); px(W - 2, 11, 0x53); px(W - 3, 11, 0x3a);
+    px(0, 13, 0x3d); px(1, 13, 0x60); px(2, 13, 0x6f); px(W - 1, 13, 0x3d); px(W - 2, 13, 0x60); px(W - 3, 13, 0x6f);
+    return;
+  }
+  // a partial frame: 3 px sides and a 2 px bottom in MainViewFocusIndicator, SurfaceArea under the rest
+  // (pixel pattern measured in Live 12 with the view zoomed in)
+  ctx.fillStyle = C.area; ctx.fillRect(0, 12, W, 2);
+  const L = Math.max(0, fx0), R = Math.min(W - 1, fx1);
+  ctx.fillStyle = F; ctx.fillRect(L + 2, 12, R - L - 3, 1); ctx.fillRect(L + 5, 13, R - L - 9, 1);
+  const side = (x, dir) => {
+    const c = (dx, y, v) => px(x + dir * dx, y, v);
+    for (let y = 0; y < 12; y++) { c(0, y, 0x75); c(1, y, 0x75); c(2, y, 0x75); }
+    c(0, 0, 0x49); c(2, 0, 0x74); c(3, 0, 0x53); c(4, 0, 0x3a);
+    c(0, 1, 0x65); c(2, 1, 0x53); c(0, 10, 0x65); c(2, 10, 0x53);
+    c(0, 11, 0x49); c(2, 11, 0x74); c(3, 11, 0x53); c(4, 11, 0x3a);
+    c(1, 12, 0x4d); c(2, 13, 0x3d); c(3, 13, 0x60); c(4, 13, 0x6f);
+  };
+  side(L, 1); side(R, -1);
 }
 
 let rafPending = false;
@@ -1289,9 +1331,7 @@ function drawAll() {
     // grid size indicator in the bottom right corner of the lanes ("1/1" = one bar)
     const g = gridStep() / beatsPerBar();
     $('#oneone').textContent = g >= 1 ? (g === 1 ? '1/1' : `${g} Bars`) : `1/${Math.round(1 / g)}`;
-    const z = view.ppb / (DEFAULT_PPB);
-    $('#zoom-label').textContent = z.toFixed(2) + 'x';
-    $('#zoom-fill').style.width = Math.round(clamp(10 * z, 0, 33)) + 'px';
+
   });
 }
 
@@ -1608,6 +1648,7 @@ function showPos(id, parts) { parts.forEach((v, i) => { $(`#${id}-${i + 1}`).tex
 // ---------------------------------------------------------------------------
 // Interaction
 
+let ovMoved = false;
 function setupInteraction() {
   const tracks = $('#tracks'), pinned = $('#pinned');
   tracks.addEventListener('scroll', drawAll);
@@ -1671,7 +1712,9 @@ function setupInteraction() {
     if (!set) return;
     el.setPointerCapture(e.pointerId);
     const x0 = e.clientX, y0 = e.clientY, b0 = view.beat0, p0 = view.ppb;
+    ovMoved = false;
     const move = ev => {
+      if (Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) > 3) ovMoved = true; else return;
       if (zoom) view.ppb = clamp(p0 * Math.exp((ev.clientY - y0) * 0.012), 0.05, 2000);
       view.beat0 = b0 - (ev.clientX - x0) / view.ppb;
       drawAll();
@@ -1680,6 +1723,12 @@ function setupInteraction() {
     el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
   });
   dragNav($('#overview'), true); dragNav($('#song-canvas'), false);
+  $('#overview').addEventListener('click', e => {
+    if (!set || e.detail > 1 || ovMoved) return;
+    const r = $('#overview').getBoundingClientRect(), vis = lanesWidth() / view.ppb;
+    view.beat0 = (e.clientX - r.left - 1) / (r.width - 2) * overviewSpan() - vis / 2;
+    drawAll();
+  });
   $('#overview').addEventListener('dblclick', () => { if (set) zoomAll(); });
   const laneClick = (e, area, list) => {
     if (!set) return;
@@ -1690,7 +1739,19 @@ function setupInteraction() {
     if (r) select(r.track);
     setInsert(snap(bOf(x), e.altKey));
   };
-  tracks.addEventListener('mousedown', e => { if (!e.target.closest('.theader')) setTitleSel(null); laneClick(e, tracks, rows); });
+  tracks.addEventListener('mousedown', e => {
+    // [Ctrl + Alt + Drag] Scroll Display (Live 12 Info View, Main Lane)
+    if (e.ctrlKey && e.altKey && !e.target.closest('.theader')) {
+      e.preventDefault();
+      const x0 = e.clientX, y0 = e.clientY, b0 = view.beat0, s0 = tracks.scrollTop;
+      const mv = ev => { view.beat0 = b0 - (ev.clientX - x0) / view.ppb; tracks.scrollTop = s0 - (ev.clientY - y0); drawAll(); };
+      const upf = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', upf); };
+      addEventListener('mousemove', mv); addEventListener('mouseup', upf);
+      return;
+    }
+    if (!e.target.closest('.theader')) setTitleSel(null);
+    laneClick(e, tracks, rows);
+  });
   pinned.addEventListener('mousedown', e => laneClick(e, pinned, pinnedRows));
 
   // Live's transport reacts on mouse down

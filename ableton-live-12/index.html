@@ -283,10 +283,10 @@
         <span class="cb hv" style="left:380px;width:70px"><span class="t" id="cb-scale" style="left:4px">Major</span><i data-ic="ddTriangle" style="left:56px"></i></span>
       </div>
       <div class="grp" id="cb-center" style="left:calc(50% - 245px);width:560px">
-        <span class="cb hv on clickable" id="cb-follow" style="left:0;width:21px" data-ic="follow" title="Follow"></span>
+        <span class="cb hv on clickable" id="cb-follow" data-info="Follow" style="left:0;width:21px" data-ic="follow" title="Follow"></span>
         <span class="cb" id="cb-pos-box" style="left:23px;width:82px"><i class="seg" style="left:13px"></i><i class="seg" style="left:37px"></i><i class="seg" style="left:61px"></i><span class="r" id="cb-pos-1" style="right:53px">1</span><span class="t" style="left:32px">.</span><span class="r" id="cb-pos-2" style="right:29px">1</span><span class="t" style="left:56px">.</span><span class="r" id="cb-pos-3" style="right:5px">1</span></span>
-        <span class="cb ghost clickable" id="cb-play" style="left:121px;width:21px"  title="Play"><i class="nhov" data-ic="play"></i><i class="hov" data-ic="playHover"></i></span>
-        <span class="cb ghost clickable" id="cb-stop" style="left:143px;width:22px"  title="Stop"><i class="nhov" data-ic="stop"></i><i class="hov" data-ic="stopHover"></i></span>
+        <span class="cb ghost clickable" id="cb-play" data-info="Play Button" style="left:121px;width:21px"  title="Play"><i class="nhov" data-ic="play"></i><i class="hov" data-ic="playHover"></i></span>
+        <span class="cb ghost clickable" id="cb-stop" data-info="Stop Button" style="left:143px;width:22px"  title="Stop"><i class="nhov" data-ic="stop"></i><i class="hov" data-ic="stopHover"></i></span>
         <span class="cb ghost" style="left:166px;width:22px"  title="Arrangement Record"><i class="nhov" data-ic="record"></i><i class="hov" data-ic="recordHover"></i></span>
         <span class="cb hv" style="left:203px;width:17px" data-ic="overdub" title="MIDI Arrangement Overdub"></span>
         <span class="cb hv on" style="left:222px;width:17px" data-ic="automationArm" title="Automation Arm"></span>
@@ -295,7 +295,7 @@
         <span class="cb hv" style="left:279px;width:17px" data-ic="sessionRec" title="Session Record"></span>
         <span class="cb" id="cb-ls-box" style="left:317px;width:82px"><i class="seg" style="left:13px"></i><i class="seg" style="left:37px"></i><i class="seg" style="left:61px"></i><span class="r" id="cb-ls-1" style="right:53px">3</span><span class="t" style="left:32px">.</span><span class="r" id="cb-ls-2" style="right:29px">1</span><span class="t" style="left:56px">.</span><span class="r" id="cb-ls-3" style="right:5px">1</span></span>
         <span class="cb hv" style="left:401px;width:21px" data-ic="punchIn" title="Punch-In"></span>
-        <span class="cb hv clickable" id="cb-loop" style="left:424px;width:21px" data-ic="loop" title="Loop Switch"></span>
+        <span class="cb hv clickable" id="cb-loop" data-info="Loop Switch" style="left:424px;width:21px" data-ic="loop" title="Loop Switch"></span>
         <span class="cb hv" style="left:447px;width:21px" data-ic="punchOut" title="Punch-Out"></span>
         <span class="cb" id="cb-ll-box" style="left:470px;width:82px"><i class="seg" style="left:13px"></i><i class="seg" style="left:37px"></i><i class="seg" style="left:61px"></i><span class="r" id="cb-ll-1" style="right:53px">4</span><span class="t" style="left:32px">.</span><span class="r" id="cb-ll-2" style="right:29px">0</span><span class="t" style="left:56px">.</span><span class="r" id="cb-ll-3" style="right:5px">0</span></span>
       </div>
@@ -333,8 +333,8 @@
     </div>
 
     <div class="panel focused" id="arrangement">
-      <canvas id="overview"></canvas>
-      <div id="ruler"><canvas id="ruler-canvas"></canvas><span id="ruler-zoom"></span><span id="ruler-scrub"></span></div>
+      <canvas id="overview" data-info="Overview"></canvas>
+      <div id="ruler"><canvas id="ruler-canvas"></canvas><span id="ruler-zoom" data-info="Beat-Time Ruler"></span><span id="ruler-scrub" data-info="Scrub Area"></span></div>
       <div id="ruler-side">
         <span class="pill" style="left:4px;top:10px;width:29px">Set</span>
         <span class="btn" style="left:44px;top:10px;width:23px" data-ic="rs_expand"></span>
@@ -342,14 +342,14 @@
         <span class="abs" style="left:3px;top:27px;width:32px;height:16px" data-ic="rs_arrows"></span>
       </div>
       <div id="tracks-wrap">
-        <div id="tracks" class="tscroll"><canvas class="lanes-canvas" id="lanes-canvas"></canvas><div class="rows" id="rows"></div></div>
+        <div id="tracks" class="tscroll"><canvas class="lanes-canvas" id="lanes-canvas" data-info="Main Lane"></canvas><div class="rows" id="rows"></div></div>
         <div id="pinned" class="tscroll"><canvas class="lanes-canvas" id="pinned-canvas"></canvas><div class="rows" id="pinned-rows"></div></div>
       </div>
-      <div id="songruler"><canvas id="song-canvas"></canvas>
+      <div id="songruler"><canvas id="song-canvas" data-info="Time Ruler"></canvas>
         <div class="side">
           <span class="btn on" style="left:2px;top:4px;width:15px" data-ic="sr_wave"></span>
-          <span class="btn field" style="left:20px;top:4px;width:35px;overflow:hidden"><i id="zoom-fill" style="position:absolute;left:1px;top:1px;bottom:1px;width:10px;background:var(--RangeEditField)"></i><span id="zoom-label" style="position:relative">1.00x</span></span>
-          <span class="btn" style="left:61px;top:4px;width:15px">H</span>
+          <span class="btn field" data-info="Waveform Vertical Zoom Level" style="left:20px;top:4px;width:35px;overflow:hidden"><i id="zoom-fill" style="position:absolute;left:1px;top:1px;bottom:1px;width:10px;background:var(--RangeEditField)"></i><span id="zoom-label" style="position:relative">1.00x</span></span>
+          <span class="btn" data-info="Optimize Arrangement Height" style="left:61px;top:4px;width:15px">H</span>
           <span class="btn" style="left:79px;top:4px;width:15px">W</span>
         </div>
       </div>
@@ -380,6 +380,6 @@
   <script src="icons.js?v=f3e4bd10ca"></script>
   <script src="icons-live.js?v=147810bae7"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="viewer.js?v=31fdc73627"></script>
+  <script src="viewer.js?v=ece1299b1c"></script>
 </body>
 </html>
