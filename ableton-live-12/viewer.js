@@ -1603,6 +1603,7 @@ function drawGroupSummary(ctx, g, y, h, w) {
 }
 
 function drawClip(ctx, c, x0, x1, y, h, w) {
+  if (c === view.selClip) return drawSelectedClip(ctx, c, x0, x1, y, h, w);
   const col = c.disabled ? T.MutedAuditionClip : c.color;
   // edges: the clip colour x 135 / 255, rounded (running Live: 71,135,55 on 135,255,103 and 20,135,89 on 37,255,168,
   // i.e. black at the theme's ClipBorderAlpha 120 over the clip colour)
@@ -1642,9 +1643,38 @@ function drawClip(ctx, c, x0, x1, y, h, w) {
   // Live 12 draws only the clip's start edge (1 px, clip colour x0.53), no end edge (measured)
   if (x0 >= -1 && x0 <= w) ctx.fillRect(Math.round(x0), y, 1, h);
 }
+// A selected clip (running Live, harness clip Set, "Chords" clicked): a SelectionBackground line along the top, the
+// header 1 px lower, and the body in the time selection's colours (SelectionBackground with ArrangerGridTiles and its
+// grid lines; start edge SelectionBackground x 135 / 255) with the notes in 32,35,35 (= 23,23,23 at alpha 240 over
+// SelectionBackground)
+function drawSelectedClip(ctx, c, x0, x1, y, h, w) {
+  const col = c.disabled ? T.MutedAuditionClip : c.color, edge = shade(col, (255 - T.ClipBorderAlpha) / 255);
+  const cx0 = Math.max(-2, Math.round(x0)), cx1 = Math.min(w + 2, Math.round(x1));
+  ctx.save();
+  ctx.beginPath(); ctx.rect(cx0, y, cx1 - cx0, h); ctx.clip();
+  ctx.fillStyle = col; ctx.fillRect(cx0, y, cx1 - cx0, h);
+  ctx.fillStyle = T.SelectionBackground; ctx.fillRect(cx0, y, cx1 - cx0, 1);
+  ctx.fillStyle = edge; ctx.fillRect(cx0, y + 1, cx1 - cx0, 1);
+  const headH = 15, by = y + 1 + headH;
+  ctx.fillStyle = edge; ctx.fillRect(cx0, by, cx1 - cx0, 1);
+  const bodyY = by + 1, bodyH = y + h - bodyY;
+  drawZebra(ctx, w, bodyY, bodyH, 'time');
+  if (c.kind === 'midi') {
+    const sb = parseInt(T.SelectionBackground.slice(1, 7), 16);
+    drawNotes(ctx, c, x0, x1, bodyY, bodyH, w, 'rgb(' + [sb >> 16, (sb >> 8) & 255, sb & 255].map(v => Math.round((23 * 240 + v * 15) / 255)).join(',') + ')');
+  } else drawWave(ctx, c, x0, x1, bodyY, bodyH, w);
+  ctx.fillStyle = luminance(col) < 0.4 ? '#efefef' : T.ClipText;
+  ctx.font = FONT; ctx.textBaseline = 'middle';
+  if (c.name) ctx.fillText(c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5);
+  ctx.restore();
+  if (x0 >= -1 && x0 <= w) {
+    ctx.fillStyle = edge; ctx.fillRect(Math.round(x0), y + 1, 1, by - y);
+    ctx.fillStyle = shade(T.SelectionBackground, (255 - T.ClipBorderAlpha) / 255); ctx.fillRect(Math.round(x0), bodyY, 1, bodyH);
+  }
+}
 const shade = (hex, f) => { const n = parseInt(hex.slice(1, 7), 16); const c = v => Math.round(Math.min(255, v * f)).toString(16).padStart(2, '0'); return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255); };
 
-function drawNotes(ctx, c, x0, x1, y, h, w) {
+function drawNotes(ctx, c, x0, x1, y, h, w, fill) {
   if (!c.notes.length || h < 2) return;
   // Rows of whole pixels for the clip's key range, centred (running Live, 69 px body: 13 keys -> rows of 5 starting
   // 2 px down, 8 keys -> rows of 8 starting 3 px down); a note fills its row but the last pixel, and runs from half a
@@ -1655,7 +1685,7 @@ function drawNotes(ctx, c, x0, x1, y, h, w) {
   // colour: 23,23,23 at alpha 238 over the clip colour, rounded (fits 30,38,28 on 135,255,103 and 24,38,33 on
   // 37,255,168; the half-covered first column is 146 green on 255 and 117 on a 200 grid line)
   const cn = parseInt((c.disabled ? T.MutedAuditionClip : c.color).slice(1, 7), 16);
-  ctx.fillStyle = 'rgb(' + [cn >> 16, (cn >> 8) & 255, cn & 255].map(v => Math.round((23 * 238 + v * 17) / 255)).join(',') + ')';
+  ctx.fillStyle = fill || 'rgb(' + [cn >> 16, (cn >> 8) & 255, cn & 255].map(v => Math.round((23 * 238 + v * 17) / 255)).join(',') + ')';
   let d = 0;
   for (let k = 0; k < 4000 && d < len; k++) {
     const cs = contentAt(c, d);
@@ -2332,7 +2362,19 @@ function setupInteraction() {
     // 4 Audio and set the insert marker there)
     const r = list.find(r => y >= r.y && y < r.y + r.h) || (list.length && y >= list[list.length - 1].y ? list[list.length - 1] : null);
     if (r) select(r.track);
-    view.tsel = null;
+    view.tsel = null; view.selClip = null;
+    // a click on a clip selects it: the time selection becomes the clip's span on its track, with Live's status text
+    // (running Live, harness clip Set: "Chords  Start: 1.1.1  End: 3.1.1  Length: 2.0.0", two spaces between the parts:
+    // ink 49..262 like Live's); no insert marker is placed
+    const hit = r && r.track.type !== 'group' && r.track.clips.find(c => x >= Math.round(xOf(c.start)) && x < Math.round(xOf(c.end)) && y < r.y + r.h - SEP);
+    if (hit) {
+      view.selClip = hit;
+      view.tsel = { b0: hit.start, b1: hit.end, tracks: [r.track] };
+      status(`${hit.name ? hit.name + '  ' : ''}Start: ${fmtPos(hit.start).join('.')}  End: ${fmtPos(hit.end).join('.')}  Length: ${fmtLen(hit.end - hit.start).join('.')}`);
+      showPos('cb-pos', fmtPos(hit.end));   // the position field then shows the clip's end (running Live: 3.1.1)
+      drawAll();
+      return;
+    }
     const b0 = snap(bOf(x), e.altKey);
     setInsert(b0);
     // dragging makes a time selection over the tracks between the press and the pointer, from grid line to grid line
