@@ -788,6 +788,107 @@ const contrastText = hex => {
 const liveMix = (bg, fg, f) => { const a = hexRGB(bg), b = hexRGB(fg), k = Math.fround(+f); return rgbHex(a.slice(0, 3).map((v, i) => Math.trunc(v + k * (b[i] - v)))); };
 const textOn = (hex, factor) => liveMix(hex, contrastText(hex), factor);
 
+// Ableton's own pixel fills. Live replays its recorded drawing on AARGBGraphPort (CPU, premultiplied 8-bit ARGB, vtable
+// 0x1459e69c8). Filling a rectangle (slot 29, 0x1429fc050) with premultiplied colour s of alpha a over d, per channel:
+//   a = 255: s (0x142a18000);
+//   1, 2 or 3 px wide (0x142a14e00 / 0x142a14d60 / 0x142a14c90, picked by 0x142a180e0):
+//     min(255, ((d * k) >> 16) + s), k = ~(0x101 * a) & 0xffff;
+//   wider (0x142a180e0): min(255, s + round(d * (255 - a) / 255)) (SIMD divide by 255 with rounding in the 16-byte
+//     aligned middle, float s + d * (1 - a / 255) + 0.5 floored at the row ends: the same numbers for 8-bit values).
+// Slot 31 (0x1429fd300 -> 0x14093d610) fills x0..x1 between fractional y0..y1: whole rows get the colour; a partial top
+// or bottom row gets alpha A = round(coverage * a) (CRT round, half away from zero) with the colour un-premultiplied
+// ((c * 255 + a / 2) / a) and premultiplied again with A (floor((c * A + 127) / 255)). img = ImageData-like, colours
+// premultiplied [r, g, b, a].
+const AF = {
+  rect(img, x0, y0, x1, y1, r, g, b, a) {
+    x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(img.width, x1); y1 = Math.min(img.height, y1);
+    if (x0 >= x1 || y0 >= y1 || !a) return;
+    const p = img.data, W = img.width, narrow = x1 - x0 < 4, k = ~(0x101 * a) & 0xffff;
+    const bl = a === 255 ? (dv, s) => s : narrow ? (dv, s) => Math.min(255, ((dv * k) >>> 16) + s)
+      : (dv, s) => Math.min(255, s + Math.round(dv * (255 - a) / 255));
+    for (let y = y0; y < y1; y++) for (let x = x0, i = (y * W + x0) * 4; x < x1; x++, i += 4) {
+      p[i] = bl(p[i], r); p[i + 1] = bl(p[i + 1], g); p[i + 2] = bl(p[i + 2], b); p[i + 3] = a === 255 ? 255 : bl(p[i + 3], a);
+    }
+  },
+  rectY(img, x0, x1, y0, y1, [r, g, b, a]) {
+    if (!a || y0 > y1) return;
+    const part = (ya, yb, cov) => {
+      const A = Math.round(cov * a);   // cov >= 0: JS rounds halves up, as the CRT's round does for positive values
+      const un = c => a === 255 ? c : Math.floor((c * 255 + (a >> 1)) / a), pm = c => Math.floor((un(c) * A + 127) / 255);
+      AF.rect(img, x0, ya, x1, yb, pm(r), pm(g), pm(b), A);
+    };
+    const t = Math.ceil(y0), f = Math.floor(y1);
+    if (f >= t) {
+      part(t - 1, t, t - y0);
+      if (f > t) AF.rect(img, x0, t, x1, f, r, g, b, a);
+      part(f, f + 1, y1 - f);
+    } else part(f, t, y1 - y0);
+  },
+  // a rectangle of premultiplied colour c ([r, g, b, a]) blended onto a 2D canvas with Live's fill (device pixels)
+  blend(ctx, x, y, w, h, c) {
+    const d = DPR(), X0 = Math.round(x * d), Y0 = Math.round(y * d), X1 = Math.round((x + w) * d), Y1 = Math.round((y + h) * d);
+    if (X1 <= X0 || Y1 <= Y0 || X1 <= 0 || Y1 <= 0 || X0 >= ctx.canvas.width || Y0 >= ctx.canvas.height) return;
+    const img = ctx.getImageData(X0, Y0, X1 - X0, Y1 - Y0);
+    AF.rect(img, 0, 0, X1 - X0, Y1 - Y0, ...c);
+    ctx.putImageData(img, X0, Y0);
+  },
+};
+
+// Live's colour transform 0x142b512f0 (used for the loop notches 0x143869de0, among others), in double precision with
+// the code's fused multiply-adds: base colour (premultiplied ARGB) -> RGBA (0x142b50bf0: un-premultiplied, x 1/255) ->
+// HSL (0x144130b20) -> with params p0..p5 (floats): S1 = p0 >= 1 ? S + (p0 - 1)(1 - S) : p0 S; A = (H, L, S1), B = (p2,
+// L, 1); o1 = mix(A, B, p1); o2 = mix(o1, A, S1); L contrast L^p3 / (L^p3 + (1 - L)^p3) and gamma L^(1/p4), each mixed
+// back by p5 * S; mixes (0x142b50fa0) are in RGB (CSS-4 HSL -> RGB, 0x142b50820 / 0x1416a1df0) and converted back to HSL;
+// result -> ARGB (0x142b50af0: round(255 v) per channel, premultiplied floor((c A + 127) / 255)).
+const LC = (() => {
+  const fma = (a, b, c) => a * b + c;   // the double products here are exact enough: checked against Live's values below
+  const rgb2hsl = (r, g, b) => {
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), L = (mx + mn) * 0.5;
+    if (mx === mn) return [0, 0, L];
+    const dd = mx - mn, S = L > 0.5 ? dd / ((2 - mx) - mn) : dd / (mx + mn), inv = 1 / dd;
+    const x0 = (mx - g) * inv, x5 = (mx - b) * inv, x10 = mx - r;
+    let h = r === mx ? x5 - x0 : g === mx ? fma(inv, x10, 2) - x5 : (x0 + 4) - inv * x10;
+    if (h < 0) h += 6;
+    return [h * 0.16666666666666666, S, L];
+  };
+  const hls2rgb = (H, L, S) => {
+    const a = Math.min(1 - L, L) * S;
+    const f = n => { const k = (12 * H + n) % 12; return L - a * Math.max(Math.min(k - 3, 9 - k, 1), -1); };
+    return [f(0), f(8), f(4)];
+  };
+  const mix = (X, Y, t) => {
+    if (t === 0) return X;
+    if (t === 1) return Y;
+    const xr = [...hls2rgb(X[0], X[1], X[2]), X[3]], yr = [...hls2rgb(Y[0], Y[1], Y[2]), Y[3]];
+    const c = xr.map((xv, i) => yr[i] * t + (xv - t * xv));
+    const [H, S, L] = rgb2hsl(c[0], c[1], c[2]);
+    return [H, L, S, c[3]];
+  };
+  const un = (c, a) => (a === 0 ? 0 : a === 255 ? c : Math.floor((c * 255 + (a >> 1)) / a)) * 0.00392156862745098;
+  const rnd = v => Math.sign(v) * Math.floor(Math.abs(v) + 0.5);
+  function colourize(base, p) {   // base [r, g, b, a] premultiplied 8-bit; returns premultiplied [r, g, b, a]
+    const a8 = base[3], al = a8 * 0.00392156862745098;
+    const [H0, S0, L0] = rgb2hsl(un(base[0], a8), un(base[1], a8), un(base[2], a8));
+    const [p0, p1, p2, p3, p4, p5] = p.map(Math.fround);
+    const S1 = p0 >= 1 ? (p0 - 1) + (S0 - (p0 - 1) * S0) : S0 === 1 ? p0 : p0 * S0;
+    const A = [H0, L0, S1, al], B = [p2, L0, 1, al];
+    const o2 = mix(mix(A, B, p1), A, S1);
+    const x7 = o2[1] ** p3, L2 = x7 / ((1 - o2[1]) ** p3 + x7);
+    const o3 = mix([o2[0], L2, o2[2], o2[3]], o2, p5 * o2[2]);
+    const o4 = mix([o3[0], o3[1] ** (1 / p4), o3[2], o3[3]], o3, p5 * o3[2]);
+    const [r, g, b] = hls2rgb(o4[0], o4[1], o4[2]), A8 = rnd(255 * o4[3]);
+    return [r, g, b].map(v => Math.floor((rnd(255 * v) * A8 + 127) / 255)).concat(A8);
+  }
+  return { rgb2hsl, colourize };
+})();
+// Loop notch colour (0x143869de0): theme colour 47 (#161616 at alpha 0xef in the running Live's table) colourized with
+// p = (1, [view+0x114] = 0.2 (gdb, LMidiClipContentView), hue of the clip colour (as float), 1, 1, 0); a deactivated
+// clip uses theme colour 315 instead (not handled: see the notes). Checked: ef111a16 for 25ffa8, ef11191a for 19e9ff.
+const notchColour = hex => {
+  const [r, g, b] = hexRGB(hex), H = LC.rgb2hsl(r * 0.00392156862745098, g * 0.00392156862745098, b * 0.00392156862745098)[0];
+  return LC.colourize([0x16, 0x16, 0x16, 0xef], [1, 0.2, H, 1, 1, 0]);
+};
+
 // ---------------------------------------------------------------------------
 // Icons traced from the reference screenshot (icons.js)
 
@@ -970,6 +1071,12 @@ const INFO = {
   'Main Lane|midi': 'Displays all clips that normally play through\nthe track’s mixer. Click and drag to select\ntime, then use any available Edit menu\ncommand to edit.\n\n[Ctrl + Arrow Up/Down] Insert Clips from\nPrevious/Next Take Lane\n[Ctrl + Alt + Drag] Scroll Display\n[Ctrl + Scroll Wheel] Zoom In/Out\n[Alt + Scroll Wheel] Adjust Lane Height',
   'Clip/Device Drop Area': ' ',
   'Main Lane': 'Displays all clips that normally play through\nthe track’s mixer. Click and drag to select\ntime, then use any available Edit menu\ncommand to edit.\n\n[Ctrl + Arrow Up/Down] Insert Clips from\nPrevious/Next Take Lane\n[Ctrl + Alt + Drag] Scroll Display\n[Ctrl + Scroll Wheel] Zoom In/Out\n[Alt + Scroll Wheel] Adjust Lane Height\nHold [F] to View and Edit Fades',
+  // the clips in the lanes: their title bar (LArrangerClipView) and their body (LMidiClipContentView /
+  // LAudioClipContentView, 17 px below the clip's top)
+  'MIDI Clip': 'A clip representing a piece of MIDI. Click to\nselect the clip and drag it to a new position.\nChange clip length by dragging the edges\nwith the mouse or pressing Enter and then\nArrow Key Left/Right. Clip properties can be\nedited in the Clip View, which will open when\nthe clip is double-clicked.\n\n[Alt + Drag] Select Time Within Clip',
+  'Audio Clip': 'A clip representing a piece of audio. Click to\nselect the clip and drag it to a new position.\nChange clip length by dragging the edges or\npressing Enter and then Arrow Key\nLeft/Right. Clip properties can be edited in\nthe Clip View, which will open when the clip\nis double-clicked.\n[Alt + Drag] Select Time Within Clip\n[Shift + Drag Edges] Stretch Clip\nHold [F] to View and Edit Fades',
+  'Clip Notes': 'This is a display of the clip’s notes on a local\nbeat-time axis.\n\n[Ctrl + Alt + Drag] Scroll Display\n[Ctrl + Scroll Wheel] Zoom In/Out\n[Shift + Ctrl + Drag] Slide Notes',
+  'Clip Waveform': 'This is a display of the clip’s waveform on a\nlocal beat-time axis.\n\n[Ctrl + Alt + Drag] Scroll Display\n[Ctrl + Scroll Wheel] Zoom In/Out\n[Shift + Ctrl + Drag] Slide Waveform',
   'Beat-Time Ruler': 'Drag left/right to scroll.\nDrag up/down to zoom out/in.\nDouble-click to zoom in to the current\nselection.\n\n[+/-] Zoom In/Out\n[Ctrl + Scroll Wheel] Zoom In/Out',
   'Scrub Area': 'Click here to make playback jump to this\npoint. The size of the jump will be quantized\nby the global quantization setting.\nHold the mouse down over the scrub area to\nrepeatedly play a section the size of the\nchosen quantization setting. Set\nquantization to small settings or ‘None’ to\nscrub through the music.\n\n[Ctrl + Scroll Wheel] Zoom In/Out',
   'Overview': 'This section gives an overview of the entire\nArrangement.\nIn the Arrangement View, the Overview can\nbe used for navigation: Click to jump, drag\nvertically to zoom and drag horizontally to\nscroll.\n\n[Ctrl + Alt + O] Show/Hide Overview',
@@ -1102,7 +1209,15 @@ function canvasInfoAt(x, y, t) {
     const area = $('#tracks'), ay = y - lr.top + area.scrollTop;
     const r = rows.find(r => ay >= r.y && ay < r.y + r.h);
     if (x - lr.left >= lanesWidth()) return r ? null : 'Mixer Drop Area';   // right of the lanes, below the last header
-    return !r ? 'Clip/Device Drop Area' : r.track.type === 'midi' ? 'Main Lane|midi' : 'Main Lane';
+    if (!r) return 'Clip/Device Drop Area';
+    // a clip (LArrangerClipView, its drawn pixels round(x(start)) .. round(x(end))): the title bar answers for the clip,
+    // the body from 17 px down (AVoidView at rel 0,17 holding the content view) for its notes or waveform (running Live)
+    const lx = x - lr.left, c = r.track.type !== 'group' && r.track.clips.find(c => lx >= Math.round(xOf(c.start)) && lx < Math.round(xOf(c.end)));
+    if (c && ay - r.y < r.h - SEP) {
+      const body = ay - r.y >= 17;
+      return c.kind === 'midi' ? (body ? 'Clip Notes' : 'MIDI Clip') : (body ? 'Clip Waveform' : 'Audio Clip');
+    }
+    return r.track.type === 'midi' ? 'Main Lane|midi' : 'Main Lane';
   }
   return null;
 }
@@ -1115,8 +1230,19 @@ function hoverInfo(x, y, t) {
 }
 document.addEventListener('mousemove', e => hoverInfo(e.clientX, e.clientY, e.target));
 // a drag (splitter, scroll bar) keeps the Info View on what was pressed; on release it follows the element now under
-// the pointer (running Live, browser splitter dragged until the browser hides, released over a lane: "Main Lane")
-document.addEventListener('pointerup', e => requestAnimationFrame(() => hoverInfo(e.clientX, e.clientY, document.elementFromPoint(e.clientX, e.clientY))), true);
+// the pointer (running Live, browser splitter dragged until the browser hides, released over a lane: "Main Lane").
+// The Overview's and the beat-time ruler's zoom/scroll drags are "endless": Live hides the pointer on the press and puts
+// it back at the press point after every move (Overview: AXBackgroundView of its LScrollBarXView, mouse down slot 95
+// 0x142b11460 hides it (0x142b11640 -> LCursor slot 2, ShowCursor(0)), mouse move slot 97 0x142b110d0 -> 0x14295d4a0 ->
+// LCursor slot 4 SetCursorPos(press point), mouse up slot 96 0x142b10f40 sets it to x = left + width * [+0x120] + 0.5
+// (the press point's fraction of the width), y = [+0xfc] (the press y) and shows it again; gdb: (597, 9) of the 1610 x 16
+// view for a press at screen 900, 99). The release is therefore at the press point, and so is the hover that follows.
+let endlessPress = null;
+const releasePoint = e => endlessPress || [e.clientX, e.clientY];
+document.addEventListener('pointerup', e => {
+  const [x, y] = releasePoint(e); endlessPress = null;
+  requestAnimationFrame(() => { hoverInfo(x, y, document.elementFromPoint(x, y)); lanesHover(x, y, 0); });
+}, true);
 // Info View texts that are not plain lines: bullet lists as Live lays them out (running Live, "Clip/Device Drop Area":
 // a 3 x 3 px square 2 px right of the paragraph's left edge, item text 11 px right of it, items 2 px and 4 px further apart)
 const INFO_HTML = {
@@ -1997,16 +2123,14 @@ function drawClip(ctx, c, x0, x1, y, h, w) {
     else { drawWave(ctx, c, x0, x1, bodyY, bodyH, w); drawFadeWedges(ctx, c, x0, x1, bodyY, bodyH); }
     if (c.loop.on) {
       // where the loop repeats, Live marks the clip with 3 px notches under the top edge and at the bottom, not with a
-      // line through it. gdb on the renderer's rect fill: alpha 0xef and a premultiplied colour that follows the clip
-      // colour (17,26,22 for 37,255,168, 17,25,26 for 25,233,255: 16 + 0.039 x channel, rounded down, a fit to these
-      // six values; the formula's code is not traced); Live's pixels = that + destination x 16 / 256 (19,41,32 and,
-      // over the bar line, 18,36,29)
-      const cn = parseInt(col.slice(1, 7), 16), a = 0xef / 255;
-      const notchCol = 'rgba(' + [cn >> 16, (cn >> 8) & 255, cn & 255].map(v => Math.floor(16 + 0.039 * v) / a).join(',') + ',' + a + ')';
+      // line through it (0x143869140: two 3 px vertical lines per wrap, gp slot 5), in notchColour (0x143869de0)
+      // blended by Ableton's 1 px fill (0x142a14e00, see AF): Live's pixels 19,41,32 on 37,255,168 and 18,36,29 over the
+      // bar line
+      const nc = notchColour(col);
       let d = nextWrap(c, 0);
       for (let k = 0; k < 2000 && c.start + d < c.end - 1e-9; k++) {
         const x = Math.round(xOf(c.start + d)); if (x > w) break;
-        if (x >= 0) { ctx.fillStyle = notchCol; ctx.fillRect(x, y + 1, 1, 3); ctx.fillRect(x, y + h - 3, 1, 3); }
+        if (x >= 0) { AF.blend(ctx, x, y + 1, 1, 3, nc); AF.blend(ctx, x, y + h - 3, 1, 3, nc); }
         d = nextWrap(c, d + 1e-9);
       }
     }
@@ -2328,29 +2452,81 @@ function drawSongRuler() {
 }
 
 // Overview strip above the ruler, framed in MainViewFocusIndicator grey
-const OV_ROWS = [0x36, 0x36, 0x29, 0x31, 0x36, 0x2d, 0x2d, 0x36, 0x31, 0x29, 0x36, 0x36];
 // Beats the Overview spans: AAllTracksOverview (0x143add010) takes the mediator's range end (vslot 0x30 =
 // ASongArrangerMediator slot 6, see rangeEnd) as its span from 0 and its own width / span as px per beat.
 function overviewSpan() { return set ? rangeEnd() : 16; }
+// The colour of a clip's start line and loop ticks in the Overview: a table built once (0x14467c190) from the clip
+// palette, each channel trunc(float(c * c) * float(1 / 382.5)) (0x14467c3a0, constant 0x145e933e0), opaque.
+const ovLineColour = c => c.map(v => Math.trunc(Math.fround(Math.fround(v * v) * Math.fround(0.0026143791619688272))));
+// The strip (AAllTracksOverview slot 75, 0x143adcb20), 12 px tall, in Ableton's own fills (AF): the view's background
+// (SurfaceArea), then n tracks top to bottom. If h >= 3n - 1 each track gets (h - (n - 1)) / n px with 1 px gaps and its
+// row is filled with theme colour 6 (SurfaceBackground) first (0x14467c680); otherwise the whole strip is filled with it
+// and the rows are h / n px with no gaps. Per track (0x14467bac0), clips in time order: x = trunc(time * width / span)
+// relative to the strip; a clip whose end pixel equals the last drawn clip's is skipped; the bar [start, end) over the
+// row in the clip colour, a 1 px line at the start in ovLineColour, and where the clip loops (loop length * px per beat
+// > 2), 1 px ticks at each wrap from start + (loop end - start marker) (one loop length less if that exceeds it), from
+// the row's top and bottom edges, min(row height / 3, 2) px long. All y edges fractional (AF.rectY).
+// Then the song time (below) and the locators: a 1 px line in ControlForeground at alpha 100 (premultiplied (c * 100 +
+// 127) / 255) over the strip's height (0x143adce0f).
+function drawOverviewStrip(ctx, W, span) {
+  const d = DPR(), cw = ovCanvas.width, sh = Math.min(ovCanvas.height, Math.round(12 * d));
+  const img = ctx.createImageData(cw, sh), ppb = cw / span, X = t => Math.trunc(t * ppb);
+  const rgb = h => { const v = hexRGB(h); return [v[0], v[1], v[2], 255]; };
+  AF.rect(img, 0, 0, cw, sh, ...rgb(T.SurfaceArea));
+  const surf = rgb(T.SurfaceBackground);
+  const tracks = set ? set.tracks.filter(isVisible) : [], n = tracks.length, gaps = sh >= 3 * n - 1;
+  if (n && !gaps) AF.rect(img, 0, 0, cw, sh, ...surf);
+  const rowH = n ? (sh - (gaps ? n - 1 : 0)) / n : 0;
+  let y0 = 0;
+  for (const t of tracks) {
+    const y1 = rowH + y0;
+    if (gaps) AF.rectY(img, 0, cw, y0, y1, surf);
+    let lastXe = -Infinity;
+    for (const c of t.clips) {
+      if (c.end < 0) continue;
+      if (c.start > span) break;
+      const xe = X(c.end); if (xe === lastXe) continue;
+      const xs = X(c.start), col = rgb(c.color), line = [...ovLineColour(col.slice(0, 3)), 255];
+      AF.rectY(img, xs, xe, y0, y1, col);
+      AF.rectY(img, xs, xs + 1, y0, y1, line);
+      lastXe = xe;
+      const L = c.loop.end - c.loop.start;
+      if (c.loop.on && L * ppb > 2) {
+        let off = c.loop.end - (c.loop.start + c.loop.startRel); if (off > L) off -= L;
+        const tick = Math.min((y1 - y0) / 3, 2), lim = Math.min(c.end, span);
+        for (let tt = c.start + off; tt < lim; tt += L) {
+          const x = X(tt);
+          if (x < 0) continue;
+          AF.rectY(img, x, x + 1, y0, y0 + tick, line);
+          AF.rectY(img, x, x + 1, y1 - tick, y1, line);
+        }
+      }
+    }
+    y0 = (gaps ? 1 : 0) + y1;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function drawOverviewLocators(ctx, span) {
+  if (!set?.locators?.length) return;
+  const d = DPR(), cw = ovCanvas.width, sh = Math.min(ovCanvas.height, Math.round(12 * d)), ppb = cw / span;
+  const fg = hexRGB(T.ControlForeground), s = fg.slice(0, 3).map(v => Math.floor((v * 100 + 127) / 255));
+  const img = ctx.getImageData(0, 0, cw, sh);
+  for (const l of set.locators) { const x = Math.trunc(l.time * ppb); AF.rect(img, x, 0, x + 1, sh, ...s, 100); }
+  ctx.putImageData(img, 0, 0);
+}
 function drawOverview() {
   const W = $('#arrangement').clientWidth, ctx = ovCanvas.getContext('2d');
   const F = T.MainViewFocusIndicator;
   ctx.clearRect(0, 0, W, 14);
-  OV_ROWS.forEach((v, y) => { ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(1, y, W - 2, 1); });
-  const span = overviewSpan(), sx = b => b / span * (W - 2);
-  if (set) {
-    const all = set.tracks.filter(isVisible);
-    all.forEach((t, i) => {
-      const y0 = 1 + Math.floor(i * 10 / all.length), y1 = 1 + Math.floor((i + 1) * 10 / all.length);
-      for (const c of t.clips) { ctx.fillStyle = c.color; ctx.fillRect(1 + sx(c.start), y0, Math.max(1, sx(c.end - c.start)), Math.max(1, y1 - y0)); }
-    });
-  }
+  const span = overviewSpan();
+  drawOverviewStrip(ctx, W, span);
   // the song time as a 1 px line over the strip's 12 rows: 0x14467cad0 draws it at trunc((time - start) x px per beat)
   // in theme colour 11 ([theme+0x2c], ControlForeground, see setInsert). Running Live, zoomed out, insert marker at 4,
   // 8, ... 212 beats: columns 27, 55, 83, 110, 138, 193, 249, 359, 581, 858, 1135, 1467 of the 1606 px strip (span 232),
   // in 181,181,181. It follows the play position while playing, the stop position after Stop, else the insert marker.
   // (While playing, Live repaints it less often than the lanes: up to a beat behind in the captures.)
   ctx.fillStyle = T.ControlForeground; ctx.fillRect(Math.trunc(songTime() * W / span), 0, 1, 12);
+  drawOverviewLocators(ctx, span);
   const px = (x, y, v) => { ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(x, y, 1, 1); };
   // The frame is the thumb of a scroll bar (LScrollBarXView, vtable 0x145a2aa80) that AArrangementOverviewControlView's
   // layout (0x143abe9c0) places 2 px left of / above the strip and 4 px wider (1610 px for the 1606 px strip). Its thumb
@@ -2843,6 +3019,8 @@ function setupInteraction() {
     let moved = false, lastX = e.clientX, lastY = e.clientY;
     const anchorB = bOf(x0);
     ruler.setPointerCapture(e.pointerId);
+    endlessPress = [e.clientX, e.clientY];   // an endless drag in Live (see releasePoint; gdb: hide, warps to the press point, show)
+    ruler.style.cursor = 'none';
     const move = ev => {
       const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
       // Live applies the very first move (gdb: the first delta into slot 181 was the 2 px of the first mouse move)
@@ -2854,6 +3032,7 @@ function setupInteraction() {
     };
     const up = () => {
       ruler.removeEventListener('pointermove', move); ruler.removeEventListener('pointerup', up);
+      ruler.style.cursor = '';
       if (!moved) setInsert(snap(anchorB));
     };
     ruler.addEventListener('pointermove', move); ruler.addEventListener('pointerup', up);
@@ -2875,13 +3054,15 @@ function setupInteraction() {
     // moves with the mouse, 1 lane pixel per mouse pixel.
     const r = el.getBoundingClientRect(), anchorB = zoom ? (x0 - r.left - 1) / (r.width - 2) * overviewSpan() : 0;
     ovMoved = false;
+    // the Overview's drag is endless in Live (see releasePoint); the time ruler's is not (gdb: no LCursor calls)
+    if (zoom) { endlessPress = [x0, y0]; el.style.cursor = 'none'; }
     const move = ev => {
       if (Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) > 0) ovMoved = true; else return;
       if (zoom) { dragDelta(-(ev.clientX - lastX), ev.clientY - lastY, anchorB); lastX = ev.clientX; lastY = ev.clientY; }
       else { view.beat0 = b0 - (ev.clientX - x0) / view.ppb; clampScroll(); }
       drawAll();
     };
-    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); };
+    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.style.cursor = ''; };
     el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
   });
   dragNav($('#overview'), true); dragNav($('#song-canvas'), false);
@@ -3222,7 +3403,7 @@ function lanesHover(x, y, buttons) {
   inLanes = on;
 }
 document.addEventListener('mousemove', e => lanesHover(e.clientX, e.clientY, e.buttons));
-document.addEventListener('pointerup', e => requestAnimationFrame(() => lanesHover(e.clientX, e.clientY, 0)), true);
+// (on release: the pointerup listener next to hoverInfo, with the release point an endless drag leaves)
 
 // ---------------------------------------------------------------------------
 // Loading a project
