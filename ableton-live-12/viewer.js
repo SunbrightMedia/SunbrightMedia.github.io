@@ -1407,17 +1407,18 @@ function makeRow(t, y, h, pinned) {
   }
   const R = k => 2 + 17 * k;    // control row top
   if (isMain) {
-    vsep(95, 5); vsep(174, 2); vsep(289, 3);
+    const M = mainAligned ? 0 : 3;   // see checkTracksFit
+    vsep(95, 2 + M); vsep(171 + M, 2); if (M) vsep(289, 3);
     for (const s of hd.querySelectorAll('.vsep')) { s.style.pointerEvents = 'none'; delete s.dataset.info; }
     for (const x of [95, 171]) { const s = document.createElement('div'); s.className = 'abs'; s.dataset.info = 'Mixer Drop Area'; Object.assign(s.style, { left: x + 'px', width: '2px', top: '0', height: ch + 'px' }); hd.append(s); }
     // the Main track's controls answer where a track's controls would (Live: Main Out x 1717..1788, volume 1793..1840,
     // cue 1843..1890), 3 px left of where they are drawn
-    const mo = dropdown(hd, 102, R(0), 70, '1/2', 11, 'hd_mainMeterIcon'); mo.dataset.info = 'Main Out'; mo.dataset.hit = '4 1 -2 1';
-    const vol = hctl(hd, 'field', 178, R(0), 46, ''); vol.title = 'Main Volume'; vol.dataset.info = 'Track Volume'; vol.dataset.hit = '4 1 -2 1';
+    const mo = dropdown(hd, 99 + M, R(0), 70, '1/2', 11, 'hd_mainMeterIcon'); mo.dataset.info = 'Main Out'; mo.dataset.hit = '4 1 -2 1';
+    const vol = hctl(hd, 'field', 175 + M, R(0), 46, ''); vol.title = 'Main Volume'; vol.dataset.info = 'Track Volume'; vol.dataset.hit = '4 1 -2 1';
     fieldFill(vol, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
-    const cue = hctl(hd, 'field', 228, R(0), 46, ''); cue.title = 'Cue Volume'; cue.dataset.info = 'Preview/Cue Volume'; cue.dataset.hit = '4 1 -2 1';
+    const cue = hctl(hd, 'field', 225 + M, R(0), 46, ''); cue.title = 'Cue Volume'; cue.dataset.info = 'Preview/Cue Volume'; cue.dataset.hit = '4 1 -2 1';
     fieldFill(cue, volFill(0.5012), 'var(--ChosenPreListen)', '-6.0');
-    meter(hd, t, 278, 2, ch - 4, false);
+    meter(hd, t, 275 + M, 2, ch - 4, false);
   } else {
     vsep(95, 2); vsep(171, 2);
     const act = hctl(hd, 'act on', 175, R(0), 46, t.label);
@@ -1632,6 +1633,28 @@ function layoutCanvases() {
   sizeCanvas(rulerCanvas, w, 45);
   sizeCanvas(songCanvas, w, 21);
   sizeCanvas(ovCanvas, $('#arrangement').clientWidth, 14);
+  checkTracksFit();
+}
+// The Main row's mixer controls sit 3 px right of the returns' after loading a Set, until the track area's "content fits"
+// state first changes. Traced in Live 12.0:
+// - AArrangerMixerPanel's margin update 0x143b58120 gives the volume cell (panel +0x288) its right border 2 + 6 = 8
+//   (AMargins built in 0x143b776f0) unless the panel's delay/cross-fade section (+0x270) is visible ([+0x40] bit 0); then
+//   the border is 2 and the 6 px go to that section. A narrower cell narrows the panel (191 instead of 197), which its
+//   AVertBoxView centres (cross-axis layout 0x14296ca60: offset = trunc((avail - size) * 0.5) = 3).
+// - On load the Main panel's margins are computed while that section is still visible (gdb: margin update with
+//   [+0x270]+0x40 = 1, then SetVisible(0) on it, no new margin update); the track/return panels get theirs later.
+// - LArrangerMixerManager re-runs the update for every panel and Main (0x143b3b930) when its scroll bar's state changes
+//   (0x142a7d16d: [+0x3c] style, [+0x3d]/[+0x3e] "content fits", signal at +0x40); content fits when the scroller's
+//   content (LArrangerScrollable 0x143b03910: track rack + 45 + returns) is no taller than its view (tracks + returns),
+//   i.e. rack + 45 <= track area (0x142b4b530: view [+0x40] >= content [+0x44]). gdb: base 453 / 632 fits, H 657 / 632
+//   does not; only H toggled it among clicks, fold, zoom and panel toggles.
+let mainAligned = false, tracksFit = null;
+function checkTracksFit() {
+  const sc = $('#tracks'); if (!sc || !set) return;
+  const rack = Math.max(0, rows.reduce((a, r) => a + r.h, 0) - SEP);
+  const fit = rack + 45 <= sc.clientHeight;
+  if (tracksFit !== null && fit !== tracksFit && !mainAligned) { tracksFit = fit; mainAligned = true; buildRows(); return; }
+  tracksFit = fit;
 }
 
 // Live scrolls by whole pixels: a time's x is round(t / beats-per-px) (0x140e81590) minus an integer content offset
@@ -3167,6 +3190,7 @@ function pickSet(list) {
 }
 
 function showSet() {
+  mainAligned = false; tracksFit = null;   // a freshly loaded Set: Main's margins as computed on load (checkTracksFit)
   document.title = `${set.name} - Ableton Live 12 Suite`;
   $('#win-title').textContent = document.title;
   $('#cb-tempo').textContent = set.tempo.toFixed(2);
