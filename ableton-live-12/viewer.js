@@ -173,6 +173,8 @@ function parseFont(buf) {
 async function loadShaper(key, url) {
   try { const r = await fetch(url); if (r.ok) SHAPER[key] = parseFont(await r.arrayBuffer()); } catch (e) {}
 }
+// canvas text through Live's rasterizer (livetext.js) once its fonts are in
+const liveFillText = (ctx, str, x, y, clip) => typeof LiveText !== 'undefined' ? LiveText.fillText(ctx, str, x, y, clip) : ctx.fillText(str, x, y);
 const LIVE_TEXT_K = Math.fround(0.01413281261920929);
 function liveTextWidth(str, size, bold) {
   const sh = SHAPER[bold ? 'bold' : 'regular'];
@@ -351,6 +353,7 @@ function parseTrack(el, root) {
     // Live shows the user's name if there is one, else its own: EffectiveName "1-MIDI" / "A-Reverb" is shown as "1 MIDI"
     // in the header (and "1-MIDI" in the status bar), "A Reverb" for a return (letter + name; seen in the running Live)
     name: displayName(el, type),
+    autoName: !val(el, 'Name', 'UserName'),
     effName: val(el, 'Name', 'EffectiveName') || '',
     colorIndex: num(el, 'Color') ?? num(el, 'ColorIndex') ?? -1,
     groupId: num(el, 'TrackGroupId') ?? -1,
@@ -1389,7 +1392,14 @@ function makeRow(t, y, h, pinned) {
   // a return's letter and name are placed apart: letter at the name's x, name 10 px further (user's Windows screenshot:
   // "A" and "B" at x 1644, "Reverb" and "Delay" both at 1654)
   if (isRet) { $('.name .tn', hd).innerHTML = '<span></span><span style="position:absolute;left:10px"></span>'; const [l, n] = $('.name .tn', hd).children; l.textContent = t.label; n.textContent = t.name; $('.name .tn', hd).style.left = '23px'; }
-  else $('.name .tn', hd).textContent = t.name;
+  else if (t.autoName && /^\d+ ./.test(t.name)) {
+    // Live draws an automatic name as two texts, the number and the rest (traced glyph runs: '1' at x 1644, 'MIDI' at
+    // 1653; 'A' 1644, 'Reverb' 1654), the rest starting at the number's Live text width + 2 (observed, not traced)
+    const [, num, rest] = /^(\d+) (.*)$/.exec(t.name);
+    $('.name .tn', hd).innerHTML = '<span></span><span style="position:absolute"></span>';
+    const [l, n] = $('.name .tn', hd).children; l.textContent = num; n.textContent = rest;
+    n.style.left = ((liveTextWidth(num, 11, true) ?? 7) + 2) + 'px'; $('.name .tn', hd).style.left = '23px';
+  } else $('.name .tn', hd).textContent = t.name;
   if (isMain) $('.name .tn', hd).style.left = '25px';
   // the In/Out column's background (x 97..171) has its own Info View text; the rest is "Volume Section" (running Live)
   { const io = document.createElement('div'); io.className = 'abs'; Object.assign(io.style, { left: '97px', width: '74px', top: '0', height: ch + 'px' }); io.dataset.info = 'In/Out Section'; hd.append(io); }
@@ -1888,7 +1898,7 @@ function drawLanes(ctx, list, scrollTop, viewH, pinned) {
     ctx.font = FONT; ctx.textBaseline = 'alphabetic';
     const tw = Math.ceil(ctx.measureText(msg).width), tx = Math.round((w - tw) / 2), by = Math.round(end + (viewH - end) / 2) + 4;
     ctx.fillStyle = C.surface; ctx.fillRect(tx - 1, by - 8, tw + 1, 11);
-    ctx.fillStyle = T.ControlForeground; ctx.fillText(msg, tx, by);
+    ctx.fillStyle = T.ControlForeground; liveFillText(ctx, msg, tx, by);
   }
 }
 
@@ -1949,7 +1959,7 @@ function drawClip(ctx, c, x0, x1, y, h, w) {
   ctx.font = FONT;
   ctx.textBaseline = 'middle';
   // the name is cut off by the clip's end, never squeezed (running Live: "Chord" in a 31 px clip, "Lo" in 16 px)
-  if (c.name) ctx.fillText(c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5);
+  if (c.name) liveFillText(ctx, c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5, [cx0, y, cx1, y + h]);
   ctx.restore();
   ctx.fillStyle = edge;
   // Live 12 draws only the clip's start edge (1 px, clip colour x0.53), no end edge (measured)
@@ -1977,7 +1987,7 @@ function drawSelectedClip(ctx, c, x0, x1, y, h, w) {
   } else { drawWave(ctx, c, x0, x1, bodyY, bodyH, w); drawFadeWedges(ctx, c, x0, x1, bodyY, bodyH); }
   ctx.fillStyle = luminance(col) < 0.4 ? '#efefef' : T.ClipText;
   ctx.font = FONT; ctx.textBaseline = 'middle';
-  if (c.name) ctx.fillText(c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5);
+  if (c.name) liveFillText(ctx, c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5, [cx0, y, cx1, y + h]);
   ctx.restore();
   if (x0 >= -1 && x0 <= w) {
     ctx.fillStyle = edge; ctx.fillRect(Math.round(x0), y + 1, 1, by - y);
@@ -2173,7 +2183,7 @@ function drawRuler() {
     if (i % label) continue;
     ctx.fillRect(x + 1, 16, 1, 1);
     ctx.fillStyle = C.ruler;
-    ctx.fillText(rulerLabel(b), x + 5, 20);
+    liveFillText(ctx, rulerLabel(b), x + 5, 20);
   }
   // loop brace (LoopColor frame; filled when the loop is on), drawn from the measured pixel pattern
   const lx0 = Math.round(xOf(set.loop.start)), lx1 = Math.round(xOf(set.loop.start + set.loop.length));
@@ -2183,7 +2193,7 @@ function drawRuler() {
     if (x < -200 || x > w) continue;
     ctx.fillStyle = T.ControlForeground;
     ctx.beginPath(); ctx.moveTo(x, 23); ctx.lineTo(x + 6, 28); ctx.lineTo(x, 33); ctx.closePath(); ctx.fill();
-    if (l.name) ctx.fillText(l.name, x + 8, 31);
+    if (l.name) liveFillText(ctx, l.name, x + 8, 31);
   }
   // insert / start marker: a 7 px wide downward triangle at the bottom
   if (view.tsel) {
@@ -2249,7 +2259,7 @@ function drawSongRuler() {
     ctx.fillStyle = C.ruler;
     // below a second Live adds milliseconds after a colon ("0:18:500")
     const ms = Math.round(s * 1000), txt = `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
-    ctx.fillText(step < 1 ? `${txt}:${String(ms % 1000).padStart(3, '0')}` : txt, x + 3, 11);
+    liveFillText(ctx, step < 1 ? `${txt}:${String(ms % 1000).padStart(3, '0')}` : txt, x + 3, 11);
   }
   // insert marker, pointing up
   const ix = Math.round(xOf(view.insert));
@@ -3303,7 +3313,8 @@ document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTra
 // redraw whenever any font finishes loading.
 const fontsReady = Promise.all([FONT, 'bold ' + FONT, '9px "Ableton Sans Small 9"', '18px "Ableton Sans Light"']
   .map(f => document.fonts.load(f).catch(() => {}))
-  .concat([loadShaper('regular', 'fonts/AbletonSansSmall-Regular.ttf'), loadShaper('bold', 'fonts/AbletonSansSmall-Bold.ttf')]));
+  .concat([loadShaper('regular', 'fonts/AbletonSansSmall-Regular.ttf'), loadShaper('bold', 'fonts/AbletonSansSmall-Bold.ttf')])
+  .concat(typeof LiveText !== 'undefined' ? [LiveText.ready] : []));
 document.fonts.addEventListener?.('loadingdone', () => { if (set) drawAll(); });
 fontsReady.then(() => { if (set) { layoutCanvases(); drawAll(); } });
 
