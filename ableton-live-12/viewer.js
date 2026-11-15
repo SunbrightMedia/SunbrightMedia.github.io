@@ -172,6 +172,7 @@ function parseFont(buf) {
 }
 async function loadShaper(key, url) {
   try { const r = await fetch(url); if (r.ok) SHAPER[key] = parseFont(await r.arrayBuffer()); } catch (e) {}
+  if (typeof LiveText !== 'undefined') LiveText.refresh();
 }
 // canvas text through Live's rasterizer (livetext.js) once its fonts are in
 const liveFillText = (ctx, str, x, y, clip, a8) => typeof LiveText !== 'undefined' ? LiveText.fillText(ctx, str, x, y, clip, a8) : ctx.fillText(str, x, y);
@@ -807,22 +808,27 @@ function makeIconHi(name) {
 function hiPaint() {
   hiPaint.queued = false;
   const s = window.devicePixelRatio, cv = hiPaint.cv;
-  const W = Math.round(innerWidth * s), H = Math.round(innerHeight * s);
+  // the canvas covers the layout viewport; positions are measured relative to the canvas itself (iOS Safari pans and
+  // zooms the page under fixed elements, so client rectangles need not start at the canvas origin)
+  const vw = Math.max(innerWidth, document.documentElement.clientWidth), vh = Math.max(innerHeight, document.documentElement.clientHeight);
+  const W = Math.round(vw * s), H = Math.round(vh * s);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  cv.style.width = vw + 'px'; cv.style.height = vh + 'px';
+  const cr = cv.getBoundingClientRect(), OX = cr.left, OY = cr.top;
   const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, W, H);
   for (const e of hiPaint.els) {
     if (!e.isConnected) { hiPaint.els.delete(e); continue; }
     if (!e.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
     const [dx, dy, w, h] = e._hi, o = e.parentElement.getBoundingClientRect();
-    const x = Math.round(o.left * s + dx), y = Math.round(o.top * s + dy);
+    const x = Math.round((o.left - OX) * s + dx), y = Math.round((o.top - OY) * s + dy);
     // clip to every scrolling / overflow-hidden ancestor
     let cx0 = 0, cy0 = 0, cx1 = W, cy1 = H;
     for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) {
       const cs = getComputedStyle(a);
       if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
       const r = a.getBoundingClientRect();
-      cx0 = Math.max(cx0, Math.round(r.left * s)); cy0 = Math.max(cy0, Math.round(r.top * s));
-      cx1 = Math.min(cx1, Math.round(r.right * s)); cy1 = Math.min(cy1, Math.round(r.bottom * s));
+      cx0 = Math.max(cx0, Math.round((r.left - OX) * s)); cy0 = Math.max(cy0, Math.round((r.top - OY) * s));
+      cx1 = Math.min(cx1, Math.round((r.right - OX) * s)); cy1 = Math.min(cy1, Math.round((r.bottom - OY) * s));
     }
     if (cx1 <= cx0 || cy1 <= cy0 || x >= cx1 || y >= cy1 || x + w <= cx0 || y + h <= cy0) continue;
     ctx.save(); ctx.beginPath(); ctx.rect(cx0, cy0, cx1 - cx0, cy1 - cy0); ctx.clip();
@@ -846,10 +852,12 @@ hiPaint.els = new Set();
 hiPaint.dirty = () => {
   if (!hiPaint.cv) {
     const cv = hiPaint.cv = document.createElement('canvas'); cv.id = 'hi-icons';
-    Object.assign(cv.style, { position: 'fixed', left: '0', top: '0', width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: '3' });
+    Object.assign(cv.style, { position: 'fixed', left: '0', top: '0', pointerEvents: 'none', zIndex: '3' });
     document.body.append(cv);
     new MutationObserver(hiPaint.dirty).observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ['class', 'style', 'hidden'] });
     for (const ev of ['scroll', 'resize', 'mousemove', 'mousedown', 'mouseup', 'mouseover', 'mouseout']) addEventListener(ev, hiPaint.dirty, { capture: true, passive: true });
+    for (const ev of ['resize', 'scroll']) window.visualViewport?.addEventListener(ev, hiPaint.dirty, { passive: true });
+    addEventListener('touchend', hiPaint.dirty, { capture: true, passive: true });
   }
   if (!hiPaint.queued) { hiPaint.queued = true; requestAnimationFrame(hiPaint); }
 };

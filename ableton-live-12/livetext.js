@@ -444,6 +444,17 @@ const LiveText = (() => {
   // glyphs are made transparent. The LCD blend needs the colour under the text (bgCols). Texts under the open file
   // dialog are left out.
   let ov = null, octx = null, pending = 0;
+  // Every rectangle is measured relative to the overlay canvas itself (OX, OY = its own client position), so the text
+  // lands on its element whatever the browser does with the viewport (iOS Safari pans and zooms the page under fixed
+  // elements, and its client rectangles then no longer start at the canvas origin).
+  let OX = 0, OY = 0;
+  // kerning comes from viewer.js's shaper (SHAPER), which may load after the first render: lines drawn without it
+  // must be redrawn once it is in, so its state is part of every line's signature
+  const shaperGen = () => typeof SHAPER === 'undefined' ? 0 : (SHAPER.regular ? 1 : 0) + (SHAPER.bold ? 2 : 0);
+  const SH = r => r && { left: r.left - OX, top: r.top - OY, right: r.right - OX, bottom: r.bottom - OY, width: r.width, height: r.height };
+  const BR = e => SH(e.getBoundingClientRect());
+  // the overlay covers the layout viewport (iOS reports the smaller visual viewport as innerWidth while zoomed in)
+  const vpW = () => Math.max(innerWidth, document.documentElement.clientWidth), vpH = () => Math.max(innerHeight, document.documentElement.clientHeight);
   const hidden = new Set();
   // colour under a point: the topmost element there with a background colour (the text's own box is usually clear)
   // The page's colour under a text line, per device column: the nearest ancestor with a background colour, overpainted
@@ -464,12 +475,12 @@ const LiveText = (() => {
         // canvases under the text (e.g. the lane grid under the grid-size indicator): their own pixels are the background
         for (const cv of c.tagName === 'CANVAS' ? [c] : c.getElementsByTagName('canvas')) {
           if (!cv.width || !cv.checkVisibility()) continue;
-          const q = cv.getBoundingClientRect(); if (my < q.top || my >= q.bottom) continue;
+          const q = BR(cv); if (my < q.top || my >= q.bottom) continue;
           const x0 = Math.max(xa, Math.round(q.left * d)), x1 = Math.min(xb, Math.round(q.right * d));
           if (x1 > x0) { cols.cv.push(cv); cols.top.fill(cols.cv.length, x0 - xa, x1 - xa); }
         }
         const col = bgColor(c); if (col === null) continue;
-        const r = c.getBoundingClientRect(); if (my < r.top || my >= r.bottom) continue;
+        const r = BR(c); if (my < r.top || my >= r.bottom) continue;
         const x0 = Math.max(xa, Math.round(r.left * d)), x1 = Math.min(xb, Math.round(r.right * d));
         if (x1 > x0) { cols.fill(col, x0 - xa, x1 - xa); cols.top.fill(0, x0 - xa, x1 - xa); }
       }
@@ -479,7 +490,7 @@ const LiveText = (() => {
   }
   // copy the opaque pixels of canvas cv that lie under device rect [xa, xb) x [ya, yb) into the overlay pixels
   function canvasUnder(cv, id1, top, px, W, xa, xb, ya, yb, d) {
-    const r = cv.getBoundingClientRect(); if (!r.width || !r.height) return;
+    const r = BR(cv); if (!r.width || !r.height) return;
     const sx = cv.width / (r.width * d), sy = cv.height / (r.height * d), L = r.left * d, Tp = r.top * d;
     const cx0 = Math.max(0, Math.floor((xa - L) * sx)), cy0 = Math.max(0, Math.floor((ya - Tp) * sy));
     const cx1 = Math.min(cv.width, Math.ceil((xb - L) * sx)), cy1 = Math.min(cv.height, Math.ceil((yb - Tp) * sy));
@@ -507,7 +518,7 @@ const LiveText = (() => {
     r = clipOf(e.parentElement);
     const s = getComputedStyle(e);
     if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
-      const b = e.getBoundingClientRect();
+      const b = BR(e);
       r = { x0: Math.max(r.x0, b.left + e.clientLeft), y0: Math.max(r.y0, b.top + e.clientTop), x1: Math.min(r.x1, b.left + e.clientLeft + e.clientWidth), y1: Math.min(r.y1, b.top + e.clientTop + e.clientHeight) };
     }
     clipCache.set(e, r);
@@ -516,17 +527,18 @@ const LiveText = (() => {
   // Incremental: the overlay keeps its pixels between renders. Each text line gets a signature (string, font, colour,
   // origin, clip, background under it); only lines whose signature changed (and lines overlapping their old or new
   // rectangles) are cleared and redrawn, and only those rectangles are written back to the canvas.
-  let buf = null, prev = new Map();
+  let buf = null, prev = new Map(), full = true;
   const stats = { renders: 0, redrawn: 0, rects: 0, area: 0 };
   function render() {
     pending = 0; bgCache = new Map(); clipCache = new Map();
-    const d = window.devicePixelRatio || 1, W = Math.round(innerWidth * d), H = Math.round(innerHeight * d);
+    const d = window.devicePixelRatio || 1, vw = vpW(), vh = vpH(), W = Math.round(vw * d), H = Math.round(vh * d);
     if (ov.width !== W || ov.height !== H || !buf || buf.width !== W || buf.height !== H) {
-      ov.width = W; ov.height = H; ov.style.width = innerWidth + 'px'; ov.style.height = innerHeight + 'px';
-      buf = octx.createImageData(W, H); prev = new Map();
+      ov.width = W; ov.height = H; ov.style.width = vw + 'px'; ov.style.height = vh + 'px';
+      buf = octx.createImageData(W, H); prev = new Map(); full = true;
     }
+    { const o = ov.getBoundingClientRect(); if (o.left !== OX || o.top !== OY) { OX = o.left; OY = o.top; prev = new Map(); buf = octx.createImageData(W, H); full = true; } }
     const px = buf.data;
-    const de = document.getElementById('dialog'), dr = de && de.checkVisibility() && de.getBoundingClientRect();
+    const de = document.getElementById('dialog'), dr = de && de.checkVisibility() && BR(de);
     const dlg = dr && dr.width ? { el: de, l: dr.left, t: dr.top, r: dr.right, b: dr.bottom } : null;
     const cur = [];
     const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -542,13 +554,13 @@ const LiveText = (() => {
       const c = clipOf(el), size = liveSize(f.size, d);
       const clip = { x0: Math.max(0, Math.floor(c.x0 * d)), y0: Math.max(0, Math.floor(c.y0 * d)), x1: Math.min(W, Math.ceil(c.x1 * d)), y1: Math.min(H, Math.ceil(c.y1 * d)) };
       if (clip.x1 <= clip.x0 || clip.y1 <= clip.y0) continue;
-      if (dlg && !dlg.el.contains(el) && el.getBoundingClientRect().top < dlg.b && el.getBoundingClientRect().bottom > dlg.t && el.getBoundingClientRect().left < dlg.r && el.getBoundingClientRect().right > dlg.l) continue;
+      if (dlg && !dlg.el.contains(el) && BR(el).top < dlg.b && BR(el).bottom > dlg.t && BR(el).left < dlg.r && BR(el).right > dlg.l) continue;
       // one draw per line (white-space: pre text with newlines)
       let off = 0, li = 0;
       for (const line of s.split('\n')) {
         if (line.trim()) {
           const r = document.createRange(); r.setStart(n, off); r.setEnd(n, off + line.length);
-          const q = r.getClientRects()[0];
+          const q = SH(r.getClientRects()[0]);
           if (q) {
             let ox = Math.round(q.left * d);
             const oy = Math.round((q.top + f.asc) * d);
@@ -556,7 +568,7 @@ const LiveText = (() => {
             // w - textW, textW = Live's text width) + 1.0 (text draw origin offset)
             const al = cs.textAlign;
             if ((al === 'center' || al === 'right' || al === 'end') && cs.display !== 'inline' && !s.includes('\n')) {
-              const b = el.getBoundingClientRect();
+              const b = BR(el);
               const bl = Math.round((b.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft)) * d);
               const bw = Math.round((b.width - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)) * d);
               const tw = liveWidth(line, f.fk, size);
@@ -568,7 +580,7 @@ const LiveText = (() => {
               // background per device column (sampled at the text's middle line; one sample when the ends agree)
               const my = (q.top + q.bottom) / 2, cols = bgCols(el, xa, xb, my, d);
               let h = 0; for (let i = 0; i < cols.length; i++) h = (Math.imul(h, 31) + cols[i]) | 0;
-              const sig = [line, f.fk, size, col[0], col[1], ox, oy, xa, xb, ya, yb, clip.x0, clip.y0, clip.x1, clip.y1, h].join('|');
+              const sig = [shaperGen(), line, f.fk, size, col[0], col[1], ox, oy, xa, xb, ya, yb, clip.x0, clip.y0, clip.x1, clip.y1, h].join('|');
               // texts over a canvas follow the canvas pixels: always redrawn
               cur.push({ key: n, li, sig: cols.cv.length ? null : sig, r: [xa, ya, xb, yb], line, f, size, col, ox, oy, clip, cols });
             }
@@ -587,6 +599,7 @@ const LiveText = (() => {
     }
     for (const [k, m] of prev) { const c2 = now.get(k); m.forEach((o, i) => { if (o && !(c2 && c2[i])) dirty.push(o.r); }); }
     prev = now;
+    if (full) { dirty.push([0, 0, W, H]); full = false; }
     if (!dirty.length) return;
     const hit = r => dirty.some(q => r[0] < q[2] && q[0] < r[2] && r[1] < q[3] && q[1] < r[3]);
     // every line touching a dirty rectangle is redrawn whole, so its rectangle becomes dirty too (until stable)
@@ -623,6 +636,9 @@ const LiveText = (() => {
     // hover styles change only when the pointer crosses an element boundary (mouseover / mouseout), not on every move
     for (const e of ['mouseover', 'mouseout', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'keydown', 'keyup', 'wheel', 'resize', 'scroll', 'focus', 'blur'])
       window.addEventListener(e, () => { schedule(); setTimeout(schedule, 30); }, true);
+    // pinch-zoom and panning on phones and tablets report through the visual viewport, not the window
+    for (const e of ['resize', 'scroll']) window.visualViewport?.addEventListener(e, () => { schedule(); setTimeout(schedule, 30); });
+    window.addEventListener('touchend', () => { schedule(); setTimeout(schedule, 30); }, true);
     schedule();
   }
   ready.then(() => { if (document.body) attach(); else addEventListener('DOMContentLoaded', attach); });
