@@ -872,6 +872,35 @@ function maskSvg(w, h, s, u = 1) {
   svg.innerHTML = html;
   return svg;
 }
+// Icons whose mask was taken from Live's own blend (round(bg + (fg - bg) * a / 255)): drawn as opaque pixels over
+// the owner's background, so the browser's alpha blending (which rounds differently) does not touch them. Repainted
+// when the owner's class or style changes (on / off states).
+const OPAQUE_ICONS = new Set(['mx_solo']);
+function opaqueIcon(dx, dy, w, h, s) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h; c.className = 'ic';
+  Object.assign(c.style, { left: dx + 'px', top: dy + 'px', width: w + 'px', height: h + 'px' });
+  let last = '';
+  const paint = () => {
+    const own = c.parentElement?.parentElement; if (!own) return;
+    const cs = getComputedStyle(own), fg = rgbOfCss(cs.color), bg = rgbOfCss(cs.backgroundColor);
+    const key = fg + '|' + bg; if (key === last) return; last = key;
+    const ctx = c.getContext('2d'), img = ctx.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) {
+      const a = parseInt(s.substr(i * 2, 2), 16); if (!a) continue;
+      for (let k = 0; k < 3; k++) img.data[i * 4 + k] = Math.round(bg[k] + (fg[k] - bg[k]) * a / 255);
+      img.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  };
+  requestAnimationFrame(() => {
+    paint();
+    const own = c.parentElement?.parentElement;
+    if (own) new MutationObserver(paint).observe(own, { attributes: true, attributeFilter: ['class', 'style'] });
+  });
+  return c;
+}
+const rgbOfCss = s => (s.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(Number);
 function makeIcon(name) {
   const hi = makeIconHi(name);
   if (hi) return hi;
@@ -891,6 +920,7 @@ function makeIcon(name) {
     return c;
   }
   const [dx, dy, w, h, s] = d;
+  if (OPAQUE_ICONS.has(name)) return opaqueIcon(dx, dy, w, h, s);
   const svg = maskSvg(w, h, s);
   svg.style.left = dx + 'px'; svg.style.top = dy + 'px';
   return svg;
@@ -1447,7 +1477,10 @@ function makeRow(t, y, h, pinned) {
     act.title = 'Track Activator'; act.dataset.info = 'Track Activator';
     act.classList.toggle('on', t.mixer.on);
     act.addEventListener('mousedown', e => { e.stopPropagation(); setTitleSel(null); focusControl(act); t.mixer.on = !t.mixer.on; refreshMixer(); });
-    const solo = hctl(hd, 'solo' + (t.mixer.solo ? ' on' : ''), 225, R(0), isRet ? 17 : 21, 'S');
+    const sw = isRet ? 17 : 21, solo = hctl(hd, 'solo' + (t.mixer.solo ? ' on' : ''), 225, R(0), sw, null);
+    // the icon centred in the button's inner box (Live's pixels: x 1 + ((w - 2 - 8) >> 1), y 2 for both widths;
+    // observed, the bitmap control's draw code is not traced)
+    { const i = document.createElement('i'); i.dataset.ic = 'mx_solo'; i.style.left = (1 + ((sw - 10) >> 1)) + 'px'; i.style.top = '2px'; solo.append(i); }
     solo.title = 'Solo'; solo.dataset.info = 'Solo/Cue';
     solo.addEventListener('mousedown', e => {
       e.stopPropagation();
