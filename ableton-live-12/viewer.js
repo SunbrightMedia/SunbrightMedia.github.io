@@ -2864,10 +2864,16 @@ function setupInteraction() {
 
   // Live's transport reacts on mouse down
   $('#cb-play').addEventListener('mousedown', () => { if (set) engine.play(view.insert); });
-  $('#cb-stop').addEventListener('mousedown', () => { if (set) engine.stop(); });
-  // "To return the insert marker to the starting play position, you can double-click the Stop button or press the Home key"
-  // (Live 12 manual, Arrangement View > Arrangement Playback)
-  $('#cb-stop').addEventListener('dblclick', () => { if (set) setInsert(0); });
+  // Stop acts on release over the button: ATransportStopButton's mode [+0x25c] is 0 (gdb), so mouse down (0x142a802a0)
+  // only shows it pressed and mouse up (0x142a80370) runs the action (0x142a7f960) when the release is inside. The song's
+  // handler 0x142f91860 stops playback when playing ([+0x778] "playing" flag, gdb: 1 while playing, 0 stopped); when
+  // stopped it sets the current song time ([+0x230], gdb: 304 -> 0) to 0, which takes the insert marker to 1.1.1 (running
+  // Live: field and marker at 1.1.1 after one press, no status message). A double click is two such presses.
+  $('#cb-stop').addEventListener('click', () => {
+    if (!set) return;
+    if (engine.playing) { engine.stop(); return; }
+    view.insert = 0; stoppedAt = null; showPos('cb-pos', fmtPos(0)); drawAll();
+  });
   $('#songruler [data-info="Optimize Arrangement Height"]').addEventListener('click', optimizeHeight);   // acts on release (running Live)
   $('#songruler [data-info="Optimize Arrangement Width"]').addEventListener('click', optimizeWidth);
   $('#cb-loop').addEventListener('click', () => {
@@ -3094,11 +3100,34 @@ function setInsert(b) {
   // 0x145a0de90 for state 0, and 16 / 49, 72 / 49, 48 (Alert) / 49 for states 1, 2, 3; 0x142aa66d0 picks the text colour
   // 11 for 0, 49 for the others). The running Wine copy shows it on Alert only because its unauthorized-warning set the
   // bar to state 3 earlier and a level-0 one-shot does not restyle it (no call to either style function on later clicks).
-  const sec = Math.floor(tempoMap.sec(b) + 1e-6);
-  status(`Insert Mark ${fmtPos(b).join('.')} (Time: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')})`);
+  insertStatus(b);
   if (engine.playing) engine.play(b);
   drawAll();
 }
+function insertStatus(b) {
+  const sec = Math.floor(tempoMap.sec(b) + 1e-6);
+  status(`Insert Mark ${fmtPos(b).join('.')} (Time: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')})`);
+}
+// The pointer entering the arrangement's lane area posts the selection's status again. Traced in Live 12.0: the hover
+// tracker (0x14299ab00 -> 0x1429ea2f0) calls slot 109 on views the pointer newly enters; LArrangerControlManager's
+// (0x14467e830) builds the text with slot 211 (0x143b24100 -> 0x1430e3b30: "Time Selection ..." when the selection's end
+// differs from its start, else "Insert Mark ...") and posts it at level 0 (0x142aa6920). gdb: called once per entry from
+// outside (pointer moved from the H button to a lane), and on the release of a drag that ended over the lanes (browser
+// splitter dragged until the browser hid, released over a lane: posted with the release point), not while the button is
+// held (the drag holds the mouse).
+let inLanes = false;
+function lanesHover(x, y, buttons) {
+  if (buttons || !set) return;
+  let on = false;
+  for (const sc of [$('#tracks'), $('#pinned')]) {
+    const r = sc.getBoundingClientRect();
+    if (x >= r.left && x < r.left + lanesWidth() && y >= r.top && y < r.bottom) on = true;
+  }
+  if (on && !inLanes) { if (view.tsel && view.tsel.b1 !== view.tsel.b0) timeSelStatus(); else insertStatus(view.insert); }
+  inLanes = on;
+}
+document.addEventListener('mousemove', e => lanesHover(e.clientX, e.clientY, e.buttons));
+document.addEventListener('pointerup', e => requestAnimationFrame(() => lanesHover(e.clientX, e.clientY, 0)), true);
 
 // ---------------------------------------------------------------------------
 // Loading a project
