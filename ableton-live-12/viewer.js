@@ -1894,7 +1894,22 @@ function songEnd() {
   let e = 0;
   for (const t of [...set.tracks, ...set.returns]) for (const c of [...t.clips, ...t.freezeClips]) e = Math.max(e, c.end);
   for (const l of set.locators) e = Math.max(e, l.time);   // cue points: [LCuePointManager+0x110] (see notes)
-  return Math.max(e, engine.playing ? engine.beatNow() : view.insert, set.loop.start + set.loop.length, view.insert);
+  return Math.max(e, engine.playing ? engine.beatNow() : view.insert, set.loop.start + set.loop.length,
+    view.tsel ? Math.max(view.tsel.b0, view.tsel.b1) : view.insert);
+}
+// Previous / Next Locator buttons (ruler side). Their enabled state is set by 0x14315b260 whenever the time selection or
+// the play state changes: pos = 0x143159d10 (the playing song time, else min(selection start, end), i.e. the insert
+// marker), Previous enabled iff pos > 0, Next enabled iff songEnd (0x142f90740) > pos (gdb: the buttons' state byte
+// [+0x11c] = 2 when disabled, from their property's [+0x33]). Drawn as Live's pixels: the icon halves of both states
+// (rs_prevOn / rs_nextOff captured from Live's own screen, the others from the earlier capture).
+function updateLocatorArrows() {
+  const pos = engine.playing ? engine.beatNow() : view.tsel ? Math.min(view.tsel.b0, view.tsel.b1) : view.insert;
+  const setIc = (id, name) => {
+    const el = $(id); if (!el || el.dataset.ic === name) return;
+    el.dataset.ic = name; el.textContent = ''; el._ic = false; applyIcons(el.parentElement);
+  };
+  setIc('#loc-prev', pos > 0 ? 'rs_prevOn' : 'rs_prevOff');
+  setIc('#loc-next', songEnd() > pos ? 'rs_nextOn' : 'rs_nextOff');
 }
 function updateExtent() {
   const c = clamp(songEnd() + EXT_PAD, EXT_MIN, EXT_MAX);
@@ -2573,7 +2588,7 @@ function drawAll() {
   requestAnimationFrame(() => {
     rafPending = false;
     // The Arrangement starts at bar 1 and ends at the range end (clampScroll, 0x1437ff5e0)
-    updateExtent(); clampScroll();
+    updateExtent(); clampScroll(); updateLocatorArrows();
     const tr = $('#tracks'), pn = $('#pinned');
     drawLanes(lanesCanvas.getContext('2d'), rows, tr.scrollTop, tr.clientHeight, false);
     drawLanes(pinCanvas.getContext('2d'), pinnedRows, pn.scrollTop, pn.clientHeight, true);
