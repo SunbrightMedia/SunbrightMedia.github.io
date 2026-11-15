@@ -1048,14 +1048,9 @@ function applyIcons(root = document) {
 // ---------------------------------------------------------------------------
 // Static parts: browser, info view
 
-const SIDEBAR = [
-  [0, 'cat', 'Collections'], [1, '', 'Favorites', 'sb_favorites'],
-  [3, 'cat', 'Library'], [4, 'sel', 'All', 'sb_all'], [5, '', 'Sounds', 'sb_sounds'], [6, '', 'Drums', 'sb_drums'], [7, '', 'Instruments', 'sb_instruments'],
-  [8, '', 'Audio Effects', 'sb_audioEffects'], [9, '', 'MIDI Effects', 'sb_midiEffects'], [10, '', 'Modulators', 'sb_modulators'], [11, '', 'Max for Live', 'sb_maxForLive'],
-  [12, '', 'Plug-Ins', 'sb_plugins'], [13, '', 'Clips', 'sb_clips'], [14, '', 'Samples', 'sb_samples'], [15, '', 'Grooves', 'sb_grooves'], [16, '', 'Tunings', 'sb_tunings'], [17, '', 'Templates', 'sb_templates'],
-  [19, 'cat', 'Places'], [20, '', 'Packs', 'sb_packs'], [21, 'dis', 'Cloud', 'sb_cloud'], [22, 'dis', 'Push', 'sb_push'], [23, '', 'User Library', 'sb_userLibrary'],
-  [24, '', 'Current Project', 'sb_currentProject'], [25, '', 'Add Folder…', 'sb_addFolder'],
-];
+// The sidebar holds a single label, Projects (the site owner's choice), drawn with Live's Sounds icon. Its content is
+// the list of Sets in projects/manifest.json; a double-click opens one, as Live opens a Set from its browser.
+const SIDEBAR = [[0, 'cat', 'Library'], [1, 'sel', 'Projects', 'sb_sounds']];
 // Info View title of each sidebar row (running Live; Favorites shows 'Assignable Colors')
 const SIDEBAR_INFO = {
   Collections: 'Collections Section', Favorites: 'Assignable Colors', Library: 'Library Section', All: 'Browse All', Sounds: 'Browse Sounds',
@@ -1063,6 +1058,7 @@ const SIDEBAR_INFO = {
   Modulators: 'Modulators', 'Max for Live': 'Browse Max for Live Devices', 'Plug-Ins': 'Browse Third-Party Plug-Ins', Clips: 'Browse Clips',
   Samples: 'Browse Samples', Grooves: 'Browse Grooves', Tunings: 'Tunings', Templates: 'Browse Template Live Sets', Places: 'Places Section',
   Packs: 'Packs', Cloud: 'Cloud', Push: 'Push', 'User Library': 'User Library', 'Current Project': 'Current Project', 'Add Folder…': 'Add Folder',
+  Projects: 'Browser Sidebar',
 };
 const FILTERS = ['Content', 'Type', 'Sounds', 'Drums', 'Character', 'Devices', 'Function', 'Format', 'Clips', 'Genres', 'Key', 'Grooves', 'Tunings', 'Creator'];
 const INFO = {
@@ -1097,6 +1093,20 @@ const INFO = {
   'Waveform Vertical Zoom Level': 'Sets the vertical zoom level for all audio\nwaveforms. Use the right-click option to\nswitch the zoom factor from x (multiplied\nby) to dB.',
   'Optimize Arrangement Height': 'Optimize track height to fit the\nArrangement View.\n\n[H] Optimize Arrangement Height',
 };
+// The Projects label's content: one row per Set of projects/manifest.json, under the Name column. A click selects the
+// row, a double-click (or a tap) opens the Set.
+function openProject(p) { loadUrl(p.parts || [p.file], p.name).catch(e => openDialog(`<span class="err">${String(e.message || e)}</span>`)); }
+function showProjects(list) {
+  const box = $('#br-list'); box.textContent = '';
+  for (const p of list) {
+    const r = document.createElement('div'); r.className = 'brow'; r.dataset.info = 'Browser Content Pane';
+    const l = document.createElement('span'); l.className = 'l'; l.textContent = p.name; r.append(l);
+    r.addEventListener('mousedown', () => { for (const x of box.querySelectorAll('.brow.sel')) x.classList.remove('sel'); r.classList.add('sel'); });
+    r.addEventListener('dblclick', () => openProject(p));
+    r.addEventListener('pointerup', e => { if (e.pointerType === 'touch') openProject(p); });
+    box.append(r);
+  }
+}
 function buildStatic() {
   const sb = $('#sidebar');
   for (const [k, cls, label, ic] of SIDEBAR) {
@@ -3580,11 +3590,14 @@ fontsReady.then(() => { if (set) { layoutCanvases(); drawAll(); } });
   let manifest = null;
   try { const r = await fetch('projects/manifest.json', { cache: 'no-cache' }); if (r.ok) manifest = await r.json(); } catch (e) {}
   const list = manifest?.projects || [];
+  showProjects(list);
   const want = new URLSearchParams(location.search).get('project');
-  const pick = list.find(p => p.name === want) || (list.length === 1 ? list[0] : null);
+  // phones show no browser, so there the Sets are still offered at start; elsewhere they open from the Projects label
+  const phone = getComputedStyle($('#browser')).display === 'none';
+  const pick = list.find(p => p.name === want) || (phone && list.length === 1 ? list[0] : null);
   if (pick) {
     try { await loadUrl(pick.parts || [pick.file], pick.name); } catch (e) { openDialog(`<span class="err">${String(e.message || e)}</span>`); }
-  } else if (list.length > 1) {
+  } else if (phone && list.length > 1) {
     dialog(`<h1>Ableton Live 12</h1><p>Choose a project</p><div class="list"></div><p><span class="btn2" id="choose2">Open a .zip…</span></p>`);
     for (const p of list) {
       const d = document.createElement('div'); d.textContent = p.name;
