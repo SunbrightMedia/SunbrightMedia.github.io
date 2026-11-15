@@ -110,7 +110,8 @@
     @keyframes insert-pulse { from { background: var(--RangeDefault); } to { background: #fff; } }
     #info { left: 9px; width: var(--iw); bottom: 38px; height: var(--dh); }
     #detail { left: calc(var(--iw) + 18px); right: 9px; bottom: 38px; height: var(--dh); }
-    #splitter { position: absolute; left: calc(var(--iw) + 12px); bottom: calc(var(--dh) - 112px); width: 4px; height: 107px; }
+    #splitter { position: absolute; left: calc(var(--iw) + 11px); bottom: calc(var(--dh) - 110px); width: 5px; height: 108px; }
+    #splitter i.bar { position: absolute; width: 2px; background: var(--MeterBackground); }
     /* Show/hide states (Control Bar browser toggle, status bar Info View toggle and Device View selector) */
     #app.no-browser #browser { display: none; }
     #app.no-browser #arrangement { left: 9px; }
@@ -121,7 +122,7 @@
     #app.no-detail #browser { bottom: 38px; }
     /* with the Info View hidden, a small 2-bar meter sits in the left margin of the bottom row (Live 12) */
     #info-meter { position: absolute; left: 2px; width: 5px; height: 108px; bottom: calc(38px + (var(--dh) - 108px) / 2); display: none; }
-    #info-meter i { position: absolute; width: 2px; background: var(--MeterBackground); }
+    #info-meter i.bar { position: absolute; width: 2px; background: var(--MeterBackground); }
     #app.no-info:not(.no-detail) #info-meter { display: block; }
     #app.no-detail #arrangement { bottom: 38px; }
     #app.no-detail.no-browser:not(.no-info) #arrangement { bottom: calc(var(--dh) + 47px); }
@@ -389,10 +390,10 @@
     </div>
 
     <div class="panel" id="info" data-info="Info View"><div class="title" id="info-title">Track Title Bar</div><div class="body" id="info-body"></div></div>
-    <span id="splitter" data-ic="sp_dots"></span>
+    <span id="splitter"></span>
     <div class="panel" id="detail"><div id="devices"><div class="empty">Drop an Instrument or Sample Here</div></div></div>
 
-    <span id="info-meter"><i style="left:0;top:0;height:11px"></i><i style="left:3px;top:0;height:11px"></i><i style="left:0;top:12px;height:96px"></i><i style="left:3px;top:12px;height:96px"></i></span>
+    <span id="info-meter"></span>
     <span class="grip" id="grip-browser"></span>
     <div id="statusbar" data-info="">
       <span class="abs" id="st-info" data-info="Show/Hide Info View" data-hit="-1 -1 -1 -1" style="left:9px;top:0;width:19px;height:19px;color:var(--ViewControlOn)" data-ic="st_info" title="Show/Hide Info View"></span>
@@ -409,6 +410,6 @@
   <script src="device-thumbs.js?v=e259c2f009"></script>
   <script src="icons-hidpi.js?v=d00d666705"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="viewer.js?v=38fe86d0d5"></script>
+  <script src="viewer.js?v=3e6b7208ea"></script>
 </body>
 </html>

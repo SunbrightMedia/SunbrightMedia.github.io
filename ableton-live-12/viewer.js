@@ -1607,7 +1607,27 @@ function select(t) {
   // field move with it
   layoutStatusBar(stName, t);
   renderDevices(t);
+  chainMeter(t);
   drawAll();
+}
+// The meter at the left edge of the Device View (x 221 with the Info View shown, x 2 without it; 5 x 108 px) shows the
+// selected track's input: a MIDI track's LMidiMeterView -> LLedChainView, an audio-type track's two-channel meter
+// (running Live: dots for 1 MIDI, two 2 px bars of 11 + 96 px for 4 Audio). LLedChainView's draw (0x143239f20) puts
+// height / (LED height + spacing [+0x108]) LED bitmaps at x = (width - LED width) >> 1 (= 1 for the 3 px LED in 5 px) and
+// y = i * (LED height + spacing) + [+0x10c] + spacing. The LED bitmap itself is in the encrypted resources: sp_dots is
+// the drawn column (user's screenshot, matching the running Live's pixels).
+function chainMeter(t) {
+  const midi = t?.type === 'midi';
+  for (const el of [$('#splitter'), $('#info-meter')]) {
+    if (el._midi === midi) continue;
+    el._midi = midi;
+    el.innerHTML = midi ? '<i data-ic="sp_dots" style="left:1px;top:0"></i>'
+      : [[0, 0, 11], [3, 0, 11], [0, 12, 96], [3, 12, 96]].map(([x, y, h]) => `<i class="bar" style="left:${x}px;top:${y}px;height:${h}px"></i>`).join('')
+        // AVuMeterView's separator row (0x14319e1d0): a 1 px line in theme colour 6 (SurfaceBackground; gdb: index 6 =
+        // ff363636 for the header and device meters) at row trunc([+0xf0]) while the level is below it
+        + [0, 3].map(x => `<i class="bar" style="left:${x}px;top:11px;height:1px;background:var(--SurfaceBackground)"></i>`).join('');
+    applyIcons(el);
+  }
 }
 
 // ---------------------------------------------------------------------------
