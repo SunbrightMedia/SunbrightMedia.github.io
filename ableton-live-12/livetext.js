@@ -245,6 +245,46 @@ const LiveText = (() => {
   }));
   const cache = new Map();
   // Skia LCD16 mask of one glyph at px size `px` (float) and quarter-pixel shift `sub`, preblended for `color`
+  // A8 (grayscale) masks, for text Live draws with LCD off (clip names: 0x143b666e0 passes the no-LCD argument to the
+  // text draw, 0x14297d180 then clears the font's LCD byte +0x20, so the run's paint lacks kLCDRenderText 0x200):
+  //  - bounds (generateMetrics 0x144267f90): the cbox floor/ceil to 64, no fLCDExtra (that is only for mask format 4);
+  //  - generateGlyphImage 0x14426d9f2: outline translated by -floor64(min x), -floor64(min y), FT_Outline_Render
+  //    0x14471e080 into a gray target of the mask's size, then every byte through the preblend table [ctx+0x78];
+  //  - preblend (SkScalerContext rec setup 0x14417143a): luminance colour = (G*183 + R*54 + B*19) >> 8 as grey, then
+  //    CanonicalColor 0x1416a6650 (top 3 bits), so the table is GAMMA[(lum >> 5) * 256 + v].
+  function glyphMaskA8(fk, gid, px, sub, color) {
+    const lum = ((color >> 8 & 255) * 183 + (color >> 16 & 255) * 54 + (color & 255) * 19) >> 8;
+    const key = 'a8:' + fk + ':' + px + ':' + gid + ':' + sub + ':' + (lum >> 5);
+    let m = cache.get(key);
+    if (m !== undefined) return m;
+    const F = FONTS[fk]; m = null;
+    if (F) {
+      const o = F.outline(gid);
+      if (o.x.length) {
+        const ch = Math.trunc(f32(f32(px) * 64)), s = divFix(Math.floor((ch * 72 + 36) / 72), F.upem);
+        const X = [], Y = [];
+        for (let i = 0; i < o.x.length; i++) {
+          let x = mulFix(o.x[i], s), y = mulFix(o.y[i], s);
+          for (let q = o.off[i]; q; q = q[2]) { x += mulFix(q[0], s); y += mulFix(q[1], s); }
+          X.push(x + sub * 16); Y.push(y);
+        }
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (let i = 0; i < X.length; i++) { x0 = Math.min(x0, X[i]); x1 = Math.max(x1, X[i]); y0 = Math.min(y0, Y[i]); y1 = Math.max(y1, Y[i]); }
+        x0 &= ~63; y0 &= ~63; x1 = (x1 + 63) & ~63; y1 = (y1 + 63) & ~63;
+        const L = x0 >> 6, T = -(y1 >> 6), W = (x1 - x0) >> 6, H = (y1 - y0) >> 6;
+        if (W > 0 && H > 0) {
+          const g = new Gray(W, H), bits = new Uint8Array(W * H);
+          g.decompose(X.map(v => v - x0), Y.map(v => v - y0), o.on, o.ends);
+          g.sweep(bits, W, 0);
+          const t = (lum >> 5) * 256, mk = new Uint8Array(W * H);
+          for (let i = 0; i < W * H; i++) mk[i] = GAMMA[t + bits[i]];
+          m = { L, T, W, H, mk, a8: true };
+        }
+      }
+    }
+    cache.set(key, m);
+    return m;
+  }
   function glyphMask(fk, gid, px, sub, color) {
     const key = fk + ':' + px + ':' + gid + ':' + sub + ':' + ((color >> 21 & 7) << 6 | (color >> 13 & 7) << 3 | (color >> 5 & 7));
     let m = cache.get(key);
@@ -297,7 +337,7 @@ const LiveText = (() => {
     return gids.map((g, i) => [adv[i], g]);
   }
   // draw `str` with its pen origin at device (ox, oy) into RGBA pixels `px` (w x h, origin at device (bx, by))
-  function drawInto(px, w, h, bx, by, str, fk, size, color, ox, oy, clip) {
+  function drawInto(px, w, h, bx, by, str, fk, size, color, ox, oy, clip, a8) {
     const run = shape(fk, str); if (!run) return 0;
     const p = pxOf(size), k = f32(p * 0.015625);
     let pen = ox;
@@ -306,8 +346,25 @@ const LiveText = (() => {
     for (const [a, g] of run) {
       const x = f32(pen), fl = Math.floor(x);
       const sub = (Math.trunc(f32(f32(f32(x - fl) * 65536) + 8192)) >> 14) & 3;
-      const m = glyphMask(fk, g, p, sub, color);
-      if (m) {
+      const m = a8 ? glyphMaskA8(fk, g, p, sub, color) : glyphMask(fk, g, p, sub, color);
+      if (m && m.a8) {
+        // A8 blit (SkBlitMask::BlitColor 0x144242320 -> 0x1416af2d0 -> row proc 0x1416b07f0 / tail 0x1441b13c0, black
+        // 0x1441b10a0): per channel ((c * a + c) >> 8) + ((d * (255 - a) + d) >> 8)
+        const L = Math.floor(f32(x + 0.125)) + m.L, T = iy + m.T;
+        for (let yy = 0; yy < m.H; yy++) {
+          const Y = T + yy; if (Y < clip.y0 || Y >= clip.y1) continue;
+          const ry = Y - by; if (ry < 0 || ry >= h) continue;
+          for (let xx = 0; xx < m.W; xx++) {
+            const a = m.mk[yy * m.W + xx]; if (!a) continue;
+            const X = L + xx; if (X < clip.x0 || X >= clip.x1) continue;
+            const rx = X - bx; if (rx < 0 || rx >= w) continue;
+            const o = (ry * w + rx) * 4, ia = 255 - a;
+            px[o] = ((sr * a + sr) >> 8) + ((px[o] * ia + px[o]) >> 8);
+            px[o + 1] = ((sg * a + sg) >> 8) + ((px[o + 1] * ia + px[o + 1]) >> 8);
+            px[o + 2] = ((sb * a + sb) >> 8) + ((px[o + 2] * ia + px[o + 2]) >> 8); px[o + 3] = 255;
+          }
+        }
+      } else if (m) {
         const L = Math.floor(f32(x + 0.125)) + m.L, T = iy + m.T;
         for (let yy = 0; yy < m.H; yy++) {
           const Y = T + yy; if (Y < clip.y0 || Y >= clip.y1) continue;
@@ -360,7 +417,7 @@ const LiveText = (() => {
   };
   // canvas text: draw at the canvas user-space point (x, baseline of ctx.textBaseline at y), clip = optional user-space
   // rect [x0, y0, x1, y1]. Falls back to the canvas' own fillText until the fonts are in.
-  function fillText(ctx, str, x, y, clip) {
+  function fillText(ctx, str, x, y, clip, a8) {
     const cs = /(?:(bold|[1-9]00)\s+)?(?:(italic)\s+)?([\d.]+)px\s+(.+)$/.exec(ctx.font);
     const col = rgbOf(ctx.fillStyle);
     const f = cs && col && col[1] === 1 && fontOf(cs[4], cs[1] || 400, cs[2] || 'normal', +cs[3]);
@@ -376,7 +433,7 @@ const LiveText = (() => {
     x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(ctx.canvas.width, x1); y1 = Math.min(ctx.canvas.height, y1);
     if (x1 <= x0 || y1 <= y0) return;
     const img = ctx.getImageData(x0, y0, x1 - x0, y1 - y0);
-    drawInto(img.data, x1 - x0, y1 - y0, x0, y0, str, f.fk, size, col[0], ox, oy, { x0, y0, x1, y1 });
+    drawInto(img.data, x1 - x0, y1 - y0, x0, y0, str, f.fk, size, col[0], ox, oy, { x0, y0, x1, y1 }, a8);
     ctx.putImageData(img, x0, y0);
     const ga = ctx.globalAlpha; ctx.globalAlpha = 0; ctx.fillText(str, x, y); ctx.globalAlpha = ga;   // keeps text hooks informed
   }

@@ -174,7 +174,7 @@ async function loadShaper(key, url) {
   try { const r = await fetch(url); if (r.ok) SHAPER[key] = parseFont(await r.arrayBuffer()); } catch (e) {}
 }
 // canvas text through Live's rasterizer (livetext.js) once its fonts are in
-const liveFillText = (ctx, str, x, y, clip) => typeof LiveText !== 'undefined' ? LiveText.fillText(ctx, str, x, y, clip) : ctx.fillText(str, x, y);
+const liveFillText = (ctx, str, x, y, clip, a8) => typeof LiveText !== 'undefined' ? LiveText.fillText(ctx, str, x, y, clip, a8) : ctx.fillText(str, x, y);
 const LIVE_TEXT_K = Math.fround(0.01413281261920929);
 function liveTextWidth(str, size, bold) {
   const sh = SHAPER[bold ? 'bold' : 'regular'];
@@ -772,8 +772,20 @@ const GRID_LEVEL = [0.375, 0.666, 1];
 const gridAlpha = (hex, f) => hex.slice(0, 7) + Math.trunc(parseInt(hex.slice(7, 9) || 'ff', 16) * f).toString(16).padStart(2, '0');
 const gridLine = (sel, tiled, level = 2) => { const l = over(sel === 'time' ? T.SelectionBackground : sel ? T.SurfaceHighlight : T.SurfaceBackground, gridAlpha(T.GridLineBase, GRID_LEVEL[level]), Math.floor); return tiled ? over(l, T.ArrangerGridTiles) : l; };
 const gridLevel = b => { const on = u => Math.abs(b / u - Math.round(b / u)) < 1e-6; return on(beatsPerBar()) ? 2 : on(beatLen()) ? 1 : 0; };
-// a track's dark contrast colour on its own colour (fold button, name): the track colour at 26.7%
-const darkOf = hex => rgbHex(hexRGB(hex).slice(0, 3).map(v => v * 0.267));
+// Text and icons on a clip or track colour. 0x142a94240 picks the theme colour: HSP brightness in float,
+// trunc(sqrt(0.691 G^2 + 0.241 R^2 + 0.068 B^2)) (constants 0x145e93ce0 / 0x145e939bc / 0x145e9373c, fma order as
+// in the code) > TextColorContrastThreshold (an Options.txt value, default 0x6e = 110) -> theme index 0xea ClipText,
+// else 0x39 White (a fixed table entry, ffffffff in the running Live; not in the .ask files). 0x14275af30 then mixes:
+// channel = trunc(bg + f * (text - bg)) in double, f = the theme factor as float: clip names ClipBlendFactor
+// (0x143b6665e, factor from theme member +0x1280), track header names DefaultBlendFactor (ABasicLineView +0x130,
+// draw 0x142b484fd), the header's fold icon IconBlendFactor (ABasicBitmapCheckControl +0x3b0, 0x142ab5586).
+const contrastText = hex => {
+  const fr = Math.fround, [r, g, b] = hexRGB(hex);
+  let s = fr(fr(g * fr(0.691)) * g); s = fr(r * fr(r * fr(0.241)) + s); s = fr(b * fr(b * fr(0.068)) + s);
+  return Math.trunc(fr(Math.sqrt(s))) > 110 ? T.ClipText : '#ffffff';
+};
+const liveMix = (bg, fg, f) => { const a = hexRGB(bg), b = hexRGB(fg), k = Math.fround(+f); return rgbHex(a.slice(0, 3).map((v, i) => Math.trunc(v + k * (b[i] - v)))); };
+const textOn = (hex, factor) => liveMix(hex, contrastText(hex), factor);
 
 // ---------------------------------------------------------------------------
 // Icons traced from the reference screenshot (icons.js)
@@ -1386,9 +1398,9 @@ function makeRow(t, y, h, pinned) {
   hd.style.height = h + 'px';
   const isMain = t.type === 'main', isRet = t.type === 'return';
   const nameBg = t.color;
-  const dark = darkOf(nameBg);
+  const dark = textOn(nameBg, T.IconBlendFactor), nameCol = textOn(nameBg, T.DefaultBlendFactor);
   hd.innerHTML = `<div class="bg" style="height:${ch}px" data-info="Volume Section"></div>
-    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${pinned || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit" data-info="Unfold Track Button" data-hit="-2 -1 -1 -1"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn"></span></div>`;
+    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${pinned || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit" data-info="Unfold Track Button" data-hit="-2 -1 -1 -1"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn" style="color:${nameCol}"></span></div>`;
   // a return's letter and name are placed apart: letter at the name's x, name 10 px further (user's Windows screenshot:
   // "A" and "B" at x 1644, "Reverb" and "Delay" both at 1654)
   if (isRet) { $('.name .tn', hd).innerHTML = '<span></span><span style="position:absolute;left:10px"></span>'; const [l, n] = $('.name .tn', hd).children; l.textContent = t.label; n.textContent = t.name; $('.name .tn', hd).style.left = '23px'; }
@@ -1955,11 +1967,13 @@ function drawClip(ctx, c, x0, x1, y, h, w) {
       }
     }
   }
-  ctx.fillStyle = luminance(col) < 0.4 ? '#efefef' : T.ClipText;
+  ctx.fillStyle = textOn(col, T.ClipBlendFactor);
   ctx.font = FONT;
   ctx.textBaseline = 'middle';
   // the name is cut off by the clip's end, never squeezed (running Live: "Chord" in a 31 px clip, "Lo" in 16 px)
-  if (c.name) liveFillText(ctx, c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5, [cx0, y, cx1, y + h]);
+  // grayscale (see livetext glyphMaskA8); x = the clip's pixel left + 3 (Live runs: 'Two' 324, 'Loud half' 339, 'Quiet' 316 for
+  // clips starting at 15.69, 31.38, 7.84: the rounded edge, not the exact one)
+  if (c.name) liveFillText(ctx, c.name, Math.max(cx0, 0) + 3, y + 1 + headH / 2 + 0.5, [cx0, y, cx1, y + h], true);
   ctx.restore();
   ctx.fillStyle = edge;
   // Live 12 draws only the clip's start edge (1 px, clip colour x0.53), no end edge (measured)
@@ -1985,9 +1999,11 @@ function drawSelectedClip(ctx, c, x0, x1, y, h, w) {
     const sb = parseInt(T.SelectionBackground.slice(1, 7), 16);
     drawNotes(ctx, c, x0, x1, bodyY, bodyH, w, 'rgb(' + [sb >> 16, (sb >> 8) & 255, sb & 255].map(v => Math.round((23 * 240 + v * 15) / 255)).join(',') + ')');
   } else { drawWave(ctx, c, x0, x1, bodyY, bodyH, w); drawFadeWedges(ctx, c, x0, x1, bodyY, bodyH); }
-  ctx.fillStyle = luminance(col) < 0.4 ? '#efefef' : T.ClipText;
+  ctx.fillStyle = textOn(col, T.ClipBlendFactor);
   ctx.font = FONT; ctx.textBaseline = 'middle';
-  if (c.name) liveFillText(ctx, c.name, Math.max(x0, 0) + 3, y + 1 + headH / 2 + 0.5, [cx0, y, cx1, y + h]);
+  // grayscale (see livetext glyphMaskA8); x = the clip's pixel left + 3 (Live runs: 'Two' 324, 'Loud half' 339, 'Quiet' 316 for
+  // clips starting at 15.69, 31.38, 7.84: the rounded edge, not the exact one)
+  if (c.name) liveFillText(ctx, c.name, Math.max(cx0, 0) + 3, y + 1 + headH / 2 + 0.5, [cx0, y, cx1, y + h], true);
   ctx.restore();
   if (x0 >= -1 && x0 <= w) {
     ctx.fillStyle = edge; ctx.fillRect(Math.round(x0), y + 1, 1, by - y);
