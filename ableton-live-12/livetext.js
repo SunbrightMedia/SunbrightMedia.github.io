@@ -497,24 +497,38 @@ const LiveText = (() => {
       }
     }
   }
-  function clipOf(el) {
-    let r = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
-    for (let e = el; e && e.nodeType === 1 && e !== document.body; e = e.parentElement) {
-      const s = getComputedStyle(e);
-      if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
-        const b = e.getBoundingClientRect();
-        r = { x0: Math.max(r.x0, b.left + e.clientLeft), y0: Math.max(r.y0, b.top + e.clientTop), x1: Math.min(r.x1, b.left + e.clientLeft + e.clientWidth), y1: Math.min(r.y1, b.top + e.clientTop + e.clientHeight) };
-      }
+  // the clip rectangle of an element: its overflow-clipping ancestors intersected (memoised per render: clipCache)
+  let clipCache = new Map();
+  const NOCLIP = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
+  function clipOf(e) {
+    if (!e || e.nodeType !== 1 || e === document.body) return NOCLIP;
+    let r = clipCache.get(e);
+    if (r) return r;
+    r = clipOf(e.parentElement);
+    const s = getComputedStyle(e);
+    if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
+      const b = e.getBoundingClientRect();
+      r = { x0: Math.max(r.x0, b.left + e.clientLeft), y0: Math.max(r.y0, b.top + e.clientTop), x1: Math.min(r.x1, b.left + e.clientLeft + e.clientWidth), y1: Math.min(r.y1, b.top + e.clientTop + e.clientHeight) };
     }
+    clipCache.set(e, r);
     return r;
   }
+  // Incremental: the overlay keeps its pixels between renders. Each text line gets a signature (string, font, colour,
+  // origin, clip, background under it); only lines whose signature changed (and lines overlapping their old or new
+  // rectangles) are cleared and redrawn, and only those rectangles are written back to the canvas.
+  let buf = null, prev = new Map();
+  const stats = { renders: 0, redrawn: 0, rects: 0, area: 0 };
   function render() {
-    pending = 0; bgCache = new Map();
+    pending = 0; bgCache = new Map(); clipCache = new Map();
     const d = window.devicePixelRatio || 1, W = Math.round(innerWidth * d), H = Math.round(innerHeight * d);
-    if (ov.width !== W || ov.height !== H) { ov.width = W; ov.height = H; ov.style.width = innerWidth + 'px'; ov.style.height = innerHeight + 'px'; }
-    const img = octx.createImageData(W, H), px = img.data;
+    if (ov.width !== W || ov.height !== H || !buf || buf.width !== W || buf.height !== H) {
+      ov.width = W; ov.height = H; ov.style.width = innerWidth + 'px'; ov.style.height = innerHeight + 'px';
+      buf = octx.createImageData(W, H); prev = new Map();
+    }
+    const px = buf.data;
     const de = document.getElementById('dialog'), dr = de && de.checkVisibility() && de.getBoundingClientRect();
     const dlg = dr && dr.width ? { el: de, l: dr.left, t: dr.top, r: dr.right, b: dr.bottom } : null;
+    const cur = [];
     const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
       const s = n.textContent; if (!s.trim()) continue;
@@ -530,7 +544,7 @@ const LiveText = (() => {
       if (clip.x1 <= clip.x0 || clip.y1 <= clip.y0) continue;
       if (dlg && !dlg.el.contains(el) && el.getBoundingClientRect().top < dlg.b && el.getBoundingClientRect().bottom > dlg.t && el.getBoundingClientRect().left < dlg.r && el.getBoundingClientRect().right > dlg.l) continue;
       // one draw per line (white-space: pre text with newlines)
-      let off = 0;
+      let off = 0, li = 0;
       for (const line of s.split('\n')) {
         if (line.trim()) {
           const r = document.createRange(); r.setStart(n, off); r.setEnd(n, off + line.length);
@@ -549,24 +563,55 @@ const LiveText = (() => {
               ox = bl + (al === 'center' ? (bw - tw) >> 1 : bw - tw) + 1;
             }
             const ex = Math.ceil(extent(line, f.fk, size)) + 4, xa = Math.max(clip.x0, ox - 4), xb = Math.min(clip.x1, ox + ex);
-            // background per device column (sampled at the text's middle line; one sample when the ends agree)
-            const my = (q.top + q.bottom) / 2, cols = bgCols(el, xa, xb, my, d);
             const ya = Math.max(clip.y0, oy - size * 2), yb = Math.min(clip.y1, oy + size);
-            for (let y = ya; y < yb; y++) {
-              for (let x = xa; x < xb; x++) {
-                const o = (y * W + x) * 4; if (px[o + 3]) continue;
-                const bg = cols[x - xa];
-                px[o] = bg >> 16 & 255; px[o + 1] = bg >> 8 & 255; px[o + 2] = bg & 255;
-              }
+            if (xb > xa && yb > ya) {
+              // background per device column (sampled at the text's middle line; one sample when the ends agree)
+              const my = (q.top + q.bottom) / 2, cols = bgCols(el, xa, xb, my, d);
+              let h = 0; for (let i = 0; i < cols.length; i++) h = (Math.imul(h, 31) + cols[i]) | 0;
+              const sig = [line, f.fk, size, col[0], col[1], ox, oy, xa, xb, ya, yb, clip.x0, clip.y0, clip.x1, clip.y1, h].join('|');
+              // texts over a canvas follow the canvas pixels: always redrawn
+              cur.push({ key: n, li, sig: cols.cv.length ? null : sig, r: [xa, ya, xb, yb], line, f, size, col, ox, oy, clip, cols });
             }
-            cols.cv.forEach((cv, k) => canvasUnder(cv, k + 1, cols.top, px, W, xa, xb, ya, yb, d));
-            drawInto(px, W, H, 0, 0, line, f.fk, size, col[0], ox, oy, clip, false, Math.round(col[1] * 255));
           }
         }
-        off += line.length + 1;
+        off += line.length + 1; li++;
       }
     }
-    octx.putImageData(img, 0, 0);
+    // which rectangles change
+    const keyOf = e => e.key, now = new Map();
+    for (const e of cur) { let m = now.get(keyOf(e)); if (!m) now.set(keyOf(e), m = []); m[e.li] = e; }
+    const dirty = [];
+    for (const e of cur) {
+      const o = prev.get(e.key)?.[e.li];
+      if (!o || o.sig !== e.sig || e.sig === null) { dirty.push(e.r); if (o) dirty.push(o.r); }
+    }
+    for (const [k, m] of prev) { const c2 = now.get(k); m.forEach((o, i) => { if (o && !(c2 && c2[i])) dirty.push(o.r); }); }
+    prev = now;
+    if (!dirty.length) return;
+    const hit = r => dirty.some(q => r[0] < q[2] && q[0] < r[2] && r[1] < q[3] && q[1] < r[3]);
+    // every line touching a dirty rectangle is redrawn whole, so its rectangle becomes dirty too (until stable)
+    const redo = new Set();
+    for (let grow = true; grow;) { grow = false; for (const e of cur) if (!redo.has(e) && hit(e.r)) { redo.add(e); dirty.push(e.r); grow = true; } }
+    for (const [x0, y0, x1, y1] of dirty) for (let y = y0; y < y1; y++) px.fill(0, (y * W + x0) * 4, (y * W + x1) * 4);
+    for (const e of cur) {
+      if (!redo.has(e)) continue;
+      const [xa, ya, xb, yb] = e.r, cols = e.cols;
+      for (let y = ya; y < yb; y++) {
+        for (let x = xa; x < xb; x++) {
+          const o = (y * W + x) * 4; if (px[o + 3]) continue;
+          const bg = cols[x - xa];
+          px[o] = bg >> 16 & 255; px[o + 1] = bg >> 8 & 255; px[o + 2] = bg & 255;
+        }
+      }
+      cols.cv.forEach((cv, k) => canvasUnder(cv, k + 1, cols.top, px, W, xa, xb, ya, yb, d));
+      drawInto(px, W, H, 0, 0, e.line, e.f.fk, e.size, e.col[0], e.ox, e.oy, e.clip, false, Math.round(e.col[1] * 255));
+    }
+    // write back the union of the dirty rectangles (one bounding box per row band keeps the call count low)
+    let u = null;
+    for (const r of dirty) u = u ? [Math.min(u[0], r[0]), Math.min(u[1], r[1]), Math.max(u[2], r[2]), Math.max(u[3], r[3])] : r.slice();
+    stats.renders++; stats.redrawn += redo.size; stats.rects += dirty.length; stats.area += (u[2] - u[0]) * (u[3] - u[1]);
+    if (dirty.length > 64) octx.putImageData(buf, 0, 0, u[0], u[1], u[2] - u[0], u[3] - u[1]);
+    else for (const [x0, y0, x1, y1] of dirty) octx.putImageData(buf, 0, 0, x0, y0, x1 - x0, y1 - y0);
   }
   const schedule = () => { if (!pending && ov) pending = requestAnimationFrame(render); };
   function attach() {
@@ -575,10 +620,11 @@ const LiveText = (() => {
     Object.assign(ov.style, { position: 'fixed', left: '0', top: '0', pointerEvents: 'none', zIndex: 2147483000 });
     document.body.append(ov); octx = ov.getContext('2d');
     new MutationObserver(ms => { if (ms.some(m => m.target !== ov)) schedule(); }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
-    for (const e of ['mousemove', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'keydown', 'keyup', 'wheel', 'resize', 'scroll', 'focus', 'blur'])
+    // hover styles change only when the pointer crosses an element boundary (mouseover / mouseout), not on every move
+    for (const e of ['mouseover', 'mouseout', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'keydown', 'keyup', 'wheel', 'resize', 'scroll', 'focus', 'blur'])
       window.addEventListener(e, () => { schedule(); setTimeout(schedule, 30); }, true);
     schedule();
   }
   ready.then(() => { if (document.body) attach(); else addEventListener('DOMContentLoaded', attach); });
-  return { ready, drawInto, extent, pxOf, glyphMask, fonts: FONTS, lcdRender, fillText, refresh: schedule, renderNow: () => ov && render() };
+  return { stats, ready, drawInto, extent, pxOf, glyphMask, fonts: FONTS, lcdRender, fillText, refresh: schedule, renderNow: () => ov && render() };
 })();

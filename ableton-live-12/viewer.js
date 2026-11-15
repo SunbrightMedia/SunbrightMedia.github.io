@@ -1692,6 +1692,9 @@ function chainMeter(t) {
 // Drawing
 
 const lanesCanvas = $('#lanes-canvas'), pinCanvas = $('#pinned-canvas'), rulerCanvas = $('#ruler-canvas'), songCanvas = $('#song-canvas'), ovCanvas = $('#overview');
+// The canvases Live's text is drawn into are read back for every text (LiveText.fillText blends over their pixels):
+// CPU-backed contexts make that read-back cheap (measured, s5_perf.js: lane drags at DPR 2 were 33 ms frames)
+for (const cv of [lanesCanvas, pinCanvas, rulerCanvas, songCanvas, ovCanvas]) cv?.getContext('2d', { willReadFrequently: true });
 const DPR = () => window.devicePixelRatio || 1;
 function sizeCanvas(cv, w, h) {
   const d = DPR();
