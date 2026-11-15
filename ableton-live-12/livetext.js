@@ -337,7 +337,7 @@ const LiveText = (() => {
     return gids.map((g, i) => [adv[i], g]);
   }
   // draw `str` with its pen origin at device (ox, oy) into RGBA pixels `px` (w x h, origin at device (bx, by))
-  function drawInto(px, w, h, bx, by, str, fk, size, color, ox, oy, clip, a8) {
+  function drawInto(px, w, h, bx, by, str, fk, size, color, ox, oy, clip, a8, alpha = 255) {
     const run = shape(fk, str); if (!run) return 0;
     const p = pxOf(size), k = f32(p * 0.015625);
     let pen = ox;
@@ -374,9 +374,12 @@ const LiveText = (() => {
             const X = L + xx; if (X < clip.x0 || X >= clip.x1) continue;
             const rx = X - bx; if (rx < 0 || rx >= w) continue;
             const o = (ry * w + rx) * 4;
-            if (v === 0xffff) { px[o] = sr; px[o + 1] = sg; px[o + 2] = sb; px[o + 3] = 255; continue; }
+            if (v === 0xffff && alpha === 255) { px[o] = sr; px[o + 1] = sg; px[o + 2] = sb; px[o + 3] = 255; continue; }
             let mr = v >> 11, mg = v >> 6 & 31, mb = v & 31;
             mr += mr >> 4; mg += mg >> 4; mb += mb >> 4;
+            // a colour with alpha < 255 (SkBlitMask::BlitColor picks 0x144266e20 instead of 0x144266ae0): the unpremultiplied
+            // colour, each channel's m scaled by (alpha + 1) >> 8 first (0x144266ea0 / SIMD 0x144266fb0)
+            if (alpha !== 255) { const A = alpha + 1; mr = mr * A >> 8; mg = mg * A >> 8; mb = mb * A >> 8; }
             px[o] = px[o] + ((sr - px[o]) * mr >> 5); px[o + 1] = px[o + 1] + ((sg - px[o + 1]) * mg >> 5);
             px[o + 2] = px[o + 2] + ((sb - px[o + 2]) * mb >> 5); px[o + 3] = 255;
           }
@@ -453,18 +456,46 @@ const LiveText = (() => {
     for (let e = el; bgColor(e) === null && e.parentElement; e = e.parentElement) path.push(e.parentElement);
     const top = path[path.length - 1], base = bgColor(top);
     cols.fill(base === null ? 0 : base);
+    cols.cv = []; cols.top = new Int16Array(cols.length);   // per column: 1 + index of the canvas painted last there
     for (let k = path.length - 1; k > 0; k--) {
       const node = path[k - 1];
       for (const c of path[k].children) {
         if (c === node) break;
+        // canvases under the text (e.g. the lane grid under the grid-size indicator): their own pixels are the background
+        for (const cv of c.tagName === 'CANVAS' ? [c] : c.getElementsByTagName('canvas')) {
+          if (!cv.width || !cv.checkVisibility()) continue;
+          const q = cv.getBoundingClientRect(); if (my < q.top || my >= q.bottom) continue;
+          const x0 = Math.max(xa, Math.round(q.left * d)), x1 = Math.min(xb, Math.round(q.right * d));
+          if (x1 > x0) { cols.cv.push(cv); cols.top.fill(cols.cv.length, x0 - xa, x1 - xa); }
+        }
         const col = bgColor(c); if (col === null) continue;
         const r = c.getBoundingClientRect(); if (my < r.top || my >= r.bottom) continue;
         const x0 = Math.max(xa, Math.round(r.left * d)), x1 = Math.min(xb, Math.round(r.right * d));
-        if (x1 > x0) cols.fill(col, x0 - xa, x1 - xa);
+        if (x1 > x0) { cols.fill(col, x0 - xa, x1 - xa); cols.top.fill(0, x0 - xa, x1 - xa); }
       }
     }
-    if (bgColor(el) !== null) cols.fill(bgColor(el));
+    if (bgColor(el) !== null) { cols.fill(bgColor(el)); cols.top.fill(0); }
     return cols;
+  }
+  // copy the opaque pixels of canvas cv that lie under device rect [xa, xb) x [ya, yb) into the overlay pixels
+  function canvasUnder(cv, id1, top, px, W, xa, xb, ya, yb, d) {
+    const r = cv.getBoundingClientRect(); if (!r.width || !r.height) return;
+    const sx = cv.width / (r.width * d), sy = cv.height / (r.height * d), L = r.left * d, Tp = r.top * d;
+    const cx0 = Math.max(0, Math.floor((xa - L) * sx)), cy0 = Math.max(0, Math.floor((ya - Tp) * sy));
+    const cx1 = Math.min(cv.width, Math.ceil((xb - L) * sx)), cy1 = Math.min(cv.height, Math.ceil((yb - Tp) * sy));
+    if (cx1 <= cx0 || cy1 <= cy0) return;
+    let id; try { id = cv.getContext('2d').getImageData(cx0, cy0, cx1 - cx0, cy1 - cy0); } catch (e) { return; }
+    const iw = cx1 - cx0, q = id.data;
+    for (let y = ya; y < yb; y++) {
+      const cy = Math.floor((y + 0.5 - Tp) * sy) - cy0; if (cy < 0 || cy >= cy1 - cy0) continue;
+      for (let x = xa; x < xb; x++) {
+        if (top[x - xa] !== id1) continue;
+        const cx = Math.floor((x + 0.5 - L) * sx) - cx0; if (cx < 0 || cx >= iw) continue;
+        const i = (cy * iw + cx) * 4; if (q[i + 3] !== 255) continue;
+        const o = (y * W + x) * 4; if (px[o + 3]) continue;
+        px[o] = q[i]; px[o + 1] = q[i + 1]; px[o + 2] = q[i + 2];
+      }
+    }
   }
   function clipOf(el) {
     let r = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
@@ -520,14 +551,16 @@ const LiveText = (() => {
             const ex = Math.ceil(extent(line, f.fk, size)) + 4, xa = Math.max(clip.x0, ox - 4), xb = Math.min(clip.x1, ox + ex);
             // background per device column (sampled at the text's middle line; one sample when the ends agree)
             const my = (q.top + q.bottom) / 2, cols = bgCols(el, xa, xb, my, d);
-            for (let y = Math.max(clip.y0, oy - size * 2); y < Math.min(clip.y1, oy + size); y++) {
+            const ya = Math.max(clip.y0, oy - size * 2), yb = Math.min(clip.y1, oy + size);
+            for (let y = ya; y < yb; y++) {
               for (let x = xa; x < xb; x++) {
                 const o = (y * W + x) * 4; if (px[o + 3]) continue;
                 const bg = cols[x - xa];
                 px[o] = bg >> 16 & 255; px[o + 1] = bg >> 8 & 255; px[o + 2] = bg & 255;
               }
             }
-            drawInto(px, W, H, 0, 0, line, f.fk, size, col[0], ox, oy, clip);
+            cols.cv.forEach((cv, k) => canvasUnder(cv, k + 1, cols.top, px, W, xa, xb, ya, yb, d));
+            drawInto(px, W, H, 0, 0, line, f.fk, size, col[0], ox, oy, clip, false, Math.round(col[1] * 255));
           }
         }
         off += line.length + 1;
