@@ -1578,8 +1578,11 @@ function drawVu(ctx, x, h, sep, peakDb, rmsDb, holdDb) {
   ctx.clearRect(x, 0, 3, h);
   for (let r = top; r < h; r++) if (r !== sep) { ctx.fillStyle = cols[r]; ctx.fillRect(x, r, 3, 1); }
   if (av > pk) { ctx.fillStyle = 'rgba(24,24,24,' + 0x57 / 255 + ')'; ctx.fillRect(x, pk, 3, av - pk); ctx.clearRect(x, sep, 3, 1); }
+  // held peak (0x14319e78b..0x14319e8ab): drawn while its flag [+0x105] is on (held > -140 dB) at row round(row(held))
+  // (CRT round) in that row's gradient colour, only for rows inside the gradient table (row < h): -70 dB and below map
+  // to row h, so no extra dB cut-off. The separator row is painted after it (0x14319e1d0, theme colour 6 for both states).
   const hr = Math.round(hold);
-  if (hr >= 0 && hr < h && hr !== sep && holdDb > -70) { ctx.fillStyle = cols[hr]; ctx.fillRect(x, hr, 3, 1); }
+  if (holdDb > -140 && hr >= 0 && hr < h && hr !== sep) { ctx.fillStyle = cols[hr]; ctx.fillRect(x, hr, 3, 1); }
 }
 // Folded MIDI track meter: four 3 px dots, traced from Live 12 (folded "2 MIDI" track)
 function foldedMidiMeter(hd, ch) {
