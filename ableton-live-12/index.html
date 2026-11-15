@@ -163,6 +163,11 @@
     .frow.line { height: 1px; background: var(--Desktop); }
     #br-edit { position: absolute; right: 3px; top: 3px; width: 38px; height: 13px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); line-height: 13px; }
     #br-namehead { position: absolute; left: calc(var(--sbw) + 2px); right: 0; height: 19px; background: var(--TreeColumnHeadBackground); color: var(--TreeColumnHeadForeground); line-height: 19px; }
+    #br-list { position: absolute; left: calc(var(--sbw) + 2px); right: 0; top: 344px; bottom: 22px; overflow-x: hidden; overflow-y: auto; }
+    #browser.filters-hidden #br-list { top: 62px; }
+    .brow { position: relative; height: 19px; line-height: 19px; white-space: nowrap; overflow: hidden; }
+    .brow .l { position: absolute; left: 5px; right: 4px; top: 0; overflow: hidden; }
+    .brow.sel { background: var(--StandbySelectionBackground); color: var(--StandbySelectionForeground); }
     #br-namehead .bar1 { position: absolute; right: 10px; top: 4px; width: 1px; height: 11px; background: var(--TreeColumnHeadControl); }
 
     /* ---------- Arrangement ---------- */
@@ -356,6 +361,7 @@
       <div id="sidebar" data-info="Browser Sidebar"></div>
       <div id="filters"></div>
       <div id="br-namehead" data-info="Browser Content Pane" style="top:325px"><span class="abs" style="left:3px;top:1px">Name</span><i data-ic="br_nameTri" style="left:auto;right:24px;top:3px"></i><span class="bar1"></span><span class="hit" data-info="Assigned Colors" data-hit="0 0 0 0" style="right:11px;width:25px"></span></div>
+      <div id="br-list" data-info="Browser Content Pane"></div>
       <span class="sep" style="left:calc(var(--sbw) + 2px);right:0;bottom:21px;height:1px"></span>
       <span class="abs" data-info="Browser File Preview" data-hit="-1 -2 -1 0" style="left:calc(var(--sbw) + 4px);bottom:3px;width:17px;height:17px" data-ic="br_preview"></span>
       <span class="abs" data-info="Preview Tab" style="left:calc(var(--sbw) + 23px);right:4px;bottom:3px;height:15px"></span>
@@ -412,7 +418,7 @@
   <script src="device-thumbs.js?v=e259c2f009"></script>
   <script src="icons-hidpi.js?v=d00d666705"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
-  <script src="livetext.js?v=f82a7f3486"></script>
-  <script src="viewer.js?v=6ef80a4a75"></script>
+  <script src="livetext.js?v=5c77060691"></script>
+  <script src="viewer.js?v=bfb56ea351"></script>
 </body>
 </html>

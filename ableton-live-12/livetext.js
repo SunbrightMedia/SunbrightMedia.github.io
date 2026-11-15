@@ -416,7 +416,13 @@ const LiveText = (() => {
   const rgbOf = s => {
     const m = /^#([0-9a-f]{6})$/i.exec(s); if (m) return [parseInt(m[1], 16), 1];
     const r = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)$/.exec(s);
-    return r ? [(+r[1] << 16) | (+r[2] << 8) | +r[3], r[4] === undefined ? 1 : +r[4]] : null;
+    if (r) return [(+r[1] << 16) | (+r[2] << 8) | +r[3], r[4] === undefined ? 1 : +r[4]];
+    // color-mix() results (the hover backgrounds) are reported as color(srgb r g b [/ a]) with 0..1 channels; Chromium,
+    // WebKit and Firefox all paint them as round(v * 255) (checked: 0.414341 -> 106, Live's hover background)
+    const c = /^color\(srgb\s+([\d.e+-]+)\s+([\d.e+-]+)\s+([\d.e+-]+)(?:\s*\/\s*([\d.e+-]+))?\s*\)$/.exec(s);
+    if (!c) return null;
+    const v = i => Math.min(255, Math.max(0, Math.round(+c[i] * 255)));
+    return [(v(1) << 16) | (v(2) << 8) | v(3), c[4] === undefined ? 1 : +c[4]];
   };
   // canvas text: draw at the canvas user-space point (x, baseline of ctx.textBaseline at y), clip = optional user-space
   // rect [x0, y0, x1, y1]. Falls back to the canvas' own fillText until the fonts are in.
