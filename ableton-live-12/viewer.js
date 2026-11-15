@@ -2627,10 +2627,9 @@ const engine = {
     if (this.playing) stoppedAt = this.beatNow();
     this.playing = false;
     $('#cb-play').classList.remove('playing');
-    cancelAnimationFrame(this.meterRaf);
+    // the audio meters keep falling after Stop (gdb on the running Live: peak faders' current level -140 at once, shown
+    // level falling 75 dB/s and the mean-square ones 19.92 dB/s, held levels kept): the meter loop runs on until all rest
     for (const t of set?.tracks || []) {
-      if (t._meter) { const cv = t._meter.querySelector('canvas.vu'); cv?.getContext('2d').clearRect(0, 0, cv.width, cv.height); }
-      const n = this.nodes.get(t); if (n) n.meter = null;
       if (t._hd) t._hd.querySelectorAll('[data-ic="hd_midiDot"]').forEach(d => d.style.color = 'var(--MeterBackground)');
       t._midiHold = null;
     }
@@ -2646,11 +2645,14 @@ const engine = {
     // falling at the same rate once it is older than 10000 ms ("MeterDefaultHoldTime"), reset below -140. The bar is the
     // peak fader's shown level (AVuMeterView slot 180), the darker part the mean-square fader's (slot 182), the line the
     // peak fader's held level (slot 181). The page reads each new sample once from its analysers, using the audio clock.
+    cancelAnimationFrame(this.meterRaf);
     const buf = new Float32Array(4096), sr = this.ctx.sampleRate, C = Math.fround(1 - Math.fround(Math.exp(-5 / sr)));
-    const fader = () => ({ cur: -140, shown: -140, held: -140, holding: false, t: null, ht: 0 });
+    // fall rates (+0x40, gdb): peak 0x3d99999a (MeterDefaultFallbackRateDbPerSec 75 * 0.001), mean square 0x3ca32f45
+    // (RmsMeterDefaultFallbackRateDbPerSec: 0x1444cf710, default 19.92, clamped to 5 .. 19.920008, * 0.001)
+    const fader = rate => ({ cur: -140, shown: -140, held: -140, holding: false, t: null, ht: 0, rate });
     const feed = (f, x, now) => {
       f.cur = x > 1e-12 ? Math.max(10 * Math.log10(x), -140) : -140;
-      const fall = f.t === null ? 0 : (now - f.t) * 0.075;
+      const fall = f.t === null ? 0 : (now - f.t) * f.rate;
       f.shown = Math.max(f.cur, f.shown - fall);
       if (f.cur >= f.held) { f.held = f.cur; f.holding = true; f.ht = now; }
       else if (f.holding && now - f.ht > 10000) f.held -= fall;
@@ -2658,10 +2660,10 @@ const engine = {
       f.t = now;
     };
     const loop = () => {
-      if (!this.playing) return;
+      if (!this.playing && [...this.nodes.values()].every(n => !n.meter || n.meter.ch.every(c => c.pk.shown <= -140 && c.rms.shown <= -140 && c.pk.held <= -140))) { this.meterRaf = 0; return; }
       const now = Math.floor(performance.now()), at = Math.round(this.ctx.currentTime * sr);
       for (const [t, n] of this.nodes) {
-        const st = n.meter ||= { at, ch: [0, 1].map(() => ({ ms: 0, pk: fader(), rms: fader() })) };
+        const st = n.meter ||= { at, ch: [0, 1].map(() => ({ ms: 0, pk: fader(0.07500000298023224), rms: fader(0.019920000806450844) })) };
         const fresh = Math.min(buf.length, Math.max(0, at - st.at)); st.at = at;
         [n.anL, n.anR].forEach((an, i) => {
           const ch = st.ch[i]; let pk = 0, mx = 0, ms = ch.ms;
@@ -2684,7 +2686,7 @@ const engine = {
       // anything plays; the held dot sits at the loudest velocity of the last second, in 255,173,86 (running Live).
       // Live's level decay is not traced: the page lights the bottom dot while notes sound.
       const b = this.beatNow();
-      for (const t of set.tracks) {
+      for (const t of this.playing ? set.tracks : []) {
         if (t.type !== 'midi' || !t._hd) continue;
         const dots = [...t._hd.querySelectorAll('[data-ic="hd_midiDot"]')], n = dots.length; if (!n) continue;
         let vel = 0;
@@ -3218,6 +3220,7 @@ async function loadZipBytes(bytes, label) {
     await new Promise(r => setTimeout(r, 30));
     const xml = await gunzipText(files.get(chosen));
     sources.clear(); peaks.clear();
+    cancelAnimationFrame(engine.meterRaf); engine.meterRaf = 0;
     if (engine.ctx) { engine.ctx.close(); engine.ctx = null; }
     set = parseSet(xml, chosen);
     tempoMap = new TempoMap(set.tempo, set.tempoEvents, set.end);
