@@ -4,30 +4,40 @@
       "name": "Last Christmas Project",
       "folder": "projects/Last Christmas Project",
       "files": [
-        [
-          "Next Christmas.als",
-          593353
-        ],
-        [
-          "Samples/Processed/Freeze/Freeze Bass [2026-11-13 015811].wav",
-          18851408
-        ],
-        [
-          "Samples/Processed/Freeze/Freeze Bell Loop [2026-11-13 015811].wav",
-          12856120
-        ],
-        [
-          "Samples/Processed/Freeze/Freeze Juno-60 Bright [2026-11-13 015811].wav",
-          88358520
-        ],
-        [
-          "Samples/Processed/Freeze/Freeze Juno-60 Mellow [2026-11-13 015811].wav",
-          103289800
-        ],
-        [
-          "Samples/Processed/Freeze/Freeze LinnDrum [2026-11-13 015811].wav",
-          19627520
-        ]
+        {
+          "path": "Next Christmas.als",
+          "size": 593353
+        },
+        {
+          "path": "Samples/Processed/Freeze/Freeze Bass [2026-11-13 015811].wav",
+          "src": "Samples/Processed/Freeze/Freeze Bass [2026-11-13 015811].m4a",
+          "size": 1314184,
+          "frames": 2356416
+        },
+        {
+          "path": "Samples/Processed/Freeze/Freeze Bell Loop [2026-11-13 015811].wav",
+          "src": "Samples/Processed/Freeze/Freeze Bell Loop [2026-11-13 015811].m4a",
+          "size": 1213808,
+          "frames": 1607005
+        },
+        {
+          "path": "Samples/Processed/Freeze/Freeze Juno-60 Bright [2026-11-13 015811].wav",
+          "src": "Samples/Processed/Freeze/Freeze Juno-60 Bright [2026-11-13 015811].m4a",
+          "size": 8217703,
+          "frames": 11044805
+        },
+        {
+          "path": "Samples/Processed/Freeze/Freeze Juno-60 Mellow [2026-11-13 015811].wav",
+          "src": "Samples/Processed/Freeze/Freeze Juno-60 Mellow [2026-11-13 015811].m4a",
+          "size": 9685140,
+          "frames": 12911215
+        },
+        {
+          "path": "Samples/Processed/Freeze/Freeze LinnDrum [2026-11-13 015811].wav",
+          "src": "Samples/Processed/Freeze/Freeze LinnDrum [2026-11-13 015811].m4a",
+          "size": 1866049,
+          "frames": 2453430
+        }
       ]
     }
   ]

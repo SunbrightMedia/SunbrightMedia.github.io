@@ -223,7 +223,9 @@ async function gunzipText(bytes) {
   return new TextDecoder('utf-8').decode(raw);
 }
 
+let filesSrc = null;
 function indexFiles(out) {
+  filesSrc = out;
   files = new Map(Object.entries(out));
   filesLower = new Map();
   for (const p of files.keys()) {
@@ -623,10 +625,19 @@ function pcmSource(dv, off, size, ch, sr, bits, float, le) {
 }
 
 let decodeCtx = null;
-async function getSource(path) {
-  if (!path) return null;
-  if (sources.has(path)) return sources.get(path);
-  const bytes = files.get(path);
+const sourceLoads = new Map();   // path -> promise of its source, while it is being read
+function getSource(path) {
+  if (!path) return Promise.resolve(null);
+  if (sources.has(path)) return Promise.resolve(sources.get(path));
+  if (!sourceLoads.has(path)) {
+    const pr = readSource(path).then(src => { sourceLoads.delete(path); if (src || !pendingFiles.has(path)) sources.set(path, src); return src; });
+    sourceLoads.set(path, pr);
+  }
+  return sourceLoads.get(path);
+}
+async function readSource(path) {
+  let bytes = files.get(path);
+  if (!bytes && pendingFiles.has(path)) bytes = await pendingFiles.get(path);   // still downloading: wait for it
   if (!bytes) return null;
   let src = null;
   try { src = parsePCM(bytes); } catch (e) { src = null; }
@@ -635,18 +646,23 @@ async function getSource(path) {
       decodeCtx ||= new OfflineAudioContext(1, 1, 44100);
       const copy = bytes.slice().buffer;
       const buf = await decodeCtx.decodeAudioData(copy);
+      // AAC starts with 1024 samples of encoder priming, which Chromium, Firefox and WebKit drop (the file's edit list;
+      // measured: the decoded audio lines up with the original to 1 sample). A decoder that keeps them gives a longer
+      // buffer than the original: skip them there.
+      const want = expectFrames.get(path);
+      const skip = want && buf.length - want >= 1024 ? 1024 : 0;
+      const frames = want ? Math.min(want, buf.length - skip) : buf.length;
       src = {
-        kind: 'decoded', sr: buf.sampleRate, ch: buf.numberOfChannels, frames: buf.length,
+        kind: 'decoded', sr: buf.sampleRate, ch: buf.numberOfChannels, frames,
         read(start, count) {
-          start = Math.max(0, Math.floor(start)); count = Math.max(0, Math.min(Math.floor(count), buf.length - start));
+          start = Math.max(0, Math.floor(start)); count = Math.max(0, Math.min(Math.floor(count), frames - start));
           const out = [];
-          for (let c = 0; c < buf.numberOfChannels; c++) out.push(buf.getChannelData(c).slice(start, start + count));
+          for (let c = 0; c < buf.numberOfChannels; c++) out.push(buf.getChannelData(c).slice(skip + start, skip + start + count));
           return out;
         },
       };
     } catch (e) { src = null; }
   }
-  sources.set(path, src);
   return src;
 }
 
@@ -3481,37 +3497,58 @@ async function loadUrl(parts, label) {
   await loadZipBytes(all, label);
 }
 
-// A project in projects/manifest.json is a zip ({ file } or, split, { parts }) or a folder of files ({ folder, files:
-// [[path inside the folder, size in bytes], ...] }). A folder's files are downloaded into the same file index a zip
-// gives, under the folder's own name, so the Set and its samples resolve the same way.
+// A project in projects/manifest.json is a zip ({ file } or, split, { parts }) or a folder of files ({ folder, files }).
+// A folder's files are { path (as the Set refers to it), src (the file on the site, if it differs: e.g. the audio
+// compressed to AAC), size, frames (the original's length, for the AAC priming check) } (or [path, size]). The Set is
+// downloaded first and shown at once; the audio files download in parallel behind it and are decoded as they arrive.
 function fetchProject(p) { return p.folder ? loadFolder(p) : loadUrl(p.parts || [p.file], p.name); }
+async function download(url, size, onBytes) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Couldn't download ${decodeURIComponent(url.split('/').pop())} (${res.status})`);
+  const reader = res.body.getReader(), chunks = [];
+  let bytes = size ? new Uint8Array(size) : null, n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (bytes && n + value.length <= bytes.length) bytes.set(value, n); else { if (bytes) { chunks.push(bytes.subarray(0, n)); bytes = null; } chunks.push(value); }
+    n += value.length; onBytes && onBytes(value.length);
+  }
+  if (bytes && n === bytes.length) return bytes;
+  if (bytes) chunks.unshift(bytes.subarray(0, n));
+  const all = new Uint8Array(n); let o = 0;
+  for (const c of chunks) { all.set(c, o); o += c.length; }
+  return all;
+}
+let pendingFiles = new Map(), expectFrames = new Map();
 async function loadFolder(p) {
   if (engine.playing) engine.stop(true);
   const root = p.folder.replace(/\/+$/, ''), top = root.split('/').pop();
-  const total = p.files.reduce((a, f) => a + (f[1] || 0), 0), out = {};
+  const list = p.files.map(f => Array.isArray(f) ? { path: f[0], size: f[1] } : f);
+  const url = f => root.split('/').concat((f.src || f.path).split('/')).map(encodeURIComponent).join('/');
+  const isSet = f => /\.als$/i.test(f.path);
+  const out = {};
+  // the Set first, alone (so it is not slowed by the audio)
+  const sets = list.filter(isSet), total = sets.reduce((a, f) => a + (f.size || 0), 0);
   let got = 0;
-  for (const [rel, size] of p.files) {
-    const url = root.split('/').concat(rel.split('/')).map(encodeURIComponent).join('/');
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Couldn't download ${rel} (${res.status})`);
-    const reader = res.body.getReader(), chunks = [];
-    let bytes = size ? new Uint8Array(size) : null, n = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (bytes && n + value.length <= bytes.length) bytes.set(value, n); else { bytes = null; chunks.push(value); }
-      n += value.length; got += value.length;
-      progressDialog(`Downloading ${p.name}… ${(got / 1048576).toFixed(1)} MB`, total ? got / total : null);
-    }
-    if (!bytes || n !== bytes.length) {   // the size in the manifest was wrong: join what arrived
-      const all = new Uint8Array(n); let o = 0;
-      if (bytes) { all.set(bytes.subarray(0, Math.min(n, bytes.length))); o = Math.min(n, bytes.length); }
-      for (const c of chunks) { all.set(c, o); o += c.length; }
-      bytes = all;
-    }
-    out[top + '/' + rel] = bytes;
+  for (const f of sets) out[top + '/' + f.path] = await download(url(f), f.size, n => {
+    got += n; progressDialog(`Downloading ${p.name}… ${(got / 1048576).toFixed(1)} MB`, total ? got / total : null);
+  });
+  // then the audio, in parallel: every file is known before the Set is read (its clips resolve to it), its bytes
+  // arrive later and each file is decoded as soon as it is in
+  pendingFiles = new Map(); expectFrames = new Map();
+  for (const f of list.filter(f => !isSet(f))) {
+    const k = top + '/' + f.path;
+    out[k] = null;
+    if (f.frames) expectFrames.set(k, f.frames);
+    pendingFiles.set(k, download(url(f), f.size).then(bytes => {
+      out[k] = bytes;
+      if (filesSrc === out) files.set(k, bytes);
+      return bytes;
+    }, err => { console.error(err); return null; }));
   }
   await openFiles(out, p.name);
+  if (filesSrc !== out) return;
+  for (const [k, pr] of pendingFiles) pr.then(() => { if (filesSrc === out) getSource(k).then(() => drawAll()); });
 }
 
 async function loadZipBytes(bytes, label) {
@@ -3521,6 +3558,7 @@ async function loadZipBytes(bytes, label) {
     progressDialog(`Unpacking ${label}…`, null);
     await new Promise(r => setTimeout(r, 30));
     out = await unzip(bytes);
+    pendingFiles = new Map(); expectFrames = new Map();
   } catch (err) {
     console.error(err);
     openDialog(`<span class="err">${String(err.message || err).replace(/</g, '&lt;')}</span>`);
