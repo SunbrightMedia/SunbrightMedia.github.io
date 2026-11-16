@@ -1856,25 +1856,33 @@ const lanesCanvas = $('#lanes-canvas'), pinCanvas = $('#pinned-canvas'), rulerCa
 // CPU-backed contexts make that read-back cheap (measured, s5_perf.js: lane drags at DPR 2 were 33 ms frames)
 for (const cv of [lanesCanvas, pinCanvas, rulerCanvas, songCanvas, ovCanvas]) cv?.getContext('2d', { willReadFrequently: true });
 const DPR = () => window.devicePixelRatio || 1;
+// Assigning a canvas's width or height clears it, even to the same value, so they are only assigned when they change
+// (sizeCanvas.changed tells whether this call did). Every draw function clears its own canvas first.
 function sizeCanvas(cv, w, h) {
-  const d = DPR();
-  cv.width = Math.max(1, Math.round(w * d)); cv.height = Math.max(1, Math.round(h * d));
-  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  const d = DPR(), W = Math.max(1, Math.round(w * d)), H = Math.max(1, Math.round(h * d));
+  sizeCanvas.changed = cv.width !== W || cv.height !== H;
+  if (cv.width !== W) cv.width = W;
+  if (cv.height !== H) cv.height = H;
+  if (cv.style.width !== w + 'px') cv.style.width = w + 'px';
+  if (cv.style.height !== h + 'px') cv.style.height = h + 'px';
   const ctx = cv.getContext('2d'); ctx.setTransform(d, 0, 0, d, 0, 0); return ctx;
 }
 function lanesWidth() { return Math.max(1, $('#arrangement').clientWidth - HW); }
+// returns true when a canvas changed size (and so was cleared)
 function layoutCanvases() {
   const w = lanesWidth();
+  let changed = false;
   for (const [cv, sc] of [[lanesCanvas, $('#tracks')], [pinCanvas, $('#pinned')]]) {
     const h = sc.clientHeight;
-    sizeCanvas(cv, w, h);
+    sizeCanvas(cv, w, h); changed ||= sizeCanvas.changed;
     cv.style.marginBottom = -h + 'px';
   }
   $('#ruler').style.width = w + 'px';
-  sizeCanvas(rulerCanvas, w, 45);
-  sizeCanvas(songCanvas, w, 21);
-  sizeCanvas(ovCanvas, $('#arrangement').clientWidth, 14);
+  sizeCanvas(rulerCanvas, w, 45); changed ||= sizeCanvas.changed;
+  sizeCanvas(songCanvas, w, 21); changed ||= sizeCanvas.changed;
+  sizeCanvas(ovCanvas, $('#arrangement').clientWidth, 14); changed ||= sizeCanvas.changed;
   checkTracksFit();
+  return changed;
 }
 // The Main row's mixer controls sit 3 px right of the returns' after loading a Set, until the track area's "content fits"
 // state first changes. Traced in Live 12.0:
@@ -2611,8 +2619,12 @@ let rafPending = false;
 function drawAll() {
   if (!set || rafPending) return;
   rafPending = true;
-  requestAnimationFrame(() => {
-    rafPending = false;
+  requestAnimationFrame(() => { rafPending = false; drawNow(); });
+}
+// draws everything at once; used directly after canvases were resized, so the cleared canvases are never shown
+function drawNow() {
+  if (!set) return;
+  {
     // The Arrangement starts at bar 1 and ends at the range end (clampScroll, 0x1437ff5e0)
     updateExtent(); clampScroll(); updateLocatorArrows();
     const tr = $('#tracks'), pn = $('#pinned');
@@ -2633,8 +2645,7 @@ function drawAll() {
     gridStep();
     const gv = view.grid;
     $('#oneone').textContent = gv[1] === GRID_OFF ? '' : gv[1] === 1 ? (gv[0] === 1 ? '1/1' : `${gv[0]} Bars`) : `1/${gv[1] / gv[0]}`;
-
-  });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2776,7 +2787,7 @@ const engine = {
     const need = new Set();
     for (const t of set.tracks) for (const c of this.playClips(t)) if (c.file && !c.disabled) need.add(c.file);
     // (Live's status bar shows nothing while starting playback, so neither do we)
-    for (const p of need) await getSource(p);
+    for (const p of need) if (!pendingFiles.has(p)) await getSource(p);   // a project's files still downloading join later (addLate)
     this.playing = true;
     $('#cb-play').classList.add('playing');
     this.t0 = this.ctx.currentTime + 0.1;
@@ -2815,6 +2826,18 @@ const engine = {
     return seg;
   },
   ctxAt(seg, beat) { return seg.ctx0 + tempoMap.sec(beat) - tempoMap.sec(seg.b0); },
+  // an audio file that arrives while the song plays: its clips join in time, from the current position on (schedule()
+  // starts a piece that is already under way at the right point and drops pieces that are over)
+  addLate(path, src) {
+    if (!this.playing || !src) return;
+    for (const seg of this.segs) for (const t of set.tracks) for (const c of this.playClips(t)) {
+      if (c.disabled || c.file !== path) continue;
+      const a = Math.max(c.start, seg.b0), b = Math.min(c.end, seg.b1);
+      if (b > a) this.addPieces(t, c, src, seg, a, b);
+    }
+    this.queue.sort((x, y) => x.when - y.when);
+    this.tick();
+  },
   addPieces(t, c, src, seg, a, b) {
     const tempoVaries = !!tempoMap.events;
     let d = a - c.start;
@@ -3344,7 +3367,13 @@ function layoutControlBar() {
   for (const n of ['MIDI Track In Indicator', 'MIDI Track Out Indicator']) put(I(n), cpu + (c2 ? 80 : 88), iw);
 }
 
-function layoutAfterResize() { clampPanels(); layoutControlBar(); if (set) { layoutCanvases(); view.range = Math.max(view.range ?? 0, bOf(lanesWidth() - 1)); drawAll(); } }
+function layoutAfterResize() {
+  clampPanels(); layoutControlBar();
+  if (!set) return;
+  const resized = layoutCanvases();
+  view.range = Math.max(view.range ?? 0, bOf(lanesWidth() - 1));
+  if (resized) drawNow(); else drawAll();   // a resized canvas is blank until drawn: draw it before the browser paints
+}
 function focusPanel(id) {
   for (const p of ['browser', 'arrangement', 'detail']) $('#' + p).classList.toggle('focused', p === id);
 }
@@ -3533,22 +3562,38 @@ async function loadFolder(p) {
   for (const f of sets) out[top + '/' + f.path] = await download(url(f), f.size, n => {
     got += n; progressDialog(`Downloading ${p.name}… ${(got / 1048576).toFixed(1)} MB`, total ? got / total : null);
   });
-  // then the audio, in parallel: every file is known before the Set is read (its clips resolve to it), its bytes
-  // arrive later and each file is decoded as soon as it is in
+  // then the audio. Every file is known before the Set is read (its clips resolve to it); its bytes come later.
   pendingFiles = new Map(); expectFrames = new Map();
-  for (const f of list.filter(f => !isSet(f))) {
+  const audio = list.filter(f => !isSet(f)).map(f => {
     const k = top + '/' + f.path;
     out[k] = null;
     if (f.frames) expectFrames.set(k, f.frames);
-    pendingFiles.set(k, download(url(f), f.size).then(bytes => {
-      out[k] = bytes;
-      if (filesSrc === out) files.set(k, bytes);
-      return bytes;
-    }, err => { console.error(err); return null; }));
-  }
+    let resolve; pendingFiles.set(k, new Promise(r => { resolve = r; }));
+    return { f, k, resolve };
+  });
   await openFiles(out, p.name);
-  if (filesSrc !== out) return;
-  for (const [k, pr] of pendingFiles) pr.then(() => { if (filesSrc === out) getSource(k).then(() => drawAll()); });
+  if (filesSrc !== out) { for (const a of audio) a.resolve(null); return; }
+  // the files the song needs first are downloaded first (by the earliest clip using each), three at a time; each is
+  // decoded as soon as it is in and, if the song is already playing, joins in time (engine.addLate)
+  const first = new Map();
+  for (const t of [...set.tracks, ...set.returns]) for (const c of [...t.clips, ...t.freezeClips])
+    if (c.file) first.set(c.file, Math.min(first.get(c.file) ?? Infinity, c.start));
+  audio.sort((x, y) => (first.get(x.k) ?? Infinity) - (first.get(y.k) ?? Infinity));
+  let next = 0;
+  const worker = async () => {
+    while (next < audio.length) {
+      const a = audio[next++];
+      let bytes = null;
+      if (filesSrc === out) { try { bytes = await download(url(a.f), a.f.size); } catch (e) { console.error(e); } }
+      out[a.k] = bytes;
+      if (bytes && filesSrc === out) {
+        files.set(a.k, bytes);
+        getSource(a.k).then(src => { if (filesSrc === out) { drawAll(); engine.addLate(a.k, src); } });
+      }
+      a.resolve(bytes);
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
 }
 
 async function loadZipBytes(bytes, label) {
