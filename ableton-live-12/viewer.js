@@ -2116,7 +2116,8 @@ function drawLanes(ctx, list, scrollTop, viewH, pinned) {
     }
     ctx.fillStyle = C.area; ctx.fillRect(0, y + h, w, SEP);
     // the insert marker's cursor line in the selected track
-    if (t === selected && !engine.playing && !pinned && !view.tsel) cursorAt = { x: Math.round(xOf(view.insert)), y, h };
+    // (also while the song plays: a click then only moves the insert marker, playback carries on)
+    if (t === selected && !pinned && !view.tsel) cursorAt = { x: Math.round(xOf(view.insert)), y, h };
   }
   if (pinned) { ctx.fillStyle = C.area; ctx.fillRect(0, 0, w, 3); }
   // the play line (while playing, and after Stop until the insert marker moves), drawn before the drop hint: in the
@@ -3450,7 +3451,7 @@ function setInsert(b) {
   // 11 for 0, 49 for the others). The running Wine copy shows it on Alert only because its unauthorized-warning set the
   // bar to state 3 earlier and a level-0 one-shot does not restyle it (no call to either style function on later clicks).
   insertStatus(b);
-  if (engine.playing) engine.play(b);
+  // while the song plays, a click only moves the insert marker: playback carries on (Live)
   drawAll();
 }
 function insertStatus(b) {
