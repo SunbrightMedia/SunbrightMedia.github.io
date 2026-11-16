@@ -79,6 +79,8 @@
     /* hover (measured in Live 12): boxed controls lighten by mixing in 25.7% white; transport icons grow */
     .cb.hv:hover { background: color-mix(in srgb, var(--TransportOffBackground) 74.3%, #fff); }
     .cb.hv.on:hover { background: color-mix(in srgb, var(--ChosenDefault) 74.3%, #fff); }
+    /* Follow paused by a sideways scroll during playback: Alert (running Live: #e76942) */
+    #cb-follow.on.paused { background: var(--Alert); }
     /* pressed states read off the running Live (mouse held): the nudge buttons light up like a switched-on button
        (ChosenDefault lightened, ControlOnForeground icon); Play / Stop / Record drop their hover drawing */
     #controlbar [data-info^="Phase Nudge"]:active { background: color-mix(in srgb, var(--ChosenDefault) 74.3%, #fff); color: var(--ControlOnForeground); }
@@ -419,6 +421,6 @@
   <script src="icons-hidpi.js?v=d00d666705"></script>
   <script src="vendor/fflate.js?v=da51e00555"></script>
   <script src="livetext.js?v=5c77060691"></script>
-  <script src="viewer.js?v=7e319ee5b9"></script>
+  <script src="viewer.js?v=5e710de8ef"></script>
 </body>
 </html>
