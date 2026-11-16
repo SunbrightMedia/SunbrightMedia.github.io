@@ -1,0 +1,60 @@
+{
+    "name":  "Last Christmas Project.zip",
+    "size":  226098619,
+    "parts":  [
+                  {
+                      "path":  "Last-Christmas-Project/part-0001",
+                      "offset":  0,
+                      "length":  26214400,
+                      "sha":  "2ad0f59e6b9b295c034e56f32ce29b59b0bc438d"
+                  },
+                  {
+                      "path":  "Last-Christmas-Project/part-0002",
+                      "offset":  26214400,
+                      "length":  26214400,
+                      "sha":  "2636593b002d551936ecfa84073e8421d2cc7157"
+                  },
+                  {
+                      "path":  "Last-Christmas-Project/part-0003",
+                      "offset":  52428800,
+                      "length":  26214400,
+                      "sha":  "c37e139c268460ff4ae8526155a8b9177b5d4d0a"
+                  },
+                  {
+                      "path":  "Last-Christmas-Project/part-0004",
+                      "offset":  78643200,
+                      "length":  26214400,
+                      "sha":  "2183411187a49c4e148a1fbf66e316b3b1a168b0"
+                  },
+                  {
+                      "path":  "Last-Christmas-Project/part-0005",
+                      "offset":  104857600,
+                      "length":  26214400,
+                      "sha":  "2c42b3f3b11ef3cad44b8301eefbc97bc80cb68a"
+                  },
+                  {
+                      "path":  "Last-Christmas-Project/part-0006",
+                      "offset":  131072000,
+                      "length":  26214400,
+                      "sha":  "c9ba039ab42d04498a1bb9b8cafec452b93d411a"
+                  },
+                  {
+                      "path":  "Last-Christmas-Project/part-0007",
+                      "offset":  157286400,
+                      "length":  26214400,
+                      "sha":  "eb463bcc1574701f61fa8c43198e8b368ecc9ee3"
+                  },
+                  {
+                      "path":  "Last-Christmas-Project/part-0008",
+                      "offset":  183500800,
+                      "length":  26214400,
+                      "sha":  "e11cebc4778b3b5412f06c2fa5c66a2988b9d10f"
+                  },
+                  {
+                      "path":  "Last-Christmas-Project/part-0009",
+                      "offset":  209715200,
+                      "length":  16383419,
+                      "sha":  "662bf7aeb685bcd9ac8c309158343c7f445c86ab"
+                  }
+              ]
+}
