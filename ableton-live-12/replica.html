@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Untitled - Ableton Live 12 Suite</title>
+  <link rel="icon" href="images/live-app-32.png">
+  <script src="themes.js?v=e50b40f011"></script>
+  <script>
+    // Every UI colour comes from Live's own theme file (default: the Live 12 default theme,
+    // "Default Dark Neutral Medium"). ?theme=<name> picks another of Live's 18 themes.
+    (function () {
+      var want = new URLSearchParams(location.search).get('theme');
+      var name = want && LIVE_THEMES[want] ? want : 'Default Dark Neutral Medium';
+      var t = LIVE_THEMES[name], s = document.documentElement.style;
+      for (var k in t) if (typeof t[k] === 'string' && t[k][0] === '#') s.setProperty('--' + k, t[k]);
+      window.THEME = t; window.THEME_NAME = name;
+    })();
+  </script>
+  <style>
+    /* Vertical metrics are pinned to whole pixels at the sizes used (10px: ascent 9 / descent 3, 9px: 8 / 2,
+       18px Light: 17 / 5, Segoe UI 12px: 13 / 3), so every browser and OS puts each baseline on the same pixel row.
+       Without this, Windows (DirectWrite) and Linux/macOS round the fonts' 940/260 per-mille metrics differently
+       and text shifts by a pixel or more inside its box. */
+    @font-face { font-family: "Ableton Sans Small"; src: url(fonts/AbletonSansSmall-Regular.ttf); ascent-override: 90%; descent-override: 30%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Small"; font-weight: bold; src: url(fonts/AbletonSansSmall-Bold.ttf); ascent-override: 90%; descent-override: 30%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Small"; font-style: italic; src: url(fonts/AbletonSansSmall-RegularItalic.ttf); ascent-override: 90%; descent-override: 30%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Small 9"; src: url(fonts/AbletonSansSmall-Regular.ttf); ascent-override: 88.8889%; descent-override: 22.2222%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Small 9"; font-weight: bold; src: url(fonts/AbletonSansSmall-Bold.ttf); ascent-override: 88.8889%; descent-override: 22.2222%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Small 9"; font-style: italic; src: url(fonts/AbletonSansSmall-RegularItalic.ttf); ascent-override: 88.8889%; descent-override: 22.2222%; line-gap-override: 0%; }
+    @font-face { font-family: "Ableton Sans Light"; src: url(fonts/AbletonSans-Light.ttf); ascent-override: 94.4444%; descent-override: 27.7778%; line-gap-override: 0%; }
+    @font-face { font-family: "Segoe UI Live"; src: url(../fonts/segoeui.ttf); ascent-override: 108.3333%; descent-override: 25%; line-gap-override: 0%; }
+    :root { --font: "Ableton Sans Small", sans-serif; }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }  /* stop iOS enlarging text on its own */
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--Desktop); color: var(--ControlForeground);
+      font: 10px/1 var(--font); user-select: none;
+      /* Live draws text with ClearType on Windows, which inks glyphs ~13% heavier than Chromium's greyscale
+         antialiasing; a 0.15 px stroke matches the measured ink weight. */
+      -webkit-text-stroke: 0.15px currentColor; -webkit-user-select: none; }
+    button { font: inherit; color: inherit; }
+    .abs { position: absolute; }
+    /* icons traced from the reference screenshot (icons.js), drawn as crisp SVG / canvas */
+    .ic { position: absolute; left: 0; top: 0; pointer-events: none; }
+    svg.ic { shape-rendering: crispEdges; overflow: visible; }
+
+    /* Geometry: measured from a 1920×1041 Live 12 window (Windows, 100% scale, default theme). */
+    #app { position: fixed; inset: 0; min-width: 1100px; min-height: 600px;
+      --bw: 287px;   /* browser width (drag the gap right of it) */
+      --sbw: 100px;  /* browser sidebar width (drag the browser's middle divider) */
+      --iw: 210px;   /* Info View width (drag the dotted handle) */
+      --dh: 188px;   /* height of the Info/Detail row (drag the gap above it) */ }
+    /* No Windows title bar: the page starts at Live's menu bar (layout below is measured with it, so shift up by its 23px) */
+    #app { top: -23px; }
+    #titlebar { display: none !important; }
+
+    /* ---------- Windows title bar + Live's menu bar ---------- */
+    #titlebar { position: absolute; left: 0; right: 0; top: 0; height: 23px; background: #000; color: #fff; font: 12px/23px "Segoe UI Live", "Segoe UI", sans-serif; }
+    #titlebar img { position: absolute; left: 3px; top: 4px; width: 15px; height: 15px; }
+    #win-title { position: absolute; left: 23px; top: 0; white-space: nowrap; }
+    #titlebar .tbb { position: absolute; top: 0; width: 46px; height: 23px; color: #fff; }
+    #menubar { position: absolute; left: 0; right: 0; top: 23px; height: 20px; background: #fff; color: #000; font: 12px/18px "Segoe UI Live", "Segoe UI", sans-serif; border-bottom: 1px solid #f0f0f0; box-shadow: inset 0 -2px 0 #f2f2f2; }
+    #menubar span { position: absolute; top: 0; }
+
+    /* ---------- Control bar ---------- */
+    #controlbar { position: absolute; left: 0; right: 0; top: 43px; height: 45px; }
+    #controlbar .grp { position: absolute; top: 0; height: 45px; }
+    .cb { position: absolute; top: 15px; height: 17px; padding-top: 1px; background: var(--TransportOffBackground); color: var(--TransportOffForeground); line-height: 17px; white-space: pre; }
+    .cb.ghost { background: transparent; }
+    .cb.on { background: var(--ChosenDefault); color: var(--ControlOnForeground); }
+    .cb.dim { color: var(--ControlOffDisabledForeground); }
+    .cb.c { text-align: center; }
+    .cb .t { position: absolute; top: 1px; }
+    .cb .r { position: absolute; top: 1px; text-align: right; }
+    .cb.half { height: 8px; }
+    .hit { position: absolute; top: 0; bottom: 0; }
+    /* playing: the Play triangle turns ChosenPlay green (Ableton press screenshot 5) */
+    #cb-play.playing { color: var(--ChosenPlay); }
+    /* hover (measured in Live 12): boxed controls lighten by mixing in 25.7% white; transport icons grow */
+    .cb.hv:hover { background: color-mix(in srgb, var(--TransportOffBackground) 74.3%, #fff); }
+    .cb.hv.on:hover { background: color-mix(in srgb, var(--ChosenDefault) 74.3%, #fff); }
+    /* Follow paused by a sideways scroll during playback: Alert (running Live: #e76942) */
+    #cb-follow.on.paused { background: var(--Alert); }
+    /* pressed states read off the running Live (mouse held): the nudge buttons light up like a switched-on button
+       (ChosenDefault lightened, ControlOnForeground icon); Play / Stop / Record drop their hover drawing */
+    #controlbar [data-info^="Phase Nudge"]:active { background: color-mix(in srgb, var(--ChosenDefault) 74.3%, #fff); color: var(--ControlOnForeground); }
+    .cb.ghost:active .hov { display: none; }
+    .cb.ghost:active .nhov { display: block; }
+    /* hovering the metronome lights only its switch part, not the settings menu's triangle (running Live) */
+    .cb.hv[data-info="Metronome"]:has(.hit[data-info="Metronome"]:hover) { background: linear-gradient(to right, color-mix(in srgb, var(--TransportOffBackground) 74.3%, #fff) var(--mw, 28px), var(--TransportOffBackground) var(--mw, 28px)); }
+    #cb-scale-btn.hv:hover { background: color-mix(in srgb, var(--ScaleAwareness) 74.3%, #fff); }
+    .cb .hov, .cb:hover .nhov { display: none; }
+    .cb:hover .hov { display: block; }
+    .cb .seg { position: absolute; top: 2px; width: 18px; height: 13px; }
+    .cb .seg:hover { background: color-mix(in srgb, var(--TransportOffBackground) 74.3%, #fff); }
+    /* fold button hover: the circle's inside lightens (white overlay traced from Live 12) */
+    .fold-hit { position: absolute; left: 0; top: 0; width: 18px; height: 17px; color: #fff; }
+    .fold-hit .ic { visibility: hidden; }
+    .fold-hit:hover .ic { visibility: visible; }
+    #cb-scale-btn { background: var(--ScaleAwareness); color: var(--ControlOnForeground); }
+    .clickable { cursor: default; }
+
+    /* ---------- Panels ---------- */
+    .panel { position: absolute; background: var(--SurfaceBackground); border-radius: 3px; overflow: hidden; }
+    #browser { left: 9px; top: 90px; width: var(--bw); bottom: calc(var(--dh) + 47px); }
+    #arrangement { left: calc(var(--bw) + 18px); right: 9px; top: 90px; bottom: calc(var(--dh) + 47px); border-radius: 3px; overflow: visible; }
+    /* the focused view (last clicked: browser, Arrangement or Detail View) gets a 2 px MainViewFocusIndicator outline */
+    .panel.focused { outline: 2px solid var(--MainViewFocusIndicator); overflow: visible; }
+    #browser.focused, #detail.focused { overflow: hidden; outline-offset: 0; }
+    #insert-cursor { position: absolute; left: 0; width: 1px; display: none; pointer-events: none; z-index: 2;
+      animation: insert-pulse 0.6s linear infinite alternate; }
+    @keyframes insert-pulse { from { background: var(--RangeDefault); } to { background: #fff; } }
+    #info { left: 9px; width: var(--iw); bottom: 38px; height: var(--dh); }
+    #detail { left: calc(var(--iw) + 18px); right: 9px; bottom: 38px; height: var(--dh); }
+    #splitter { position: absolute; left: calc(var(--iw) + 11px); bottom: calc(var(--dh) - 110px); width: 5px; height: 108px; }
+    #splitter i.bar { position: absolute; width: 2px; background: var(--MeterBackground); }
+    /* Show/hide states (Control Bar browser toggle, status bar Info View toggle and Device View selector) */
+    #app.no-browser #browser { display: none; }
+    #app.no-browser #arrangement { left: 9px; }
+    #app.no-info #info, #app.no-info #splitter { display: none; }
+    #app.no-info #detail { left: 9px; }
+    /* hiding the Device View removes the whole bottom row, Info View included (measured in Live 12) */
+    #app.no-detail #detail, #app.no-detail #splitter, #app.no-detail #info { display: none; }
+    #app.no-detail #browser { bottom: 38px; }
+    /* with the Info View hidden, a small 2-bar meter sits in the left margin of the bottom row (Live 12) */
+    #info-meter { position: absolute; left: 2px; width: 5px; height: 108px; bottom: calc(38px + (var(--dh) - 108px) / 2); display: none; }
+    #info-meter i.bar { position: absolute; width: 2px; background: var(--MeterBackground); }
+    #app.no-info:not(.no-detail) #info-meter { display: block; }
+    #app.no-detail #arrangement { bottom: 38px; }
+    #app.no-detail.no-browser:not(.no-info) #arrangement { bottom: calc(var(--dh) + 47px); }
+    #app.no-info.no-detail #browser { bottom: 38px; }
+    /* drag handles in the 9 px gaps between panels */
+    .grip { position: absolute; z-index: 5; }
+    #grip-browser { top: 90px; width: 9px; left: calc(var(--bw) + 9px); bottom: calc(var(--dh) + 47px); cursor: col-resize; }
+    #app.no-detail.no-info #grip-browser { bottom: 38px; }
+    #app.no-browser #grip-browser { left: 0; }  /* a closed browser is reopened by dragging the Arrangement's left edge */
+    /* Live's own cursors (captured from the running Live 12): magnifier over the overview and the bar-number band,
+       speaker (scrub) over the lower ruler strip. Resize cursors are the system ones, as in Live. */
+    #overview, #ruler-zoom { cursor: url(cursors/zoom.png) 6 6, zoom-in; }
+    #ruler-scrub { cursor: url(cursors/scrub.png) 7 8, default; }
+    /* the Beat-Time Ruler's hover area starts 5 px below the ruler's top (running Live: rows 81..85 have no text) */
+    #ruler-zoom { position: absolute; left: 0; right: 0; top: 5px; height: 17px; }
+    #ruler-scrub { position: absolute; left: 0; right: 0; top: 22px; height: 23px; }
+    #grip-sidebar { top: 23px; bottom: 0; width: 4px; left: calc(var(--sbw) - 1px); cursor: col-resize; z-index: 5; }
+
+    /* ---------- Browser ---------- */
+    #browser .bar { position: absolute; left: 0; right: 0; top: 0; height: 21px; }
+    #browser .sep { position: absolute; background: var(--SurfaceArea); }
+    #browser .hint { position: absolute; left: 48px; top: 1px; line-height: 21px; color: var(--BrowserBarOverlayHintTextColor); }
+    #sidebar { position: absolute; left: 0; top: 23px; width: var(--sbw); bottom: 0; overflow: hidden; }
+    .sbrow { position: absolute; left: 0; width: var(--sbw); height: 18px; line-height: 18px; white-space: nowrap; overflow: hidden; }
+    .sbrow .l { position: absolute; left: 25px; right: 8px; top: 0; overflow: hidden; }   /* labels are cut at x 100 (running Live: "Current Proje") */
+    .sbrow.cat .l { left: 5px; color: var(--TreeRowCategoryForeground); }
+    .sbrow.sel { background: var(--StandbySelectionBackground); color: var(--StandbySelectionForeground); }
+    .sbrow.dis { color: var(--BrowserDisabledItem); }
+    #filters { position: absolute; left: calc(var(--sbw) + 2px); right: 0; top: 23px; }
+    #browser.filters-hidden #filters .frow:not(:first-child) { display: none; }
+    #browser.filters-hidden #br-namehead { top: 43px !important; }
+    #br-ftoggle { cursor: default; }
+    /* Filters hidden: the disclosure triangle turns to point right, the same ▼/▶ convention Live uses for track
+       fold buttons (images/1.png and the manual's Track Controls figure). Not seen in a reference: unverified. */
+    #browser.filters-hidden #br-ftoggle .ic { transform: rotate(-90deg); transform-origin: 7.5px 8.5px; }
+    .frow { position: absolute; left: 0; right: 0; height: 19px; line-height: 19px; }
+    .frow .l { position: absolute; left: 5px; top: 1px; white-space: nowrap; }
+    .frow.line { height: 1px; background: var(--Desktop); }
+    #br-edit { position: absolute; right: 3px; top: 3px; width: 38px; height: 13px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); line-height: 13px; }
+    #br-namehead { position: absolute; left: calc(var(--sbw) + 2px); right: 0; height: 19px; background: var(--TreeColumnHeadBackground); color: var(--TreeColumnHeadForeground); line-height: 19px; }
+    #br-list { position: absolute; left: calc(var(--sbw) + 2px); right: 0; top: 344px; bottom: 22px; overflow-x: hidden; overflow-y: auto; }
+    #browser.filters-hidden #br-list { top: 62px; }
+    .brow { position: relative; height: 19px; line-height: 19px; white-space: nowrap; overflow: hidden; }
+    .brow .l { position: absolute; left: 5px; right: 4px; top: 0; overflow: hidden; }
+    .brow.sel { background: var(--StandbySelectionBackground); color: var(--StandbySelectionForeground); }
+    #br-namehead .bar1 { position: absolute; right: 10px; top: 4px; width: 1px; height: 11px; background: var(--TreeColumnHeadControl); }
+
+    /* ---------- Arrangement ---------- */
+    #overview { position: absolute; left: 0; top: 0; }
+    #ruler { position: absolute; left: 0; top: 14px; height: 45px; }
+    #ruler canvas { position: absolute; left: 0; top: 0; }
+    #ruler-side { position: absolute; right: 0; top: 14px; height: 45px; width: 292px; background: var(--SurfaceBackground); }
+    #ruler-side .sidesep { position: absolute; left: 0; bottom: 0; width: 1px; height: 0; }
+    .pill { position: absolute; height: 13px; border-radius: 6.5px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); text-align: center; line-height: 13px; padding-top: 1px; }
+    .btn { position: absolute; height: 13px; background: var(--ControlBackground); box-shadow: inset 0 0 0 1px var(--ControlContrastFrame); text-align: center; line-height: 13px; white-space: nowrap; overflow: hidden; }
+    .btn > span.abs { top: 1px; }
+    /* Solo on: ChosenPreListen (the theme's blue; Live 12 manual "Mixing", GroupTrackSoloButtonHalfColored.png shows solo in blue) */
+    .btn.solo.on { background: var(--ChosenPreListen); color: var(--ControlOnForeground); }
+    /* while any track is soloed, every switched-on Track Activator shows ControlDisabled with ControlOnDisabledForeground text */
+    .btn.act.on.implicit { background: var(--ControlDisabled); color: var(--ControlOnDisabledForeground); }
+    .btn.focus { box-shadow: 0 0 0 1px var(--ControlSelectionFrame), inset 0 0 0 1px var(--ControlContrastFrame); }
+    .btn.on { background: var(--ChosenDefault); color: var(--ControlOnForeground); }
+    .btn.field { background: var(--ControlTextBack); }
+    .btn.flat { background: var(--SurfaceBackground); }
+    #tracks-wrap { position: absolute; left: 0; right: 0; top: 59px; border-top: 2px solid var(--SurfaceArea); bottom: 21px; display: flex; flex-direction: column; }
+    .tscroll { position: relative; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+    .tscroll::-webkit-scrollbar { display: none; }
+    #tracks { flex: 1; min-height: 0; background: linear-gradient(to right, transparent calc(100% - 292px), var(--SurfaceArea) calc(100% - 292px), var(--SurfaceArea) calc(100% - 290px), transparent calc(100% - 290px)); }
+    #pinned { flex: none; }
+    .lanes-canvas { position: sticky; top: 0; left: 0; display: block; }
+    .rows { position: relative; }
+    .trow { position: absolute; left: 0; right: 0; }
+    .theader { position: absolute; right: 0; top: 0; width: 292px; background: var(--SurfaceArea); overflow: hidden; }
+    .theader .bg { position: absolute; left: 2px; right: 0; top: 0; background: var(--SurfaceBackground); }
+    .theader.sel .bg { background: var(--SurfaceHighlight); }
+    .theader .name { position: absolute; left: 2px; top: 0; width: 93px; overflow: hidden; }
+    .theader .name .tn { position: absolute; left: 24px; top: 3px; height: 13px; line-height: 13px; font-weight: bold; white-space: nowrap; }
+    /* a clicked title bar shows SelectionBackground (text/fold in its 26.7% dark) while the Arrangement has focus (Live 12) */
+    #arrangement.focused .theader.tsel .name { background: var(--SelectionBackground) !important; color: var(--title-sel-dark) !important; }
+    .theader .vsep { position: absolute; top: 0; width: 2px; background: var(--SurfaceArea); }
+    .theader .meter { position: absolute; }
+    .meter i { position: absolute; width: 3px; background: var(--MeterBackground); }
+    .theader .midimeter { position: absolute; width: 8px; }
+    #pinned-top { height: 3px; background: var(--SurfaceArea); }
+
+    #songruler { position: absolute; left: 0; right: 0; bottom: 0; height: 21px; }
+    #songruler canvas { position: absolute; left: 0; top: 0; }
+    #songruler .side { position: absolute; right: 0; top: 0; width: 292px; height: 21px; background: var(--SurfaceBackground); }
+    /* the H and W letters sit 1 px lower than the button centre (images/1.png and the running Live: ink y 769..775) */
+    #songruler .side [data-info^="Optimize"] { line-height: 15px; }
+    /* Live: an 80 x 80 text field (ATextField draw 0x142a699a0: colour index +0x12c = 0x49 GridLabel, blend factor 1.0),
+       bold size 18 (16.281 px), alignment flags 0x12 = right + bottom: x = w - textW, y = h - 18, baseline y + 16 */
+    #oneone { position: absolute; right: 294px; bottom: 22px; width: 80px; height: 80px; box-sizing: border-box; padding-top: 61.347px; text-align: right; color: var(--GridLabel); font: bold 16.281px "Ableton Sans Small"; line-height: normal; white-space: nowrap; pointer-events: none; }
+
+    /* ---------- Info view / Detail view / status bar ---------- */
+    #info .title { position: absolute; left: 0; right: 0; top: 0; height: 17px; background: var(--SurfaceHighlight); line-height: 17px; padding-left: 5px; padding-top: 1px; font-weight: bold; }
+    #info .body { position: absolute; font-size: 9px; font-family: "Ableton Sans Small 9", sans-serif; left: 7px; right: 3px; top: 17px; line-height: 15px; padding-top: 3px; white-space: pre; }
+    #info .body .li { position: relative; padding-left: 11px; }
+    #info .body i.it { font-style: italic; }
+    #info .body .li::before { content: ''; position: absolute; left: 2px; top: 6px; width: 3px; height: 3px; background: currentColor; }
+    #devices { position: absolute; inset: 0; display: flex; gap: 3px; padding: 3px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+    #devices .empty { position: absolute; left: 0; right: 0; top: 89px; text-align: center; line-height: 10px; pointer-events: none; }
+    .device { flex: none; display: flex; flex-direction: column; background: var(--DetailViewBackground); border-radius: 3px; min-width: 150px; max-width: 620px; }
+    .device.off { opacity: .55; }
+    .device .dtitle { height: 17px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 6px; background: var(--SurfaceHighlight); border-radius: 3px 3px 0 0; white-space: nowrap; }
+    .device .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ChosenDefault); flex: none; }
+    .device.off .dot { background: var(--ViewControlOff); }
+    .device .dname { overflow: hidden; text-overflow: ellipsis; font-weight: bold; }
+    .device .dkind { margin-left: auto; color: var(--TextDisabled); padding-left: 8px; }
+    .device .dbody { flex: 1; min-height: 0; display: flex; }
+    .device .params { display: grid; grid-auto-flow: column; grid-template-rows: repeat(6, 1fr); grid-auto-columns: 92px; gap: 2px 8px; padding: 6px 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+    .device .param { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+    .device .param .pn { color: var(--TextDisabled); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .device .param .pv { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .device .chains { width: 150px; flex: none; border-right: 1px solid var(--SurfaceArea); overflow-y: auto; padding: 4px; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+    .device .chain { height: 17px; display: flex; align-items: center; gap: 5px; padding: 0 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .device .chain.sel { background: var(--SurfaceHighlight); }
+    .device .chain i { width: 8px; height: 8px; flex: none; }
+    .device .nested { display: flex; gap: 3px; padding: 4px; background: var(--SurfaceArea); overflow-x: auto; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+    .device .nested .device { min-width: 130px; }
+    .device .macros { display: grid; grid-template-columns: repeat(4, 64px); grid-auto-rows: 38px; gap: 4px; padding: 6px; }
+    .device .macro { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+    .device .knob { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--ControlFillHandle); position: relative; }
+    .device .knob::after { content: ""; position: absolute; left: 50%; top: 1px; width: 2px; height: 7px; margin-left: -1px; background: var(--ChosenDefault); transform-origin: 50% 8px; transform: rotate(var(--r, 0deg)); }
+
+    #statusbar { position: absolute; left: 0; right: 0; bottom: 10px; height: 19px; }
+    #status-text { position: absolute; left: 42px; right: 359px; top: 0; height: 19px; padding-left: 6px; padding-top: 1px; background: var(--SurfaceBackground); border-radius: 3px; line-height: 19px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+    #status-text.alert { background: var(--Alert); color: var(--ControlOnForeground); }
+    #status-play { position: absolute; right: 130px; top: 0; width: 220px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; }
+    #status-play .div { position: absolute; left: 19px; top: 0; width: 1px; height: 19px; background: var(--SurfaceArea); }
+    #status-trk { position: absolute; right: 56px; top: 0; width: 65px; height: 19px; background: var(--SurfaceBackground); border-radius: 3px; overflow: hidden; }
+    #status-trk .up { position: absolute; left: 0; top: 0; width: 19px; height: 19px; background: var(--ChosenDefault); color: var(--ControlOnForeground); }
+    #status-trk .up .cl { display: none; }
+    /* Device View hidden: the selector shows a grey ▶ on SurfaceBackground (press screenshot 5) */
+    #status-trk.closed .up { background: var(--SurfaceBackground); color: var(--ControlForeground); }
+    #status-trk.closed .up .cl { display: block; }
+    #status-trk.closed .up i:first-child { display: none; }
+    #status-trk .div { position: absolute; left: 19px; top: 0; width: 1px; height: 19px; background: var(--SurfaceArea); }
+    #status-track { position: absolute; left: 20px; right: 0; top: 1px; line-height: 19px; text-align: center; white-space: nowrap; }
+
+    /* ---------- Open / loading overlay ---------- */
+    #overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(30,30,30,.55); z-index: 10; }
+    #overlay[hidden] { display: none; }
+    .dialog { width: min(460px, calc(100vw - 32px)); padding: 22px; background: var(--SurfaceBackground); border: 1px solid var(--SurfaceHighlight); border-radius: 4px; text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,.5); line-height: 1.45; }
+    .dialog h1 { margin: 0 0 6px; font-size: 16px; font-weight: bold; }
+    .dialog p { margin: 6px 0; }
+    .dialog .drop { margin-top: 14px; padding: 26px 12px; border: 1.5px dashed var(--ControlFillHandle); border-radius: 4px; }
+    .dialog .drop.over { border-color: var(--ChosenDefault); }
+    .dialog .btn2 { display: inline-block; margin-top: 12px; padding: 5px 14px; border-radius: 2px; background: var(--ChosenDefault); color: var(--ControlOnForeground); }
+    .dialog .bar { height: 6px; margin-top: 14px; background: var(--ControlBackground); border-radius: 3px; overflow: hidden; }
+    .dialog .bar i { display: block; height: 100%; width: 0; background: var(--ChosenDefault); transition: width .15s; }
+    .dialog .err { color: var(--Alert); }
+    .dialog .list { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; text-align: left; }
+    .dialog .list div { padding: 5px 8px; background: var(--ControlBackground); border-radius: 2px; }
+    .dialog .list div:hover { background: var(--SurfaceHighlight); }
+    #file-input { display: none; }
+
+    /* Small screens (a proper mobile layout comes later): keep the Arrangement, transport and devices usable */
+    @media (max-width: 700px) {
+      #app { min-width: 0; }
+      #browser, #info, #splitter, #status-play, #controlbar .grp:first-child, #controlbar .grp:nth-child(3), #controlbar .grp:last-child { display: none; }
+      #cb-center { left: 4px !important; }
+      #cb-center > span:nth-child(n+6) { display: none; }
+      #arrangement { left: 6px; right: 6px; bottom: 197px; }
+      #detail { left: 6px; right: 6px; height: 150px; }
+      #status-text { right: 130px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="titlebar"><img src="images/live-app-32.png" alt=""><span id="win-title">Untitled - Ableton Live 12 Suite</span>
+      <span class="tbb" style="right:94px" data-ic="tb_min"></span><span class="tbb" style="right:48px" data-ic="tb_max"></span><span class="tbb" style="right:2px" data-ic="tb_close"></span></div>
+    <div id="menubar"><span id="menu-file" style="left:7px" title="Open a Live Set (.zip)">File</span><span style="left:39px">Edit</span><span style="left:73px">Create</span><span style="left:121px">Playback</span><span style="left:181px">View</span><span style="left:221px">Navigate</span><span style="left:282px">Options</span><span style="left:338px">Help</span></div>
+
+    <div id="controlbar">
+      <div class="grp" style="left:0;width:460px">
+        <span data-info="Show/Hide Browser" class="cb ghost" id="cb-browser" data-hit="0 1 0 1" style="left:12px;width:17px;color:var(--ViewControlOn)" data-ic="browserToggle" title="Show/Hide Browser"></span>
+        <span data-info="Show/Hide Browser Config Menu" data-hit="-2 1 1 1" class="cb ghost" style="left:31px;width:12px;color:var(--ViewControlOff)" data-ic="ddTriangleDim"></span>
+        <span data-info="Tap Tempo" class="cb hv c" style="left:54px;width:26px">Tap</span>
+        <span data-info="Tempo" class="cb hv c" id="cb-tempo" style="left:82px;width:42px">120.00</span>
+        <span data-info="Phase Nudge Down" class="cb hv" style="left:126px;width:17px" data-ic="nudgeDown"></span>
+        <span data-info="Phase Nudge Up" class="cb hv" style="left:145px;width:17px" data-ic="nudgeUp"></span>
+        <span class="cb" id="cb-sig" style="left:164px;width:42px"><span class="r" style="right:29px">4</span><i data-ic="sigSlash"></i><span class="t" style="left:29px">4</span></span>
+        <span data-info="Metronome" data-hit="0 0 0 0" class="cb hv" style="left:208px;width:39px" data-ic="metronome"><i data-ic="ddTriangle" style="left:25px"></i></span>
+        <span data-info="Quantization Menu" data-hit="0 0 0 0" class="cb hv" id="cb-quant-box" style="left:249px;width:45px"><span class="t" id="cb-quant" style="left:4px">1 Bar</span><i data-ic="ddTriangle" style="left:31px"></i></span>
+        <span data-info="Scale Mode" class="cb hv" id="cb-scale-btn" style="left:315px;width:17px" data-ic="scaleAware" title="Scale"></span>
+        <span data-info="Current Scale Root Note" data-hit="0 0 0 0" class="cb hv" style="left:334px;width:44px"><span class="t" id="cb-root" style="left:4px">C</span><i data-ic="ddTriangle" style="left:30px"></i></span>
+        <span data-info="Current Scale Name" data-hit="0 0 0 0" class="cb hv" style="left:380px;width:70px"><span class="t" id="cb-scale" style="left:4px">Major</span><i data-ic="ddTriangle" style="left:56px"></i></span>
+      </div>
+      <div class="grp" id="cb-center" style="left:calc(50% - 245px);width:560px">
+        <span class="cb hv on clickable" id="cb-follow" data-info="Follow" style="left:0;width:21px" data-ic="follow" title="Follow"></span>
+        <span data-info="Arrangement Position" data-hit="-1 0 -1 0" class="cb" id="cb-pos-box" style="left:23px;width:82px"><i class="seg" style="left:13px"></i><i class="seg" style="left:37px"></i><i class="seg" style="left:61px"></i><span class="r" id="cb-pos-1" style="right:53px">1</span><span class="t" style="left:32px">.</span><span class="r" id="cb-pos-2" style="right:29px">1</span><span class="t" style="left:56px">.</span><span class="r" id="cb-pos-3" style="right:5px">1</span></span>
+        <span class="cb ghost clickable" id="cb-play" data-info="Play Button" data-hit="-1 1 -1 1" style="left:121px;width:21px"  title="Play"><i class="nhov" data-ic="play"></i><i class="hov" data-ic="playHover"></i></span>
+        <span class="cb ghost clickable" id="cb-stop" data-info="Stop Button" data-hit="-2 1 -1 1" style="left:143px;width:22px"  title="Stop"><i class="nhov" data-ic="stop"></i><i class="hov" data-ic="stopHover"></i></span>
+        <span data-info="Arrangement Record Button" data-hit="-2 1 -1 1" class="cb ghost" style="left:166px;width:22px"  title="Arrangement Record"><i class="nhov" data-ic="record"></i><i class="hov" data-ic="recordHover"></i></span>
+        <span data-info="MIDI Arrangement Overdub" class="cb hv" style="left:203px;width:17px" data-ic="overdub" title="MIDI Arrangement Overdub"></span>
+        <span data-info="Automation Arm" class="cb hv on" style="left:222px;width:17px" data-ic="automationArm" title="Automation Arm"></span>
+        <span data-info="Re-Enable Automation" class="cb dim" style="left:241px;width:17px" data-ic="backToArr" title="Back to Arrangement"></span>
+        <span data-info="Capture MIDI" class="cb dim" style="left:260px;width:17px" data-ic="captureMidi" title="Capture MIDI"></span>
+        <span data-info="Session Record Button" class="cb hv" style="left:279px;width:17px" data-ic="sessionRec" title="Session Record"></span>
+        <span data-info="Loop Start/Punch-In Point" data-hit="-1 0 -1 0" class="cb" id="cb-ls-box" style="left:317px;width:82px"><i class="seg" style="left:13px"></i><i class="seg" style="left:37px"></i><i class="seg" style="left:61px"></i><span class="r" id="cb-ls-1" style="right:53px">3</span><span class="t" style="left:32px">.</span><span class="r" id="cb-ls-2" style="right:29px">1</span><span class="t" style="left:56px">.</span><span class="r" id="cb-ls-3" style="right:5px">1</span></span>
+        <span data-info="Punch-In Switch" class="cb hv" style="left:401px;width:21px" data-ic="punchIn" title="Punch-In"></span>
+        <span class="cb hv clickable" id="cb-loop" data-info="Loop Switch" style="left:424px;width:21px" data-ic="loop" title="Loop Switch"></span>
+        <span data-info="Punch-Out Switch" class="cb hv" style="left:447px;width:21px" data-ic="punchOut" title="Punch-Out"></span>
+        <span data-info="Loop/Punch-Region Length" data-hit="-1 0 -1 0" class="cb" id="cb-ll-box" style="left:470px;width:82px"><i class="seg" style="left:13px"></i><i class="seg" style="left:37px"></i><i class="seg" style="left:61px"></i><span class="r" id="cb-ll-1" style="right:53px">4</span><span class="t" style="left:32px">.</span><span class="r" id="cb-ll-2" style="right:29px">0</span><span class="t" style="left:56px">.</span><span class="r" id="cb-ll-3" style="right:5px">0</span></span>
+      </div>
+      <div class="grp" style="right:0;width:316px">
+        <span data-info="Draw Mode Switch" class="cb hv" style="left:0;width:17px" data-ic="draw" title="Draw Mode"></span>
+        <span data-info="Computer MIDI Keyboard" class="cb hv on" style="left:19px;width:17px" data-ic="keyboard" title="Computer MIDI Keyboard"></span>
+        <span data-info="Key Map Mode Switch" class="cb hv c" style="left:38px;width:26px">Key</span>
+        <span data-info="Key/MIDI In Indicator" data-hit="0 0 0 0" class="cb half" style="left:66px;width:8px"></span><span data-info="Key/MIDI Out Indicator" data-hit="0 0 0 0" class="cb half" style="left:66px;width:8px;top:24px"></span>
+        <span data-info="MIDI Map Mode Switch" class="cb hv c" style="left:76px;width:28px">MIDI</span>
+        <span data-info="Sample Rate" class="cb hv c" id="cb-sr" style="left:106px;width:48px">44.1 kHz</span>
+        <span data-info="CPU Load Meter" class="cb" style="left:156px;width:56px"><span class="t" id="cb-cpu" style="left:14px">1 %</span><i data-ic="ddTriangle" style="left:42px"></i></span>
+        <span data-info="Overload Indicator" class="cb" style="left:214px;width:28px"></span>
+        <span data-info="MIDI Track In Indicator" data-hit="0 0 0 0" class="cb half" style="left:244px;width:8px"></span><span data-info="MIDI Track Out Indicator" data-hit="0 0 0 0" class="cb half" style="left:244px;width:8px;top:24px"></span>
+      </div>
+
+      <div class="grp" id="cb-views" style="left:calc(100% - 62px);width:62px">
+        <span data-info="Session View Selector" data-hit="-13 1 0 1" class="cb ghost" style="left:0;width:30px;color:var(--ViewControlOff)" data-ic="bars3"></span>
+        <span data-info="Arrangement View Selector" data-hit="-1 1 -2 1" class="cb ghost" style="left:34px;width:20px;color:var(--ViewControlOn)" data-ic="hamburger"></span>
+      </div>
+    </div>
+
+    <div class="panel" id="browser" data-info="Browser Content Pane">
+      <div class="bar" data-info="">
+        <span class="abs" data-info="Browse Back" data-hit="3 2 2 1" style="left:3px;top:2px;width:14px;height:18px;color:var(--ControlOffDisabledForeground)" data-ic="br_back"></span>
+        <span class="sep" data-info="" style="left:19px;top:3px;width:1px;height:15px"></span>
+        <span class="abs" data-info="Browse Forward" data-hit="1 2 2 1" style="left:21px;top:2px;width:16px;height:18px;color:var(--ControlOffDisabledForeground)" data-ic="br_fwd"></span>
+        <span class="sep" data-info="" style="left:39px;top:0;width:2px;height:23px"></span>
+        <span class="hint">Search (Ctrl + F)</span>
+      </div>
+      <span class="sep" data-info="" style="left:0;right:0;top:21px;height:2px"></span>
+      <span class="sep" data-info="" style="left:var(--sbw);top:23px;width:2px;bottom:0"></span>
+      <div id="sidebar" data-info="Browser Sidebar"></div>
+      <div id="filters"></div>
+      <div id="br-namehead" data-info="Browser Content Pane" style="top:325px"><span class="abs" style="left:3px;top:1px">Name</span><i data-ic="br_nameTri" style="left:auto;right:24px;top:3px"></i><span class="bar1"></span><span class="hit" data-info="Assigned Colors" data-hit="0 0 0 0" style="right:11px;width:25px"></span></div>
+      <div id="br-list" data-info="Browser Content Pane"></div>
+      <span class="sep" style="left:calc(var(--sbw) + 2px);right:0;bottom:21px;height:1px"></span>
+      <span class="abs" data-info="Browser File Preview" data-hit="-1 -2 -1 0" style="left:calc(var(--sbw) + 4px);bottom:3px;width:17px;height:17px" data-ic="br_preview"></span>
+      <span class="abs" data-info="Preview Tab" style="left:calc(var(--sbw) + 23px);right:4px;bottom:3px;height:15px"></span>
+      <span class="grip" id="grip-sidebar" data-info="" data-hit="-1 0 -1 0" title="Drag to change the sidebar width"></span>
+    </div>
+
+    <div class="panel focused" id="arrangement">
+      <canvas id="overview" data-info="Clip Overview/Zooming Hot Spot"></canvas>
+      <div id="ruler"><canvas id="ruler-canvas"></canvas><span id="ruler-zoom" data-info="Beat-Time Ruler"></span><span id="ruler-scrub" data-info="Scrub Area"></span></div>
+      <div id="ruler-side">
+        <span class="pill" data-info="Set/Delete Locator" data-hit="-5 1 1 1" style="left:4px;top:10px;width:29px">Set</span>
+        <span class="btn" data-info="Automation Mode" style="left:44px;top:10px;width:23px" data-ic="rs_expand"></span>
+        <span class="btn" data-info="Lock Envelopes" style="left:71px;top:10px;width:23px" data-ic="rs_lock"></span>
+        <span class="abs" data-info="" style="left:3px;top:27px;width:32px;height:16px"><i id="loc-prev" data-ic="rs_prevOff" style="left:0"></i><i id="loc-next" data-ic="rs_nextOn" style="left:0"></i><span class="hit" data-info="Previous Locator" data-hit="0 0 0 -1" style="left:6px;width:9px"></span><span class="hit" data-info="Next Locator" data-hit="0 0 0 -1" style="left:16px;width:15px"></span></span>
+      </div>
+      <div id="tracks-wrap">
+        <div id="tracks" class="tscroll"><canvas class="lanes-canvas" id="lanes-canvas" data-info="Main Lane"></canvas><div class="rows" id="rows"></div></div>
+        <div id="pinned" class="tscroll"><canvas class="lanes-canvas" id="pinned-canvas"></canvas><div class="rows" id="pinned-rows"></div></div>
+      </div>
+      <div id="songruler"><canvas id="song-canvas" data-info="Time Ruler"></canvas>
+        <div class="side">
+          <span class="btn on" data-info="Waveform Vertical Zoom" style="left:2px;top:4px;width:15px" data-ic="sr_wave"></span>
+          <span class="btn field" data-info="Waveform Vertical Zoom Level" style="left:20px;top:4px;width:35px;overflow:hidden"><i id="zoom-fill" style="position:absolute;left:1px;top:1px;bottom:1px;width:10px;background:var(--RangeEditField)"></i><span id="zoom-label" style="position:relative;top:1px">1.00x</span></span>
+          <span class="btn" data-info="Optimize Arrangement Height" style="left:61px;top:4px;width:15px">H</span>
+          <span class="btn" data-info="Optimize Arrangement Width" style="left:79px;top:4px;width:15px">W</span>
+        </div>
+      </div>
+      <span id="oneone"></span>
+      <span id="insert-cursor"></span>
+
+      <div id="overlay">
+        <div class="dialog" id="dialog"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="info" data-info="Info View"><div class="title" id="info-title">Track Title Bar</div><div class="body" id="info-body"></div></div>
+    <span id="splitter"></span>
+    <div class="panel" id="detail"><div id="devices"><div class="empty">Drop an Instrument or Sample Here</div></div></div>
+
+    <span id="info-meter"></span>
+    <span class="grip" id="grip-browser"></span>
+    <div id="statusbar" data-info="">
+      <span class="abs" id="st-info" data-info="Show/Hide Info View" data-hit="-1 -1 -1 -1" style="left:9px;top:0;width:19px;height:19px;color:var(--ViewControlOn)" data-ic="st_info" title="Show/Hide Info View"></span>
+      <span id="status-text" data-info="Status Bar" data-hit="0 2 0 2"></span>
+      <span id="status-play" data-info="Clip View Selector" data-hit="-20 2 0 2"><span class="abs" data-info="Clip View Toggle" data-hit="0 0 0 0" style="left:0;top:0;width:19px;height:19px" data-ic="st_play"></span><span class="div" data-info=""></span></span>
+      <span id="status-trk" data-info="Device View Selector" data-hit="-20 2 0 2"><span class="up" data-info="Device View Toggle" data-hit="0 0 0 0" title="Show/Hide Device View"><i data-ic="st_up"></i><i class="cl" data-ic="st_play"></i></span><span class="div" data-info=""></span><span id="status-track"></span></span>
+      <span class="abs" data-info="" style="right:5px;top:0;width:45px;height:19px;color:var(--ViewControlOff)" data-ic="st_meter"><span class="hit" data-info="Mixer View Toggle" data-hit="0 -1 0 -1" style="left:9px;width:18px"></span><span class="hit" data-info="Show/Hide Mixer Config Menu" data-hit="0 -1 0 -1" style="left:29px;width:11px"></span></span>
+    </div>
+  </div>
+  <input type="file" id="file-input" accept=".zip,application/zip">
+
+  <script src="icons.js?v=83225210bd"></script>
+  <script src="icons-live.js?v=74d8017091"></script>
+  <script src="device-thumbs.js?v=e259c2f009"></script>
+  <script src="icons-hidpi.js?v=d00d666705"></script>
+  <script src="vendor/fflate.js?v=da51e00555"></script>
+  <script src="livetext.js?v=5c77060691"></script>
+  <script src="viewer.js?v=8001737e99"></script>
+</body>
+</html>
