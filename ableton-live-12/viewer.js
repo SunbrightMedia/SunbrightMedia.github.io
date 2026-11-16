@@ -1095,7 +1095,7 @@ const INFO = {
 };
 // The Projects label's content: one row per Set of projects/manifest.json, under the Name column. A click selects the
 // row, a double-click (or a tap) opens the Set.
-function openProject(p) { loadUrl(p.parts || [p.file], p.name).catch(e => openDialog(`<span class="err">${String(e.message || e)}</span>`)); }
+function openProject(p) { fetchProject(p).catch(e => openDialog(`<span class="err">${String(e.message || e)}</span>`)); }
 function showProjects(list) {
   const box = $('#br-list'); box.textContent = '';
   for (const p of list) {
@@ -3481,15 +3481,62 @@ async function loadUrl(parts, label) {
   await loadZipBytes(all, label);
 }
 
+// A project in projects/manifest.json is a zip ({ file } or, split, { parts }) or a folder of files ({ folder, files:
+// [[path inside the folder, size in bytes], ...] }). A folder's files are downloaded into the same file index a zip
+// gives, under the folder's own name, so the Set and its samples resolve the same way.
+function fetchProject(p) { return p.folder ? loadFolder(p) : loadUrl(p.parts || [p.file], p.name); }
+async function loadFolder(p) {
+  if (engine.playing) engine.stop(true);
+  const root = p.folder.replace(/\/+$/, ''), top = root.split('/').pop();
+  const total = p.files.reduce((a, f) => a + (f[1] || 0), 0), out = {};
+  let got = 0;
+  for (const [rel, size] of p.files) {
+    const url = root.split('/').concat(rel.split('/')).map(encodeURIComponent).join('/');
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Couldn't download ${rel} (${res.status})`);
+    const reader = res.body.getReader(), chunks = [];
+    let bytes = size ? new Uint8Array(size) : null, n = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (bytes && n + value.length <= bytes.length) bytes.set(value, n); else { bytes = null; chunks.push(value); }
+      n += value.length; got += value.length;
+      progressDialog(`Downloading ${p.name}… ${(got / 1048576).toFixed(1)} MB`, total ? got / total : null);
+    }
+    if (!bytes || n !== bytes.length) {   // the size in the manifest was wrong: join what arrived
+      const all = new Uint8Array(n); let o = 0;
+      if (bytes) { all.set(bytes.subarray(0, Math.min(n, bytes.length))); o = Math.min(n, bytes.length); }
+      for (const c of chunks) { all.set(c, o); o += c.length; }
+      bytes = all;
+    }
+    out[top + '/' + rel] = bytes;
+  }
+  await openFiles(out, p.name);
+}
+
 async function loadZipBytes(bytes, label) {
+  let out;
   try {
     if (engine.playing) engine.stop(true);
     progressDialog(`Unpacking ${label}…`, null);
     await new Promise(r => setTimeout(r, 30));
-    indexFiles(await unzip(bytes));
-    bytes = null;
+    out = await unzip(bytes);
+  } catch (err) {
+    console.error(err);
+    openDialog(`<span class="err">${String(err.message || err).replace(/</g, '&lt;')}</span>`);
+    return;
+  }
+  bytes = null;
+  await openFiles(out, label);
+}
+
+// the project's files (path -> bytes): find its Set, read it and show it
+async function openFiles(out, label) {
+  try {
+    if (engine.playing) engine.stop(true);
+    indexFiles(out);
     const sets = findSets();
-    if (!sets.length) throw new Error('No Live Set (.als) was found in this zip.');
+    if (!sets.length) throw new Error('No Live Set (.als) was found in this project.');
     let chosen = sets[0];
     if (sets.length > 1) chosen = await pickSet(sets);
     progressDialog(`Reading ${basename(chosen)}…`, null);
@@ -3594,14 +3641,14 @@ fontsReady.then(() => { if (set) { layoutCanvases(); drawAll(); } });
   const want = new URLSearchParams(location.search).get('project');
   // phones show no browser, so there the Sets are still offered at start; elsewhere they open from the Projects label
   const phone = getComputedStyle($('#browser')).display === 'none';
-  const pick = list.find(p => p.name === want) || (phone && list.length === 1 ? list[0] : null);
+  const pick = list.find(p => p.name === want);
   if (pick) {
-    try { await loadUrl(pick.parts || [pick.file], pick.name); } catch (e) { openDialog(`<span class="err">${String(e.message || e)}</span>`); }
-  } else if (phone && list.length > 1) {
+    try { await fetchProject(pick); } catch (e) { openDialog(`<span class="err">${String(e.message || e)}</span>`); }
+  } else if (phone && list.length) {
     dialog(`<h1>Ableton Live 12</h1><p>Choose a project</p><div class="list"></div><p><span class="btn2" id="choose2">Open a .zip…</span></p>`);
     for (const p of list) {
       const d = document.createElement('div'); d.textContent = p.name;
-      d.addEventListener('click', () => loadUrl(p.parts || [p.file], p.name).catch(e => openDialog(`<span class="err">${String(e.message || e)}</span>`)));
+      d.addEventListener('click', () => openProject(p));
       $('#dialog .list').append(d);
     }
     $('#choose2').addEventListener('click', () => $('#file-input').click());
