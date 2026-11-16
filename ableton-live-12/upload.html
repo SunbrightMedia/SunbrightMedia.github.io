@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Project Upload</title>
+<style>
+  :root { color-scheme: dark; --bg: #1e1e1e; --panel: #2a2a2a; --line: #3c3c3c; --text: #e6e6e6; --dim: #a0a0a0; --accent: #ffad56; --ok: #7ed27e; --err: #ff7b6b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 24px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 16px; margin: 0 0 8px; }
+  h2 span { color: var(--dim); font-weight: normal; }
+  p { margin: 8px 0; }
+  ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  a { color: var(--accent); }
+  input[type=password], input[type=text] { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: #181818; color: var(--text); font: inherit; }
+  input[type=file] { width: 100%; color: var(--text); font: inherit; }
+  .row { display: flex; gap: 8px; margin-top: 8px; }
+  .row input { flex: 1; min-width: 0; }
+  button { font: inherit; border: 0; border-radius: 6px; padding: 8px 14px; background: #444; color: var(--text); cursor: pointer; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.link { background: none; padding: 0; color: var(--accent); text-decoration: underline; }
+  #start { width: 100%; padding: 14px; font-size: 18px; font-weight: 600; background: var(--accent); color: #1a1a1a; }
+  .bar { height: 10px; background: #181818; border-radius: 5px; overflow: hidden; margin: 14px 0 6px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .ok { color: var(--ok); }
+  .err { color: var(--err); }
+  .dim { color: var(--dim); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Upload a Live project</h1>
+  <p class="sub">Sends your zipped project folder to the site's GitHub repository in parts, so it can be turned into a web version. Nothing on the live site changes.</p>
+
+  <section id="s-key">
+    <h2>1. Connect to GitHub <span>(once on this device)</span></h2>
+    <div id="key-need">
+      <p>GitHub only accepts uploads made with a key from your account. This page keeps the key on this device and sends it only to GitHub.</p>
+      <ol>
+        <li><a href="https://github.com/settings/tokens/new?description=Live%20project%20upload&amp;scopes=repo" target="_blank" rel="noopener">Open GitHub's key page</a>. Make sure <b>repo</b> is ticked, then press <b>Generate token</b> at the bottom.</li>
+        <li>Copy the key GitHub shows (it starts with <code>ghp_</code>) and paste it here:</li>
+      </ol>
+      <div class="row"><input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="ghp_…"><button id="key-save">Connect</button></div>
+    </div>
+    <p id="key-ok" hidden><span class="ok">Connected</span> as <b id="login"></b>. <button class="link" id="key-forget">Use a different key</button></p>
+    <p id="key-err" class="err" hidden></p>
+  </section>
+
+  <section id="s-file">
+    <h2>2. Choose the zipped project</h2>
+    <input id="file" type="file" accept=".zip,application/zip">
+    <p id="file-info" class="dim" hidden></p>
+  </section>
+
+  <section id="s-go">
+    <button id="start" disabled>Start</button>
+    <div class="bar"><i id="bar"></i></div>
+    <p id="status" class="dim">Connect and choose a file, then press Start.</p>
+    <p id="detail" class="dim"></p>
+  </section>
+</main>
+<script>
+'use strict';
+const OWNER = 'SunbrightMedia', REPO = 'SunbrightMedia.github.io';
+// A local test server can stand in for GitHub (http://localhost or 127.0.0.1 only, so a link can never send the key elsewhere).
+const API = (() => {
+  const a = new URLSearchParams(location.search).get('api');
+  return a && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(a) ? a : 'https://api.github.com';
+})();
+const CHUNK0 = 32 * 1024 * 1024, CHUNK_MIN = 1024 * 1024;
+const $ = id => document.getElementById(id);
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
+let token = store.get('upl-token') || '', file = null, busy = false;
+
+const mb = n => (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const say = (t, cls = 'dim') => { const s = $('status'); s.textContent = t; s.className = cls; };
+const detail = t => { $('detail').textContent = t; };
+
+// ---------- GitHub requests ----------
+class HttpError extends Error { constructor(status, msg, headers) { super(msg); this.status = status; this.headers = headers || {}; } }
+function request(method, path, body, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open(method, API + path);
+    x.setRequestHeader('Authorization', 'Bearer ' + token);
+    x.setRequestHeader('Accept', 'application/vnd.github+json');
+    if (body !== undefined) x.setRequestHeader('Content-Type', 'application/json');
+    if (onProgress) x.upload.onprogress = e => onProgress(e.loaded, e.total);
+    x.onload = () => {
+      let data = null; try { data = JSON.parse(x.responseText); } catch (e) {}
+      if (x.status >= 200 && x.status < 300) resolve(data);
+      else reject(new HttpError(x.status, (data && data.message) || x.statusText || 'HTTP ' + x.status,
+        { retryAfter: x.getResponseHeader('retry-after'), remaining: x.getResponseHeader('x-ratelimit-remaining'), reset: x.getResponseHeader('x-ratelimit-reset') }));
+    };
+    x.onerror = () => reject(new HttpError(0, 'network error'));
+    x.ontimeout = () => reject(new HttpError(0, 'timed out'));
+    x.send(body === undefined ? null : body);
+  });
+}
+const json = (method, path, obj) => request(method, path, obj === undefined ? undefined : JSON.stringify(obj));
+const repoPath = p => `/repos/${OWNER}/${REPO}${p}`;
+
+// GitHub's rate limits: wait as long as it asks, then go on
+async function waitForLimit(e) {
+  if (e.status !== 403 && e.status !== 429) return false;
+  let s = 0;
+  if (e.headers.retryAfter) s = +e.headers.retryAfter;
+  else if (e.headers.remaining === '0' && e.headers.reset) s = Math.max(0, +e.headers.reset - Date.now() / 1000);
+  else if (!/rate limit/i.test(e.message)) return false;
+  s = Math.max(s, 60);
+  for (let t = Math.ceil(s); t > 0; t--) { detail(`GitHub asked to slow down; continuing in ${t} s…`); await sleep(1000); }
+  return true;
+}
+
+// ---------- key ----------
+async function checkKey() {
+  $('key-err').hidden = true;
+  if (!token) { $('key-need').hidden = false; $('key-ok').hidden = true; update(); return false; }
+  try {
+    const me = await json('GET', '/user');
+    const repo = await json('GET', repoPath(''));
+    if (!repo.permissions || !repo.permissions.push) throw new Error(`This key can't write to ${OWNER}/${REPO}. Make a new one with "repo" ticked.`);
+    $('login').textContent = me.login; $('key-need').hidden = true; $('key-ok').hidden = false;
+    update(); return true;
+  } catch (e) {
+    const msg = e.status === 401 ? 'GitHub did not accept this key. Copy it again, or make a new one.' : e.status === 0 ? 'Could not reach GitHub. Check the internet connection and try again.' : e.message;
+    $('key-err').textContent = msg; $('key-err').hidden = false; $('key-need').hidden = false; $('key-ok').hidden = true;
+    if (e.status === 401) { token = ''; store.del('upl-token'); }
+    update(); return false;
+  }
+}
+$('key-save').onclick = async () => {
+  const v = $('key').value.trim(); if (!v) return;
+  token = v; $('key-save').disabled = true;
+  if (await checkKey()) { store.set('upl-token', token); $('key').value = ''; }
+  $('key-save').disabled = false;
+};
+$('key').onkeydown = e => { if (e.key === 'Enter') $('key-save').click(); };
+$('key-forget').onclick = () => { if (busy) return; token = ''; store.del('upl-token'); checkKey(); };
+
+// ---------- file ----------
+// a name git accepts in a branch and a folder: letters, digits, . _ - only, no "..", no leading/trailing . or -, no ".lock"
+const safeName = n => n.replace(/\.zip$/i, '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/\.{2,}/g, '.').slice(0, 80)
+  .replace(/^[-.]+|[-.]+$/g, '').replace(/\.lock$/i, '-lock') || 'project';
+const stateKey = f => `upl:${f.name}|${f.size}|${f.lastModified}`;
+const doneBytes = st => st.parts.reduce((a, p) => a + p.len, 0);
+$('file').onchange = () => {
+  file = $('file').files[0] || null;
+  const info = $('file-info');
+  if (!file) { info.hidden = true; update(); return; }
+  const st = store.get(stateKey(file));
+  let t = `${file.name}, ${mb(file.size)}.`;
+  if (st && st.done) t += ' Already uploaded completely; Start sends it again.';
+  else if (st && st.parts.length) t += ` ${mb(doneBytes(st))} of it was uploaded before; Start continues from there.`;
+  if (!/\.zip$/i.test(file.name)) t += ' This is not a .zip file.';
+  info.textContent = t; info.hidden = false;
+  setBar(st && !st.done ? doneBytes(st) / file.size : 0);
+  update();
+};
+function update() { $('start').disabled = busy || !file || !$('key-need').hidden; }
+const setBar = f => { $('bar').style.width = (Math.max(0, Math.min(1, f)) * 100).toFixed(2) + '%'; };
+
+// ---------- reading a part ----------
+function readAs(blob, how) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result); r.onerror = () => reject(r.error || new Error('could not read the file'));
+    r[how](blob);
+  });
+}
+// git's id for a file's content (sha1 of "blob <size>\0" + bytes): GitHub returns the same id, which proves every byte arrived
+async function gitSha(buf) {
+  const head = new TextEncoder().encode(`blob ${buf.byteLength}\0`), all = new Uint8Array(head.length + buf.byteLength);
+  all.set(head); all.set(new Uint8Array(buf), head.length);
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-1', all));
+  return Array.from(d, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ---------- upload ----------
+let wake = null;
+async function keepAwake() { try { if (navigator.wakeLock && document.visibilityState === 'visible') wake = await navigator.wakeLock.request('screen'); } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (busy && document.visibilityState === 'visible') keepAwake(); });
+window.addEventListener('beforeunload', e => { if (busy) { e.preventDefault(); e.returnValue = ''; } });
+
+$('start').onclick = async () => {
+  if (busy || !file) return;
+  busy = true; update(); $('key-forget').disabled = true; $('file').disabled = true;
+  keepAwake();
+  try { await run(file); }
+  catch (e) { say('Stopped: ' + (e.message || e) + ' Press Start to continue from where it stopped.', 'err'); }
+  finally {
+    busy = false; update(); $('key-forget').disabled = false; $('file').disabled = false;
+    try { wake && wake.release(); } catch (e) {} wake = null;
+  }
+};
+
+async function run(f) {
+  const key = stateKey(f), name = safeName(f.name), branch = 'upload/' + name;
+  let st = store.get(key);
+  if (!st || st.done) st = { parts: [], chunk: CHUNK0 };
+  const t0 = performance.now(), b0 = doneBytes(st);
+  let sent = 0;
+  const show = (now) => {
+    const done = doneBytes(st) + now, rate = (done - b0) / Math.max(0.5, (performance.now() - t0) / 1000);
+    setBar(done / f.size);
+    let t = `${mb(done)} of ${mb(f.size)} (${(done / f.size * 100).toFixed(1)} %)`;
+    if (rate > 0 && done > b0) { const left = (f.size - done) / rate; t += ` · ${mb(rate)}/s · about ${left > 5400 ? Math.round(left / 3600) + ' h' : Math.ceil(left / 60) + ' min'} left`; }
+    detail(t);
+  };
+  say('Uploading… keep this page open until it says Done.');
+  while (doneBytes(st) < f.size) {
+    const off = doneBytes(st), len = Math.min(st.chunk, f.size - off), slice = f.slice(off, off + len);
+    let tries = 0, drops = 0;
+    for (;;) {
+      try {
+        const [buf, url] = await Promise.all([readAs(slice, 'readAsArrayBuffer'), readAs(slice, 'readAsDataURL')]);
+        const want = await gitSha(buf);
+        const body = '{"encoding":"base64","content":"' + url.slice(url.indexOf(',') + 1) + '"}';
+        const res = await request('POST', repoPath('/git/blobs'), body, (l, t) => show(len * (t ? l / t : 0)));
+        if (!res || res.sha !== want) throw new HttpError(-1, 'GitHub stored different bytes than were sent');
+        st.parts.push({ off, len, sha: res.sha }); store.set(key, st); show(0);
+        break;
+      } catch (e) {
+        if (await waitForLimit(e)) continue;
+        if (e.status === 401) throw new Error('GitHub no longer accepts the key. Use "Use a different key" and connect again.');
+        const tooBig = e.status === 413 || (e.status === 422 && /large|size|long/i.test(e.message)) || (e.status === 0 && ++drops >= 2);
+        if (tooBig && st.chunk > CHUNK_MIN) { st.chunk = Math.max(CHUNK_MIN, st.chunk >> 1); store.set(key, st); detail(`Using smaller parts (${mb(st.chunk)})…`); break; }
+        if (++tries > 6) throw new Error(e.status ? `GitHub answered "${e.message}" (${e.status}).` : 'The connection keeps failing.');
+        for (let s = Math.min(60, 5 * 2 ** (tries - 1)); s > 0; s--) { detail(`Connection problem (${e.message}); trying again in ${s} s…`); await sleep(1000); }
+      }
+    }
+  }
+  // all parts are on GitHub: list them in a manifest, put everything in one commit on its own branch
+  say('Finishing…');
+  const width = String(st.parts.length).length < 4 ? 4 : String(st.parts.length).length;
+  const parts = st.parts.map((p, i) => ({ path: `${name}/part-${String(i + 1).padStart(width, '0')}`, offset: p.off, length: p.len, sha: p.sha }));
+  const manifest = { name: f.name, size: f.size, lastModified: f.lastModified, parts };
+  const m = await retry(() => json('POST', repoPath('/git/blobs'), { encoding: 'utf-8', content: JSON.stringify(manifest, null, 1) }));
+  const tree = await retry(() => json('POST', repoPath('/git/trees'), {
+    tree: parts.map(p => ({ path: p.path, mode: '100644', type: 'blob', sha: p.sha })).concat({ path: `${name}/manifest.json`, mode: '100644', type: 'blob', sha: m.sha }),
+  }), e => {
+    // a part GitHub no longer has (unused uploads are cleaned up after a while): start this file again
+    if (e.status === 422) { store.del(key); throw new Error('GitHub no longer has some of the earlier parts, so they have to be sent again.'); }
+  });
+  const commit = await retry(() => json('POST', repoPath('/git/commits'), { message: `Project upload: ${f.name} (${f.size} bytes, ${parts.length} parts)`, tree: tree.sha, parents: [] }));
+  await retry(async () => {
+    try { await json('PATCH', repoPath('/git/refs/heads/' + branch), { sha: commit.sha, force: true }); }
+    catch (e) { if (e.status !== 422 && e.status !== 404) throw e; await json('POST', repoPath('/git/refs'), { ref: 'refs/heads/' + branch, sha: commit.sha }); }
+  });
+  st.done = true; store.set(key, st);
+  setBar(1);
+  say(`Done. ${f.name} is on GitHub (branch ${branch}, ${parts.length} parts). You can tell Claude it's uploaded.`, 'ok');
+  detail('');
+}
+async function retry(fn, onFail) {
+  for (let tries = 0; ; tries++) {
+    try { return await fn(); }
+    catch (e) {
+      if (await waitForLimit(e)) { tries--; continue; }
+      if (onFail) onFail(e);
+      if (e.status === 401) throw new Error('GitHub no longer accepts the key. Use "Use a different key" and connect again.');
+      if (tries >= 5 || (e.status >= 400 && e.status < 500)) throw new Error(`GitHub answered "${e.message}" (${e.status}).`);
+      await sleep(3000 * 2 ** tries);
+    }
+  }
+}
+
+checkKey();
+</script>
+</body>
+</html>
