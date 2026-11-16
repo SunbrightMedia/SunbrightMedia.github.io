@@ -3147,10 +3147,13 @@ function setupInteraction() {
     const r = list.find(r => y >= r.y && y < r.y + r.h) || (list.length && y >= list[list.length - 1].y ? list[list.length - 1] : null);
     if (r) select(r.track);
     view.tsel = null; view.selClip = null;
-    // a click on a clip selects it: the time selection becomes the clip's span on its track, with Live's status text
-    // (running Live, harness clip Set: "Chords  Start: 1.1.1  End: 3.1.1  Length: 2.0.0", two spaces between the parts:
-    // ink 49..262 like Live's); no insert marker is placed
-    const hit = r && r.track.type !== 'group' && r.track.clips.find(c => x >= Math.round(xOf(c.start)) && x < Math.round(xOf(c.end)) && y < r.y + r.h - SEP);
+    // a click on a clip's title bar selects the clip: the time selection becomes the clip's span on its track, with
+    // Live's status text (running Live, harness clip Set: "Chords  Start: 1.1.1  End: 3.1.1  Length: 2.0.0", two spaces
+    // between the parts: ink 49..262 like Live's); no insert marker is placed. The clip's body, from 17 px below its top,
+    // is its content view (LArrangerClipView's AVoidView at rel 0,17 holding LMidiClipContentView /
+    // LAudioClipContentView, the same split the Info View follows): a click there places the insert marker like a click
+    // on the lane, so it falls through to that below.
+    const hit = r && r.track.type !== 'group' && y - r.y < 17 && r.track.clips.find(c => x >= Math.round(xOf(c.start)) && x < Math.round(xOf(c.end)) && y < r.y + r.h - SEP);
     if (hit) {
       view.selClip = hit;
       view.tsel = { b0: hit.start, b1: hit.end, tracks: [r.track] };
