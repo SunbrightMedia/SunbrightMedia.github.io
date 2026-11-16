@@ -1,0 +1,129 @@
+/* Live 12 player: a view of its own in Live's design language - Ableton Sans, the Default Dark Neutral Medium theme
+   colours, flat panels, small type - with only the controls needed to listen to a project. Everything that moves with
+   scrolling is a real element inside the scrolling area, so it moves together on every device. */
+@font-face { font-family: 'Ableton Sans Small'; src: url('../fonts/AbletonSansSmall-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Ableton Sans Small'; src: url('../fonts/AbletonSansSmall-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Ableton Sans Light'; src: url('../fonts/AbletonSans-Light.ttf') format('truetype'); font-weight: 300; }
+
+:root {
+  --desktop: #2a2a2a; --area: #242424; --surface: #363636; --highlight: #464646; --control: #1e1e1e;
+  --fg: #b5b5b5; --fg-on: #070707; --dim: #757575; --frame: #111111;
+  --orange: #ffad56; --cyan: #03c3d5; --field: #007383; --blue: #3c6ab6; --alert: #e76942; --play: #00d38d;
+  --loop: #919191; --meter-bg: #181818; --lcd: #181818;
+  --head-w: 214px; --row-h: 50px; --bar-h: 38px; --ruler-h: 26px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--desktop); color: var(--fg); overflow: hidden;
+  font: 11px/1.2 'Ableton Sans Small', system-ui, sans-serif; -webkit-text-size-adjust: 100%; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+#app { position: fixed; inset: 0; display: flex; flex-direction: column; touch-action: manipulation;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); background: var(--surface); }
+
+/* ---------- top bar ---------- */
+#bar { flex: none; height: calc(var(--bar-h) + env(safe-area-inset-top)); display: flex; align-items: center; gap: 6px; padding: env(safe-area-inset-top) 8px 0;
+  background: var(--surface); border-bottom: 1px solid var(--frame); position: relative; z-index: 10; }
+.pill { height: 22px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 3px;
+  background: var(--control); box-shadow: inset 0 0 0 1px var(--frame); white-space: nowrap; }
+#proj { min-width: 0; max-width: 34vw; }
+#proj-name { overflow: hidden; text-overflow: ellipsis; }
+.tri { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--fg); flex: none; }
+#proj-menu { position: absolute; left: 8px; top: calc(100% - 2px); min-width: 220px; padding: 3px 0; border-radius: 3px;
+  background: var(--control); box-shadow: 0 0 0 1px var(--frame), 0 6px 18px #000a; }
+#proj-menu div { padding: 6px 12px; white-space: nowrap; }
+#proj-menu div:hover, #proj-menu div.on { background: var(--orange); color: var(--fg-on); }
+.tbtn, .tog { width: 26px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 2px; }
+.tbtn svg, .tog svg { width: 14px; height: 14px; fill: currentColor; }
+.tbtn:hover, .tog:hover { background: var(--highlight); }
+#play.on { color: var(--play); }
+.tog { color: var(--fg); background: var(--control); box-shadow: inset 0 0 0 1px var(--frame); }
+.tog.on { background: var(--orange); color: var(--fg-on); box-shadow: none; }
+.tog.on.paused { background: var(--alert); }
+.lcd { height: 22px; display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; border-radius: 2px;
+  background: var(--lcd); color: var(--fg); font-variant-numeric: tabular-nums; letter-spacing: .5px; white-space: nowrap; }
+#pos { min-width: 70px; }
+#tempo { min-width: 54px; }
+.sep { width: 1px; height: 20px; background: var(--frame); flex: none; }
+#zoom { display: inline-flex; gap: 2px; margin-left: auto; }
+#zoom button { width: 22px; height: 22px; border-radius: 2px; background: var(--control); box-shadow: inset 0 0 0 1px var(--frame); font-size: 14px; line-height: 1; }
+#load { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: transparent; pointer-events: none; }
+#load i { display: block; height: 100%; width: 0; background: var(--orange); transition: width .2s; }
+#msg { position: absolute; left: 50%; top: calc(100% + 12px); transform: translateX(-50%); padding: 8px 12px;
+  border-radius: 3px; background: var(--control); box-shadow: 0 0 0 1px var(--frame); white-space: nowrap; z-index: 20; }
+#msg.err { color: var(--alert); }
+
+/* ---------- arrangement ---------- */
+#scroller { flex: 1; overflow: auto; background: var(--area); position: relative; overscroll-behavior: contain; }
+#content { position: relative; min-height: 100%; display: flex; flex-direction: column; }
+/* under the last track: the header column stays empty (nothing of the timeline shows through it) */
+#below { flex: 1; display: flex; min-height: 0; }
+#below .corner { position: sticky; left: 0; z-index: 4; flex: none; width: var(--head-w); background: var(--area); border-right: 1px solid var(--frame); }
+#rulerrow { position: sticky; top: 0; z-index: 5; display: flex; height: var(--ruler-h); background: var(--surface); border-bottom: 1px solid var(--frame); }
+#rulerrow .corner { position: sticky; left: 0; z-index: 6; flex: none; width: var(--head-w); background: var(--surface); border-right: 1px solid var(--frame); }
+#ruler { position: relative; flex: none; height: 100%; cursor: pointer; touch-action: none; }
+#ruler .bn { position: absolute; top: 2px; padding-left: 3px; border-left: 1px solid var(--loop); height: 9px; line-height: 9px; color: var(--loop); font-size: 10px; white-space: nowrap; pointer-events: none; }
+#ruler .tk { position: absolute; top: 8px; width: 1px; height: 3px; background: #5e5e5e; pointer-events: none; }
+#brace { position: absolute; top: 14px; height: 10px; border-radius: 1px; box-shadow: inset 0 0 0 1px var(--loop); background: #545454; cursor: grab; touch-action: none; }
+/* loop on: LoopColor at 110 / 255 over SurfaceBackground (measured in the running Live) */
+#brace.on { background: #5d5d5d; }
+#brace.sel { background: var(--loop); }
+#brace .h { position: absolute; top: -2px; bottom: -2px; width: 12px; cursor: ew-resize; }
+#brace .h.l { left: -6px; } #brace .h.r { right: -6px; }
+
+#rows { position: relative; }
+.row { display: flex; height: var(--row-h); border-bottom: 1px solid var(--frame); }
+.row.folded { height: 26px; }
+/* the header also covers the row's separator line (so nothing of the timeline shows through it) */
+.head { position: sticky; left: 0; z-index: 4; flex: none; width: var(--head-w); height: calc(100% + 1px); border-bottom: 1px solid var(--frame); display: grid;
+  grid-template-columns: 6px 1fr 9px; background: var(--surface); border-right: 1px solid var(--frame); }
+.head .sw { background: var(--c); }
+.head.child .sw { box-shadow: inset 3px 0 0 var(--pc); }
+.head .mid { min-width: 0; padding: 4px 6px 4px 6px; display: flex; flex-direction: column; justify-content: space-between; gap: 3px; }
+.head .nm { display: flex; align-items: center; gap: 5px; font-weight: 700; color: #d2d2d2; white-space: nowrap; overflow: hidden; }
+.head .nm span { overflow: hidden; text-overflow: ellipsis; }
+.fold { width: 14px; height: 14px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--fg); display: inline-flex; align-items: center; justify-content: center; }
+.fold::before { content: ''; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--fg); }
+.fold.shut::before { border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--fg); border-right: 0; margin-left: 2px; }
+.ctl { display: flex; gap: 3px; align-items: center; }
+.act, .solo { height: 17px; min-width: 22px; padding: 0 4px; border-radius: 2px; font-size: 10px; display: inline-flex; align-items: center; justify-content: center; }
+.act { background: var(--orange); color: var(--fg-on); }
+.act.off { background: var(--control); color: var(--dim); box-shadow: inset 0 0 0 1px var(--frame); }
+.solo { background: var(--control); color: var(--fg); box-shadow: inset 0 0 0 1px var(--frame); }
+.solo.on { background: var(--cyan); color: var(--fg-on); box-shadow: none; }
+.field { position: relative; height: 17px; border-radius: 2px; background: var(--control); box-shadow: inset 0 0 0 1px var(--frame);
+  overflow: hidden; touch-action: none; cursor: ns-resize; font-size: 10px; flex: none; user-select: none; -webkit-user-select: none; }
+.field i { position: absolute; top: 1px; bottom: 1px; background: var(--field); }
+.field span { position: relative; display: block; text-align: center; line-height: 17px; color: #e4e4e4; }
+.vol { width: 52px; } .pan { width: 40px; }
+.vu { width: 9px; height: 100%; display: block; background: var(--meter-bg); image-rendering: pixelated; }
+.lane { position: relative; flex: none; height: 100%; }
+.lane.grp { background: #2d2d2d; }
+.clip { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; overflow: hidden; background: var(--c); }
+/* the clip's title bar, with the clip colour x 135 / 255 under it (Live: black at ClipBorderAlpha 120 over the clip) */
+.clip .ct { position: absolute; left: 0; right: 0; top: 0; height: 13px; padding: 0 4px; line-height: 13px; font-size: 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 1px 0 rgba(0, 0, 0, .47); }
+.clip canvas { position: absolute; top: 14px; height: calc(100% - 14px); }
+.row.muted .clip, .row.muted .gclip { filter: grayscale(1) brightness(.55); }
+.gclip { position: absolute; border-radius: 1px; pointer-events: none; }
+#grid { position: absolute; top: var(--ruler-h); bottom: 0; pointer-events: none; }
+#grid .gl { position: absolute; top: 0; bottom: 0; width: 1px; background: #0606062a; }
+#grid .gl.bar { background: #06060654; }
+#grid .gz { position: absolute; top: 0; bottom: 0; background: #0a0a0a19; }
+#playhead, #insert, .loopline { position: absolute; left: 0; top: 0; bottom: 0; width: 1px; pointer-events: none; z-index: 3; }
+#playhead { background: #fff; display: none; }
+#insert { background: var(--cyan); animation: blink 1.2s linear infinite; }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
+.loopline { background: var(--loop); display: none; }
+
+/* ---------- master ---------- */
+#master { flex: none; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 8px; background: var(--surface); border-top: 1px solid var(--frame); }
+#master .nm { font-weight: 700; color: #d2d2d2; }
+#master .vu { height: 22px; width: 9px; }
+
+@media (max-width: 700px) {
+  :root { --head-w: 158px; --row-h: 46px; }
+  .pan { width: 34px; } .vol { width: 44px; }
+  #tempo { display: none; }
+}
+@media (hover: none) { .tbtn:hover, .tog:hover { background: none; } .tog.on:hover { background: var(--orange); } }
