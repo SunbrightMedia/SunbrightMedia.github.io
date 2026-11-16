@@ -2956,6 +2956,7 @@ const engine = {
     // (Live's status bar shows nothing while starting playback, so neither do we)
     for (const p of need) if (!pendingFiles.has(p)) await getSource(p);   // a project's files still downloading join later (addLate)
     this.playing = true;
+    setFollowPaused(false);
     $('#cb-play').classList.add('playing');
     this.t0 = this.ctx.currentTime + 0.1;
     this.segs = [];
@@ -3088,7 +3089,7 @@ const engine = {
     // a continuous scroll that keeps the playhead centred once it passes the middle (the offset is clamped to the
     // content, so the view stays put near the start and the end; see clampScroll). Traced in the running Live:
     // the setter got the playhead pixel and 0.5 on every play-line update.
-    if (follow) {
+    if (follow && !followPaused) {
       const w = lanesWidth();
       view.beat0 = (Math.round(b * view.ppb) - Math.trunc(w * 0.5)) / view.ppb;
       clampScroll();
@@ -3184,6 +3185,12 @@ const engine = {
   },
 };
 let follow = true;
+// Follow pauses when the user scrolls the Arrangement sideways (wheel / Shift+wheel) while it plays: the view stays
+// where it was put and the Follow button turns Alert (#e76942) - also when the play line leaves the view; Play (after a
+// Stop) or a click on Follow resumes following. Dragging the Overview does not pause it (running Live, the owner's Set:
+// button #ffad56 -> #e76942 on a sideways scroll, back to #ffad56 on Stop + Play, and on a click on Follow).
+let followPaused = false;
+function setFollowPaused(v) { followPaused = v; $('#cb-follow').classList.toggle('paused', v); }
 
 function fmtPos(b) {
   const bpb = beatsPerBar(), beatLen = 4 / set.sig.den;
@@ -3225,6 +3232,7 @@ function setupInteraction() {
       e.preventDefault();
       view.beat0 += (e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX) / view.ppb;
       clampScroll();
+      if (engine.playing && follow) setFollowPaused(true);
       drawAll();
     }
   };
@@ -3392,7 +3400,10 @@ function setupInteraction() {
     if (engine.playing) engine.play(engine.beatNow());
     drawAll();
   });
-  $('#cb-follow').addEventListener('click', () => { follow = !follow; $('#cb-follow').classList.toggle('on', follow); });
+  $('#cb-follow').addEventListener('click', () => {
+    if (followPaused) { setFollowPaused(false); return; }   // a paused Follow resumes (stays on)
+    follow = !follow; $('#cb-follow').classList.toggle('on', follow);
+  });
   $('#cb-follow').classList.toggle('on', follow);
   addEventListener('keydown', e => {
     if (!set || e.target.closest?.('input')) return;
