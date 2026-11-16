@@ -2064,6 +2064,14 @@ const scrollPx = () => Math.round(view.beat0 * view.ppb);
 const xOf = b => b * view.ppb - scrollPx();
 const bOf = x => (x + scrollPx()) / view.ppb;
 const beatsPerBar = () => set ? set.sig.num * 4 / set.sig.den : 4;
+// the global quantization (control bar) in beats: 'N Bars' / '1 Bar', '1/d' (a d-th of a whole note), 'T' = triplet
+function quantBeats(q) {
+  let m;
+  if (!q || q === 'None') return 0;
+  if ((m = /^(\d+) Bars?$/.exec(q))) return +m[1] * beatsPerBar();
+  if ((m = /^1\/(\d+)(T?)$/.exec(q))) return 4 / +m[1] * (m[2] ? 2 / 3 : 1);
+  return beatsPerBar();
+}
 
 // The Arrangement's time range, from Live 12.0's exe (addresses in "Ableton Live 12 Suite.exe", image base 0x140000000).
 // ASongArrangerMediator (vtable 0x145cb9570) gives the range the Arrangement and the Overview map: start = 0
@@ -2971,15 +2979,16 @@ const engine = {
     this.meters();
   },
   // a segment maps a stretch of real time to a stretch of the arrangement (loops add more segments)
-  nextSeg() {
+  nextSeg(jumpTo) {
     const last = this.segs[this.segs.length - 1];
-    const loopOn = set.loop.on, le = set.loop.start + set.loop.length;
+    // the loop that applies: the scrub area's held section, else the arrangement loop
+    const L = this.scrubLoop || (set.loop.on ? { from: set.loop.start, to: set.loop.start + set.loop.length } : null);
     let b0, ctx0;
-    if (!last) { b0 = this.startBeat; ctx0 = this.t0; }
-    else { b0 = loopOn ? set.loop.start : last.b1; ctx0 = last.ctx1; }
-    let b1 = loopOn && b0 < le ? le : Math.max(b0, set.end) + 4096;
-    if (!loopOn && last) return null;
-    const seg = { b0, b1, ctx0, ctx1: ctx0 + (tempoMap.sec(b1) - tempoMap.sec(b0)) };
+    if (jumpTo != null) { b0 = jumpTo; ctx0 = last ? last.ctx1 : this.t0; }
+    else if (!last) { b0 = this.startBeat; ctx0 = this.t0; }
+    else { if (!L) return null; b0 = L.from; ctx0 = last.ctx1; }
+    const b1 = L && b0 < L.to - 1e-9 ? L.to : Math.max(b0, set.end) + 4096;
+    const seg = { b0, b1, ctx0, ctx1: ctx0 + (tempoMap.sec(b1) - tempoMap.sec(b0)), scrub: !!this.scrubLoop && L === this.scrubLoop };
     this.segs.push(seg);
     // chunks for every track in this segment
     for (const t of set.tracks) for (const c of this.playClips(t)) {
@@ -2994,6 +3003,44 @@ const engine = {
     return seg;
   },
   ctxAt(seg, beat) { return seg.ctx0 + tempoMap.sec(beat) - tempoMap.sec(seg.b0); },
+  // Playback continues at song time `to` from the moment the play line reaches `at` (sample-exact: the current segment
+  // ends there, sounds scheduled past it are cut, a new segment starts)
+  jump(at, to) {
+    if (!this.playing) return;
+    const now = this.ctx.currentTime;
+    let i = this.segs.findIndex(g => now < g.ctx1);
+    if (i < 0) i = this.segs.length - 1;
+    const seg = this.segs[i];
+    let T = at >= seg.b0 - 1e-9 && at <= seg.b1 + 1e-9 ? this.ctxAt(seg, at) : seg.ctx1;
+    T = Math.max(T, now + 0.005);
+    seg.b1 = Math.min(seg.b1, tempoMap.beat(tempoMap.sec(seg.b0) + (T - seg.ctx0))); seg.ctx1 = T;
+    this.segs.length = i + 1;
+    for (const n of this.live) { try { n.stop(T); } catch (e) {} }
+    this.queue = this.queue.filter(q => q.when < T).map(q => q.when + (q.e - q.s) / q.rate > T ? { ...q, e: q.s + (T - q.when) * q.rate } : q);
+    this.nextSeg(to);
+    this.tick();
+  },
+  // The scrub area (running Live 12 with the owner's Set, global quantization 1 Bar): a press when stopped starts playback
+  // at the start of the clicked bar; while playing, playback jumps there at the next bar line. Held, that bar repeats
+  // (seen: 6.1.1, 5.3.4, 5.3.3 while held at bar 5); on release playback goes on from where it is. The section is the
+  // global quantization (set.quant); with None the jump is to the click itself, at once, and nothing repeats (Live's
+  // continuous scrubbing then is not modelled).
+  scrubPress(beat, q) {
+    const target = q > 0 ? Math.floor(beat / q + 1e-9) * q : beat;
+    this.scrubLoop = q > 0 ? { from: target, to: target + q } : null;
+    if (!this.playing) { this.play(target); return; }
+    const now = this.beatNow();
+    this.scrubAt = q > 0 ? Math.ceil(now / q - 1e-9) * q : now;
+    this.jump(this.scrubAt, target);
+  },
+  scrubRelease() {
+    const s = this.scrubLoop; this.scrubLoop = null;
+    if (!s || !this.playing || !this.ctx) return;
+    const now = this.ctx.currentTime, cur = this.segs.find(g => now < g.ctx1);
+    if (!cur) return;
+    if (cur.scrub) this.jump(cur.b1, cur.b1);          // in the repeating bar: go on past it
+    else this.jump(this.scrubAt, s.from);               // the jump is still to come: keep it, without the repeat
+  },
   // an audio file that arrives while the song plays: its clips join in time, from the current position on (schedule()
   // starts a piece that is already under way at the right point and drops pieces that are over)
   addLate(path, src) {
@@ -3098,6 +3145,7 @@ const engine = {
   },
   stop(silent) {
     clearInterval(this.timer); this.timer = null;
+    this.scrubLoop = null;
     for (const n of this.live) { try { n.stop(); } catch (e) {} }
     this.live.clear();
     this.queue = []; this.segs = [];
@@ -3253,6 +3301,18 @@ function setupInteraction() {
   const ruler = $('#ruler');
   ruler.addEventListener('pointerdown', e => {
     if (!set) return;
+    // the scrub band, except the loop brace's own rows (rows 0..11 of the band over the brace's extent)
+    const sr = $('#ruler-scrub').getBoundingClientRect(), rr = ruler.getBoundingClientRect();
+    if (e.clientY >= sr.top && e.clientY < sr.bottom) {
+      const x = e.clientX - rr.left, bx0 = Math.round(xOf(set.loop.start)) - 10, bx1 = Math.round(xOf(set.loop.start + set.loop.length)) + 10;
+      if (!(e.clientY < sr.top + 11 && x >= bx0 && x <= bx1)) {
+        e.preventDefault();
+        engine.scrubPress(Math.max(0, bOf(x)), quantBeats(set.quant));
+        const up = () => { removeEventListener('pointerup', up, true); engine.scrubRelease(); };
+        addEventListener('pointerup', up, true);
+        return;
+      }
+    }
     const rect = ruler.getBoundingClientRect();
     const x0 = e.clientX - rect.left, y0 = e.clientY;
     let moved = false, lastX = e.clientX, lastY = e.clientY;
