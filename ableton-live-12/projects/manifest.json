@@ -1,3 +1,34 @@
 {
-  "projects": []
+  "projects": [
+    {
+      "name": "Last Christmas Project",
+      "folder": "projects/Last Christmas Project",
+      "files": [
+        [
+          "Next Christmas.als",
+          593353
+        ],
+        [
+          "Samples/Processed/Freeze/Freeze Bass [2026-11-13 015811].wav",
+          18851408
+        ],
+        [
+          "Samples/Processed/Freeze/Freeze Bell Loop [2026-11-13 015811].wav",
+          12856120
+        ],
+        [
+          "Samples/Processed/Freeze/Freeze Juno-60 Bright [2026-11-13 015811].wav",
+          88358520
+        ],
+        [
+          "Samples/Processed/Freeze/Freeze Juno-60 Mellow [2026-11-13 015811].wav",
+          103289800
+        ],
+        [
+          "Samples/Processed/Freeze/Freeze LinnDrum [2026-11-13 015811].wav",
+          19627520
+        ]
+      ]
+    }
+  ]
 }
