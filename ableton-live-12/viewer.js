@@ -331,6 +331,9 @@ function parseSet(xmlText, setPath) {
     if (t.parent) t.parent.children.push(t);
   }
   for (const t of set.tracks) { let d = 0, p = t.parent; while (p) { d++; p = p.parent; } t.depth = d; }
+  // Group nesting widens the track header column by 5 px per level of the Set's deepest track, for every track, return
+  // and Main (running Live 12 at 1920 px: titles start at x 1621 with no groups, 1616 with one level, 1611 with two)
+  set.nest = 5 * Math.max(0, ...set.tracks.map(t => t.depth));
 
   // song length
   let end = 0;
@@ -355,6 +358,7 @@ function parseTrack(el, root) {
   const unfoldedRaw = val(el, 'TrackUnfolded');
   const t = {
     el, id: el.getAttribute('Id'), type,
+    outTarget: val(kid(chain, 'AudioOutputRouting'), 'Target') || '',
     // Live shows the user's name if there is one, else its own: EffectiveName "1-MIDI" / "A-Reverb" is shown as "1 MIDI"
     // in the header (and "1-MIDI" in the status bar), "A Reverb" for a return (letter + name; seen in the running Live)
     name: displayName(el, type),
@@ -1700,7 +1704,7 @@ function makeRow(t, y, h, pinned) {
   const nameBg = t.color;
   const dark = textOn(nameBg, T.IconBlendFactor), nameCol = textOn(nameBg, T.DefaultBlendFactor);
   hd.innerHTML = `<div class="bg" style="height:${ch}px" data-info="Volume Section"></div>
-    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${(pinned && t.type !== 'main') || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit" data-info="Unfold Track Button" data-hit="-2 -1 -1 -1"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn" style="color:${nameCol}"></span></div>`;
+    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${t.type === 'group' ? (t.unfolded ? 'hd_groupFold' : 'hd_groupFoldRet') : (pinned && t.type !== 'main') || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit" data-info="Unfold Track Button" data-hit="-2 -1 -1 -1"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn" style="color:${nameCol}"></span></div>`;
   // a return's letter and name are placed apart: letter at the name's x, name 10 px further (user's Windows screenshot:
   // "A" and "B" at x 1644, "Reverb" and "Delay" both at 1654)
   if (isRet) { $('.name .tn', hd).innerHTML = '<span></span><span style="position:absolute;left:10px"></span>'; const [l, n] = $('.name .tn', hd).children; l.textContent = t.label; n.textContent = t.name; $('.name .tn', hd).style.left = '23px'; }
@@ -1774,15 +1778,29 @@ function makeRow(t, y, h, pinned) {
       const rowsFit = t.unfolded ? Math.floor((ch - 2 + 4) / 17) : 0;
       // In/Out section (a folded track shows an empty box, as in Live 12's manual, "Track Controls")
       if (!t.unfolded) hctl(hd, 'flat', 99, R(0), 70, null);
-      if (rowsFit >= 1) dropdown(hd, 99, R(0), 70, t.type === 'midi' ? 'All Ins' : t.type === 'group' ? '' : 'Ext. In', 2);
-      if (rowsFit >= 2 && t.type !== 'group') dropdown(hd, 99, R(1), 70, t.type === 'midi' ? 'All Channels' : String(1 + (Number(t.label) + 1) % 2), 11, t.type === 'midi' ? 'hd_chanMeter' : 'hd_inMeterEmpty');
-      if (rowsFit >= 3) {
-        const mon = t.type === 'midi' ? 1 : 2;
-        const mr = document.createElement('div'); mr.className = 'abs'; Object.assign(mr.style, { left: '98px', top: (R(2) - 1) + 'px', width: '72px', height: '15px' }); mr.dataset.info = 'Monitoring'; hd.append(mr);
-        for (const [k, x, w, l] of [[0, 99, 17, 'In'], [1, 119, 27, 'Auto'], [2, 149, 20, 'Off']]) hctl(hd, mon === k ? 'on' : '', x, R(2), w, l).dataset.info = 'Monitoring';
+      // a frozen MIDI track has no input type row: its input channel, monitoring and output move up one row (running
+      // Live, the owner's Set: LinnDrum ... Bell Loop show All Channels / In Auto Off / Main / output channel, while a new
+      // MIDI track, with or without an instrument (Analog), shows All Ins above them; frozen audio tracks not checked)
+      const o = t.type === 'midi' && t.frozen ? 1 : 0;
+      // the output chooser shows Live's name for the Set's target (its stored display strings are stale: "Group",
+      // "Master"): AudioOut/GroupTrack -> the enclosing group's name, AudioOut/Main -> "Main" (running Live, the owner's
+      // Set: the Bells tracks show "Bells 1"); a MIDI track with no instrument has no audio output
+      const outText = t.type === 'midi' && !audioOut(t) ? 'No Output' : t.outTarget === 'AudioOut/GroupTrack' && t.parent ? t.parent.name : 'Main';
+      if (t.type === 'group') {
+        // a group has no input: its output chooser and output channel box come first (running Live: Bells 1 unfolded)
+        if (rowsFit >= 1) dropdown(hd, 99, R(0), 70, outText, 2);
+        if (rowsFit >= 2) { const oc = hctl(hd, 'flat', 99, R(1), 70, null); oc.style.background = 'transparent'; oc.dataset.info = 'Output Channel'; }
+      } else {
+        if (rowsFit >= 1 && !o) dropdown(hd, 99, R(0), 70, t.type === 'midi' ? 'All Ins' : 'Ext. In', 2);
+        if (rowsFit >= 2 - o) dropdown(hd, 99, R(1 - o), 70, t.type === 'midi' ? 'All Channels' : String(1 + (Number(t.label) + 1) % 2), 11, t.type === 'midi' ? 'hd_chanMeter' : 'hd_inMeterEmpty');
+        if (rowsFit >= 3 - o) {
+          const mon = t.type === 'midi' ? 1 : 2;
+          const mr = document.createElement('div'); mr.className = 'abs'; Object.assign(mr.style, { left: '98px', top: (R(2 - o) - 1) + 'px', width: '72px', height: '15px' }); mr.dataset.info = 'Monitoring'; hd.append(mr);
+          for (const [k, x, w, l] of [[0, 99, 17, 'In'], [1, 119, 27, 'Auto'], [2, 149, 20, 'Off']]) hctl(hd, mon === k ? 'on' : '', x, R(2 - o), w, l).dataset.info = 'Monitoring';
+        }
+        if (rowsFit >= 4 - o) dropdown(hd, 99, R(3 - o), 70, outText, 2);
+        if (rowsFit >= 5 - o) { const oc = hctl(hd, 'flat', 99, R(4 - o), 70, null); oc.style.background = 'transparent'; oc.dataset.info = 'Output Channel'; }
       }
-      if (rowsFit >= 4) dropdown(hd, 99, R(3), 70, t.type === 'midi' && !t.devices.length ? 'No Output' : 'Main', 2);
-      if (rowsFit >= 5) { const oc = hctl(hd, 'flat', 99, R(4), 70, null); oc.style.background = 'transparent'; oc.dataset.info = 'Output Channel'; }
       // mixer
       if (audio && rowsFit >= 2) {
         const vol = mixField(hd, t, 'vol', 175, R(1)); vol.title = 'Track Volume'; vol.dataset.info = 'Track Volume';
@@ -1793,6 +1811,27 @@ function makeRow(t, y, h, pinned) {
       else if (t.unfolded) midiMeter(hd, ch);
       else foldedMidiMeter(hd, ch);
     }
+  }
+  // Group nesting (running Live 12, the owner's Set with one level of groups and a test group of groups): the header is
+  // set.nest px wider on the left. A track at depth k has its title box from 2 + 5k px into the widened header (so the
+  // tracks of the deepest level keep it where it is without groups); for each enclosing group j a 4 px strip of that
+  // group's colour at 2 + 5j, then 1 px of the header's dark background. The strips run down the group's tracks and the
+  // gaps between them and end with its last visible track's lane; an unfolded group's gap under its title carries its
+  // own strip (Live's pixels at x 1617 / 1620 down the unfolded Bells 1).
+  const N = set.nest || 0;
+  if (N) {
+    const inner = document.createElement('div');
+    Object.assign(inner.style, { position: 'absolute', left: N + 'px', top: '0', width: HW + 'px', height: h + 'px' });
+    while (hd.firstChild) inner.append(hd.firstChild);
+    hd.append(inner); hd.style.width = (HW + N) + 'px';
+    const k = t.depth || 0, nm = inner.querySelector('.name');
+    if (5 * k < N) { nm.style.left = (2 + 5 * k - N) + 'px'; nm.style.width = (93 + N - 5 * k) + 'px'; }
+    const strip = (x, top, height, colour) => { const d = document.createElement('div'); d.className = 'abs'; Object.assign(d.style, { left: x + 'px', top: top + 'px', width: '4px', height: height + 'px', background: colour }); hd.append(d); };
+    const within = (x, g) => { for (let p = x.parent; p; p = p.parent) if (p === g) return true; return false; };
+    const lastIn = g => { let last = null; for (const x of set.tracks) if (within(x, g) && isVisible(x)) last = x; return last; };
+    const anc = []; for (let p = t.parent; p; p = p.parent) anc.unshift(p);
+    anc.forEach((g, j) => strip(2 + 5 * j, 0, lastIn(g) === t ? ch : h, g.color));
+    if (t.type === 'group' && t.unfolded && lastIn(t)) strip(2 + 5 * k, ch, h - ch, t.color);
   }
   hd._t = t; t._hd = hd;
   hd.addEventListener('mousedown', e => {
@@ -1980,7 +2019,7 @@ function sizeCanvas(cv, w, h) {
   if (cv.style.height !== h + 'px') cv.style.height = h + 'px';
   const ctx = cv.getContext('2d'); ctx.setTransform(d, 0, 0, d, 0, 0); return ctx;
 }
-function lanesWidth() { return Math.max(1, $('#arrangement').clientWidth - HW); }
+function lanesWidth() { return Math.max(1, $('#arrangement').clientWidth - HW - (set ? set.nest || 0 : 0)); }
 // returns true when a canvas changed size (and so was cleared)
 function layoutCanvases() {
   const w = lanesWidth();
