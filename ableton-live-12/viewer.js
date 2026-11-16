@@ -320,6 +320,8 @@ function parseSet(xmlText, setPath) {
   }
   set.main = parseTrack(main, root);
   set.main.type = 'main'; set.main.label = '';
+  // the Main track is folded unless its TrackUnfolded says otherwise (the default Set has none: Live shows Main folded)
+  set.main.unfolded = val(main, 'TrackUnfolded') === 'true';
   if (!val(main, 'Name', 'EffectiveName')) set.main.name = 'Main';
 
   // groups
@@ -424,6 +426,13 @@ function parseClip(el, root) {
   return c;
 }
 
+// Live's instrument devices (their Set tags)
+const INSTRUMENT_TAGS = new Set(['InstrumentGroupDevice', 'DrumGroupDevice', 'OriginalSimpler', 'MultiSampler', 'UltraAnalog', 'Operator',
+  'InstrumentVector', 'LoungeLizard', 'StringStudio', 'Collision', 'InstrumentImpulse', 'Drift', 'InstrumentMeld', 'MxDeviceInstrument']);
+// A MIDI track whose chain holds an instrument (or that is frozen: its freeze file is audio) has an audio output; Live's
+// Arrangement mixer then shows it a volume and a pan field, the sends and the two-channel level meter, like an audio track
+// (running Live, the owner's Set: the five frozen MIDI tracks with VST3 instruments)
+function audioOut(t) { return t.type === 'audio' || t.type === 'group' || (t.type === 'midi' && (t.frozen || t.devices.some(d => d.instrument))); }
 function parseDevices(devicesEl, root) {
   return devicesEl ? [...devicesEl.children].map(d => parseDevice(d, root)) : [];
 }
@@ -441,6 +450,9 @@ function parseDevice(el, root) {
     const info = at(el, 'PluginDesc')?.firstElementChild;
     const fmt = { Vst3PluginInfo: 'VST3', VstPluginInfo: 'VST', AuPluginInfo: 'AU' }[info?.tagName] || 'Plug-in';
     dev.kind = fmt;
+    // a VST3 plug-in's DeviceType: 1 for the instruments in the owner's Set (IconDrum, MODO BASS 2, JUNO-60, Dexed,
+    // JUNO-106, TRITON), 2 for its audio effect (ZEKEWARE Chorus)
+    dev.instrument = val(info, 'DeviceType') === '1';
     dev.name = dev.name || val(info, 'Name') || val(info, 'PlugName') || 'Plug-in';
     for (const p of kids(el, 'ParameterList')) {
       const pn = val(p, 'ParameterName');
@@ -448,6 +460,7 @@ function parseDevice(el, root) {
     }
     return dev;
   }
+  dev.instrument = INSTRUMENT_TAGS.has(tag);
   if (tag.startsWith('MxDevice')) {
     let file = '';
     for (const fr of el.querySelectorAll('FileRef')) { const p = val(fr, 'RelativePath') || val(fr, 'Path') || val(fr, 'Name') || ''; if (/\.amxd$/i.test(p)) { file = p; break; } }
@@ -1379,6 +1392,7 @@ Object.assign(INFO, {
   'Return Track Title Bar': 'Click to select this return track; choose\n‘Rename’ from the Edit menu to rename the\ntrack; choose ‘Delete’ to delete the track.\n\n[Arrow Left/Right] Fold track display in/out',
   'Main Track Title Bar': 'Click to select the Main track and open the\nDevice View to display the track’s devices.',
   'Main Out': 'In Live, you can preview Browser files and\ncue clips using a separate output. The Cue\nOut chooser above selects the output on\nyour hardware interface to be used for\ncueing. This chooser selects the output to\nwhich to rest of the mix will be sent.\nCueing is active when the Session mixer’s\nSolo/Cue Mode switch is set to ‘Cue.’',
+  'Cue Out': 'In Live, you can preview Browser files and\ncue clips using a separate output. This\nchooser selects the output on your\nhardware interface to be used for cueing.\nThe Main Out chooser below selects the\noutput to which to rest of the mix will be\nsent.\nCueing is active when the Session mixer’s\nSolo/Cue Mode switch is set to ‘Cue.’',
   'Preview/Cue Volume': 'Adjust the preview/cue volume by clicking\nhere and dragging up/down.',
   'Browser File Preview': 'When enabled, a preview of the selected\nbrowser item will be played automatically. To\nadjust the previewing volume, use the\nPreview/Cue Volume control in the Main\ntrack’s mixer.',
   'Waveform Vertical Zoom': 'Use this toggle to switch vertical zooming\nfor all waveforms in the Arrangement on or\noff. When on, vertical zooming will also be\napplied to waveforms when recording new\naudio clips into the Arrangement.',
@@ -1515,7 +1529,7 @@ function buildRows() {
   rowsEl.style.height = y + 'px';
   let py = 3;
   for (const t of [...set.returns, set.main]) {
-    const h = FOLDED_H + SEP;
+    const h = t.type === 'main' ? laneH(t) : FOLDED_H + SEP;
     pinnedRows.push({ track: t, y: py, h });
     pinEl.append(makeRow(t, py, h, true));
     py += h;
@@ -1536,15 +1550,41 @@ function dbText(v, inf = '-inf') {
   return db.toFixed(1);
 }
 function panText(p) {
-  const v = Math.round(p * 50);
+  // the pan value is a float in Live (the slider's position -> value is converted to float, 0x142b47440): -0.05 shows "3L"
+  const v = Math.round(Math.fround(p) * 50);
   return v === 0 ? 'C' : v < 0 ? `${-v}L` : `${v}R`;
 }
-// Volume field fill. Measured in Live 12: 0 dB fills 37 of 44 px, -6 dB fills 31 of 44 px.
-function volFill(v) {
-  if (v <= 0.000317) return 0;
-  const db = 20 * Math.log10(v);
-  return db >= -18 ? clamp(0.841 + 0.0227 * db, 0, 1) : 0.432 * Math.exp((db + 18) / 12);
+// ---- Track volume taper, from Live 12.0's exe ----
+// The mixer volume (an ATimeableFloatCurrentValue, vt 0x145afbc50) keeps the gain and shows the slider a position 0..1
+// through its ATrackLevelUserFloatConverter (vt 0x145afe8c8, at value +0x88): slot 4 0x14317a870 -> 0x142c096a0 (gain ->
+// position), slot 5 0x14317a7f0 -> 0x142c09760 (position -> gain). Both use level table type 1 of Live's global table set
+// ([[0x147225e10]+0x460][2]+0x30): the gains at positions 0, 0.01 .. 1, read with gdb from the running Live (-70 dB at 0,
+// 0 dB at 0.85, +6 dB at 1; 0.4 dB per 0.01 above -10 dB).
+const VOL_T = [0.00031622776,0.00047863042,0.0006781619,0.00089949806,0.0011168642,0.0013803854,0.0016982447,0.002079697,0.0025351304,0.003076098,0.0037153538,0.004466837,0.005345646,0.006367957,0.007550927,0.00891251,0.010471291,0.01224617,0.014256085,0.016519625,0.019054621,0.02187763,0.025003474,0.028444627,0.032210708,0.03630783,0.04073805,0.045498844,0.050582506,0.05597581,0.061659563,0.06760836,0.07379049,0.08016788,0.08669625,0.09332551,0.10000008,0.1066597,0.11324014,0.11967415,0.12589265,0.13182579,0.13803853,0.14454408,0.15135624,0.15848945,0.16595882,0.1737802,0.18197021,0.19054618,0.19952634,0.20892972,0.21877627,0.22908686,0.2398834,0.25118873,0.2630269,0.27542293,0.2884032,0.30199522,0.3162278,0.33113113,0.34673685,0.36307803,0.38018936,0.3981071,0.4168693,0.43651575,0.4570881,0.47863004,0.5011872,0.5248074,0.5495408,0.5754399,0.60255957,0.6309573,0.6606934,0.69183093,0.7244359,0.7585776,0.7943282,0.83176374,0.8709636,0.91201085,0.9549926,1,1.0471284,1.0964781,1.1481535,1.2022643,1.2589253,1.3182566,1.3803842,1.4454397,1.5135611,1.5848931,1.6595868,1.7378008,1.8197008,1.9054607,1.9952624].map(Math.fround);
+const f32 = Math.fround;
+// 0x142c096a0: the first table entry above the gain (binary search over the 101 entries), linear between it and the one
+// before (fraction in float, position in double, returned as float); clamped to 0..1 by the converter
+function volToPos(g) {
+  g = f32(g);
+  let i = 0; while (i < 101 && !(g < VOL_T[i])) i++;
+  if (i === 0) return 0;
+  if (i === 101) return 1;
+  const fr = f32(f32(g - VOL_T[i - 1]) / f32(VOL_T[i] - VOL_T[i - 1]));
+  return clamp(f32((fr + (i - 1)) * 0.01), 0, 1);
 }
+// 0x142c09760: i = trunc(float(p * 100)), f = p * 100 - i in double (0 below 2^-17, 1 from 1 - 2^-17), lerp in double
+function posToVol(p) {
+  p = f32(p);
+  if (!(p > 0)) return VOL_T[0];
+  if (!(p < 1)) return VOL_T[100];
+  const i = Math.trunc(f32(p * 100));
+  let f = p * 100 - i;
+  f = f > 7.62939453125e-06 ? (f >= 0.9999923706054688 ? 1 : f) : 0;
+  return clamp(f32(VOL_T[i] - VOL_T[i] * f + f * VOL_T[i + 1]), VOL_T[0], VOL_T[100]);
+}
+// The volume field's fill: round(position x inner width) (Live's pixels at -31.0 / -14.5 / -5.0 / -3.4 / -2.3 dB in the
+// owner's Set: 10 / 21 / 32 / 34 / 35 of 44 px; the field's draw case for the fill is not traced)
+function volFill(v) { return volToPos(v); }
 
 // a 13 px header control; x/w relative to the header, row = control row (17 px pitch)
 function hctl(hd, cls, x, y, w, text) {
@@ -1576,6 +1616,76 @@ function fieldFill(d, frac, colour, text) {
   const s = document.createElement('span'); s.className = 'abs'; s.style.left = '0'; s.style.right = '0'; s.textContent = text;
   d.append(f, s);
 }
+// The pan field: the fill runs from the middle of the 44 px inside to round(position x 44), position = (pan + 1) / 2
+// (Live's pixels in the owner's Set: 5R -> 2 px right of the middle, 10L -> 5 px left, C none; draw code not traced)
+function panFill(d, p) {
+  d.innerHTML = '';
+  const iw = parseFloat(d.style.width) - 2, mid = iw / 2, x = Math.round((f32(p) + 1) / 2 * iw);
+  const f = document.createElement('i');
+  Object.assign(f.style, { position: 'absolute', left: (1 + Math.min(mid, x)) + 'px', top: '1px', bottom: '1px', width: Math.abs(x - mid) + 'px', background: 'var(--RangeEditField)' });
+  const s = document.createElement('span'); s.className = 'abs'; s.style.left = '0'; s.style.right = '0'; s.textContent = panText(p);
+  d.append(f, s);
+}
+// ---- Dragging the Arrangement mixer's volume and pan fields, from Live 12.0's exe ----
+// The fields are ASliderEditFields (vt 0x1459ff738 family). Mouse move (ASliderControl slot 97, 0x142a6f210): delta =
+// trunc(y movement x [+0x390]), applied as -delta steps (up raises) by 0x142a71070 -> 0x142a70c40 -> 0x142a70730, then the
+// pointer is put back at the press point (0x14295d4a0: an endless drag). 0x142a70730 (relative): position =
+// ValueToPos(value) + steps, clamped to 0 .. N, value = PosToValue(position) with the control's ADefaultSliderConverter
+// (vt 0x145a38e30: ValueToPos 0x142b474e0 = round(N (v - min) / (max - min)), PosToValue 0x142b47440 = float(min + (max -
+// min) pos / N)). N (0x142a6df20) = [+0x3a4] = 400 (gdb, volume and pan), x 10 while Shift is held (modifier bit 0).
+// Volume: v is the 0..1 position of the taper above; pan: the pan value itself, -1 .. 1.
+// Steps that leave the value unchanged are kept and added to the next move ([+0x3ae], 0x142a70c40: gdb, a Shift drag sent
+// 1, 2, 3, 4, 5 accumulated steps before the gain changed). The volume's new gain then passes through a quantizer of the
+// converter ([+0x88]+0x20, slot 4, not traced): every gain read with gdb after a drag lay on the 0.1 dB grid (0.851138 =
+// -1.4 dB, 0.860994 = -1.3 dB), so the page rounds to 0.1 dB. Running Live: a click and Delete, or a double-click, sets the
+// default (0 dB / C); a click gives the field the selection frame.
+const MIX_DEFAULT = { vol: 1, pan: 0 };
+function quantVol(g) { if (!(g > VOL_T[0])) return VOL_T[0]; return f32(10 ** (Math.round(20 * Math.log10(g) * 10) / 200)); }
+function mixGet(t, kind) { return kind === 'vol' ? volToPos(t.mixer.volume) : f32(t.mixer.pan); }
+function mixSet(t, kind, v) {
+  const old = kind === 'vol' ? t.mixer.volume : t.mixer.pan;
+  if (kind === 'vol') t.mixer.volume = quantVol(posToVol(v)); else t.mixer.pan = f32(clamp(v, -1, 1));
+  const now = kind === 'vol' ? t.mixer.volume : t.mixer.pan;
+  if (now !== old) { mixShow(t, kind); engine.updateMix(); }
+  return now !== old;
+}
+function mixShow(t, kind) {
+  const d = t._hd && t._hd.querySelector(kind === 'vol' ? '.mixvol' : '.mixpan'); if (!d) return;
+  if (kind === 'vol') fieldFill(d, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
+  else panFill(d, t.mixer.pan);
+}
+function mixField(hd, t, kind, x, y) {
+  const d = hctl(hd, 'field ' + (kind === 'vol' ? 'mixvol' : 'mixpan'), x, y, 46, null);
+  mixShow2(d, t, kind);
+  d.addEventListener('dblclick', e => { e.stopPropagation(); mixSet(t, kind, kind === 'vol' ? volToPos(MIX_DEFAULT.vol) : MIX_DEFAULT.pan); });
+  d.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    e.stopPropagation(); e.preventDefault();
+    setTitleSel(null); focusControl(d); mixFocus = { t, kind };
+    const lo = kind === 'vol' ? 0 : -1, hi = 1;
+    // (a page cannot put the pointer back at the press point as Live does: the pointer's own movement is used)
+    let lastY = e.clientY, pending = 0;
+    const move = ev => {
+      const dy = ev.clientY - lastY; lastY = ev.clientY;
+      const delta = -Math.trunc(dy); if (!delta) return;
+      const N = 400 * (ev.shiftKey ? 10 : 1), steps = pending + delta;
+      const cur = mixGet(t, kind), pos = clamp(Math.round(N * (cur - lo) / (hi - lo)) + steps, 0, N);
+      const changed = mixSet(t, kind, f32(lo + (hi - lo) * pos / N));
+      const atEnd = steps > 0 ? pos >= N : pos <= 0;
+      pending = !changed && !atEnd ? steps : 0;
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move, true); window.removeEventListener('mouseup', up, true);
+    };
+    window.addEventListener('mousemove', move, true); window.addEventListener('mouseup', up, true);
+  });
+  return d;
+}
+function mixShow2(d, t, kind) {
+  if (kind === 'vol') fieldFill(d, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
+  else panFill(d, t.mixer.pan);
+}
+let mixFocus = null;
 
 function makeRow(t, y, h, pinned) {
   const row = document.createElement('div');
@@ -1590,7 +1700,7 @@ function makeRow(t, y, h, pinned) {
   const nameBg = t.color;
   const dark = textOn(nameBg, T.IconBlendFactor), nameCol = textOn(nameBg, T.DefaultBlendFactor);
   hd.innerHTML = `<div class="bg" style="height:${ch}px" data-info="Volume Section"></div>
-    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${pinned || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit" data-info="Unfold Track Button" data-hit="-2 -1 -1 -1"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn" style="color:${nameCol}"></span></div>`;
+    <div class="name" style="height:${ch}px;background:${nameBg};color:${dark}" data-info="Track Title Bar"><i class="fold" data-ic="${(pinned && t.type !== 'main') || !t.unfolded ? 'hd_foldRet' : 'hd_fold'}"></i><span class="fold-hit" data-info="Unfold Track Button" data-hit="-2 -1 -1 -1"><i class="fold-hov" data-ic="hd_foldHover"></i></span><span class="tn" style="color:${nameCol}"></span></div>`;
   // a return's letter and name are placed apart: letter at the name's x, name 10 px further (user's Windows screenshot:
   // "A" and "B" at x 1644, "Reverb" and "Delay" both at 1654)
   if (isRet) { $('.name .tn', hd).innerHTML = '<span></span><span style="position:absolute;left:10px"></span>'; const [l, n] = $('.name .tn', hd).children; l.textContent = t.label; n.textContent = t.name; $('.name .tn', hd).style.left = '23px'; }
@@ -1625,11 +1735,14 @@ function makeRow(t, y, h, pinned) {
     for (const x of [95, 171]) { const s = document.createElement('div'); s.className = 'abs'; s.dataset.info = 'Mixer Drop Area'; Object.assign(s.style, { left: x + 'px', width: '2px', top: '0', height: ch + 'px' }); hd.append(s); }
     // the Main track's controls answer where a track's controls would (Live: Main Out x 1717..1788, volume 1793..1840,
     // cue 1843..1890), 3 px left of where they are drawn
-    const mo = dropdown(hd, 99 + M, R(0), 70, '1/2', 11, 'hd_mainMeterIcon'); mo.dataset.info = 'Main Out'; mo.dataset.hit = '4 1 -2 1';
-    const vol = hctl(hd, 'field', 175 + M, R(0), 46, ''); vol.title = 'Main Volume'; vol.dataset.info = 'Track Volume'; vol.dataset.hit = '4 1 -2 1';
-    fieldFill(vol, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
+    // unfolded (running Live, the owner's Set): Cue Out chooser in row 0 and Main Out in row 1, the pan field under the
+    // cue volume; folded: the Main Out chooser alone
+    const mo = dropdown(hd, 99 + M, R(t.unfolded ? 1 : 0), 70, '1/2', 11, 'hd_mainMeterIcon'); mo.dataset.info = 'Main Out'; mo.dataset.hit = '4 1 -2 1';
+    if (t.unfolded) { const co = dropdown(hd, 99 + M, R(0), 70, '1/2', 11, 'hd_mainMeterIcon'); co.dataset.info = 'Cue Out'; co.dataset.hit = '4 1 -2 1'; }
+    const vol = mixField(hd, t, 'vol', 175 + M, R(0)); vol.title = 'Main Volume'; vol.dataset.info = 'Track Volume'; vol.dataset.hit = '4 1 -2 1';
     const cue = hctl(hd, 'field', 225 + M, R(0), 46, ''); cue.title = 'Cue Volume'; cue.dataset.info = 'Preview/Cue Volume'; cue.dataset.hit = '4 1 -2 1';
     fieldFill(cue, volFill(0.5012), 'var(--ChosenPreListen)', '-6.0');
+    if (t.unfolded) { const pan = mixField(hd, t, 'pan', 225 + M, R(1)); pan.title = 'Track Panning'; pan.dataset.info = 'Track Pan'; pan.dataset.hit = '4 1 -2 1'; }
     meter(hd, t, 275 + M, 2, ch - 4, false);
   } else {
     vsep(95, 2); vsep(171, 2);
@@ -1656,7 +1769,7 @@ function makeRow(t, y, h, pinned) {
       const pp = hctl(hd, 'on', 246, R(0), 25, 'Post'); pp.title = 'Pre/Post'; pp.dataset.info = 'Pre/Post Toggle';
       meter(hd, t, 275, 2, ch - 4, false);
     } else {
-      const audio = t.type === 'audio' || t.type === 'group';
+      const audio = audioOut(t);
       if (t.type === 'midi' || t.type === 'audio') { const a = hctl(hd, '', 250, R(0), 21, null); a.title = 'Arm Recording'; a.dataset.info = 'Arm Recording'; a.dataset.ic = t.type === 'midi' ? 'hd_armMidi' : 'hd_armAudio'; }
       const rowsFit = t.unfolded ? Math.floor((ch - 2 + 4) / 17) : 0;
       // In/Out section (a folded track shows an empty box, as in Live 12's manual, "Track Controls")
@@ -1672,12 +1785,11 @@ function makeRow(t, y, h, pinned) {
       if (rowsFit >= 5) { const oc = hctl(hd, 'flat', 99, R(4), 70, null); oc.style.background = 'transparent'; oc.dataset.info = 'Output Channel'; }
       // mixer
       if (audio && rowsFit >= 2) {
-        const vol = hctl(hd, 'field', 175, R(1), 46, ''); vol.title = 'Track Volume'; vol.dataset.info = 'Track Volume';
-        fieldFill(vol, volFill(t.mixer.volume), 'var(--RangeEditField)', dbText(t.mixer.volume));
-        const pan = hctl(hd, 'field', 225, R(1), 46, panText(t.mixer.pan)); pan.title = 'Track Panning'; pan.dataset.info = 'Track Pan';
+        const vol = mixField(hd, t, 'vol', 175, R(1)); vol.title = 'Track Volume'; vol.dataset.info = 'Track Volume';
+        const pan = mixField(hd, t, 'pan', 225, R(1)); pan.title = 'Track Panning'; pan.dataset.info = 'Track Pan';
       }
       if (audio && rowsFit >= 3) t.mixer.sends.slice(0, 2).forEach((v, i) => { const s = hctl(hd, 'field', 175 + 33 * i, R(2), 30, dbText(v, '−∞')); s.title = 'Send'; s.dataset.info = 'Send'; });
-      if (audio || t.type === 'group') meter(hd, t, 275, 2, ch - 4, true);
+      if (audio) meter(hd, t, 275, 2, ch - 4, true);
       else if (t.unfolded) midiMeter(hd, ch);
       else foldedMidiMeter(hd, ch);
     }
@@ -1686,10 +1798,11 @@ function makeRow(t, y, h, pinned) {
   hd.addEventListener('mousedown', e => {
     // the fold button: the 13 px circle at the left of the title bar
     const nr = $('.name', hd).getBoundingClientRect();
-    if (!pinned && e.clientX - nr.left < 18 && e.clientY - nr.top < 17) {
+    if ((!pinned || t.type === 'main') && e.clientX - nr.left < 18 && e.clientY - nr.top < 17) {
       const to = !t.unfolded;
-      // "unfold all of your tracks at once by holding down the Alt modifier when clicking the button" (manual)
-      for (const o of e.altKey ? set.tracks : [t]) o.unfolded = to;
+      // "unfold all of your tracks at once by holding down the Alt modifier when clicking the button" (manual); the Main
+      // track has a fold button of its own (running Live: unfolded it is LaneHeight tall, like a track)
+      for (const o of e.altKey && t.type !== 'main' ? set.tracks : [t]) o.unfolded = to;
       buildRows(); return;
     }
     select(t);
@@ -2767,11 +2880,25 @@ const engine = {
   },
   updateMix() {
     if (!this.ctx) return;
+    this.mainChain();
     for (const [t, n] of this.nodes) {
-      const g = (t.type === 'group' ? (t.mixer.on ? 1 : 0) : (this.audible(t) ? 1 : 0)) * t.mixer.volume;
+      const g = t.type === 'main' ? t.mixer.volume : (t.type === 'group' ? (t.mixer.on ? 1 : 0) : (this.audible(t) ? 1 : 0)) * t.mixer.volume;
       n.vol.gain.setTargetAtTime(g, this.ctx.currentTime, 0.01);
       n.pan.pan.value = clamp(t.mixer.pan, -1, 1);
     }
+  },
+  // The Main track: its volume is the master gain, then its pan, then the output; its level meter reads that output
+  // (after volume and pan, like the tracks' meters), through the same analysers and meter code as the tracks
+  mainChain() {
+    if (!set || !this.master) return;
+    if (!this.main || this.main.master !== this.master) {
+      const pan = this.ctx.createStereoPanner(), split = this.ctx.createChannelSplitter(2);
+      const anL = this.ctx.createAnalyser(), anR = this.ctx.createAnalyser(); anL.fftSize = anR.fftSize = 4096;
+      this.master.disconnect(); this.master.connect(pan); pan.connect(this.ctx.destination);
+      pan.connect(split); split.connect(anL, 0); split.connect(anR, 1);
+      this.main = { master: this.master, node: { input: this.master, vol: this.master, pan, anL, anR } };
+    }
+    if (this.nodes.get(set.main) !== this.main.node) { this.nodes.delete(set.main); this.nodes.set(set.main, this.main.node); }
   },
   // which clips make a track's sound
   playClips(t) {
@@ -3250,6 +3377,10 @@ function setupInteraction() {
       else setZoom(view.ppb * f, Math.trunc(w / 2));
       drawAll();
     };
+    // Delete on a selected volume / pan field sets its default (running Live: 0 dB, C)
+    if ((e.key === 'Delete' || e.key === 'Backspace') && mixFocus && document.querySelector('.btn.focus.mix' + mixFocus.kind)) {
+      mixSet(mixFocus.t, mixFocus.kind, mixFocus.kind === 'vol' ? volToPos(MIX_DEFAULT.vol) : MIX_DEFAULT.pan); return;
+    }
     if (e.key === '+' || e.key === '=') zoomKey(1.6);
     if (e.key === '-') zoomKey(0.625);
     if (selected && !e.ctrlKey && !e.altKey && !e.metaKey) {
