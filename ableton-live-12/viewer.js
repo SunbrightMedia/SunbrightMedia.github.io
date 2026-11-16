@@ -2280,6 +2280,7 @@ function drawLanes(ctx, list, scrollTop, viewH, pinned) {
     if (t === selected && !pinned && !view.tsel) cursorAt = { x: Math.round(xOf(view.insert)), y, h };
   }
   if (pinned) { ctx.fillStyle = C.area; ctx.fillRect(0, 0, w, 3); }
+  drawLoopLines(ctx, 0, viewH);
   // the play line (while playing, and after Stop until the insert marker moves), drawn before the drop hint: in the
   // running Live the hint's box covers it, and it covers the 3 px above the Main track but not the 2 px under it
   const ph = engine.playing ? engine.beatNow() : stoppedAt;
@@ -2581,7 +2582,8 @@ function drawRuler() {
   }
   // loop brace (LoopColor frame; filled when the loop is on), drawn from the measured pixel pattern
   const lx0 = Math.round(xOf(set.loop.start)), lx1 = Math.round(xOf(set.loop.start + set.loop.length));
-  drawLoopBrace(ctx, lx0, lx1, set.loop.on);
+  drawLoopBrace(ctx, lx0, lx1, set.loop.on, !!view.braceSel);
+  drawLoopLines(ctx, 33, 12);
   for (const l of set.locators) {
     const x = Math.round(xOf(l.time));
     if (x < -200 || x > w) continue;
@@ -2606,12 +2608,29 @@ function drawRuler() {
 const BRACE = [[0.91,0.95,1,1,1,1,1,1,1,1],[0.74,0.11,0.68,0.56,0.04,0,0,0,0,0],[0.74,0,0,0.31,0.78,0.31,0,0,0,0],[0.74,0,0,0,0.04,0.56,0.67,0.11,0,0],
   [0.74,0,0,0,0,0,0.2,0.76,0.44,0.01],[0.74,0,0,0,0,0,0,0.02,0.78,0.6],[0.74,0,0,0,0,0,0.2,0.75,0.43,0.01],[0.74,0,0,0,0.04,0.56,0.67,0.11,0,0],
   [0.74,0,0,0.32,0.78,0.31,0,0,0,0],[0.74,0.11,0.68,0.56,0.04,0,0,0,0,0],[0.91,0.95,1,1,1,1,1,1,1,1]];
-function drawLoopBrace(ctx, lx0, lx1, on) {
-  const fg = on ? C.surface : C.loop, bg = on ? C.loop : C.surface;
+// The brace while it is selected (a click or drag on its middle; running Live, the owner's Set): its inside between the
+// end arrows is LoopColor; the ends' coverage from Live's pixels (identical to BRACE up to each arrow, then full)
+const BRACE_SEL = [[0.91,0.95,1,1,1,1,1,1,1,1],[0.74,0.11,0.68,1.0,1.0,1.0,1.0,1.0,1.0,1.0],[0.74,0,0,0.31,0.88,1.0,1.0,1.0,1.0,1.0],[0.74,0,0,0,0.04,0.56,0.98,1.0,1.0,1.0],[0.74,0,0,0,0,0,0.2,0.79,1.0,1.0],[0.74,0,0,0,0,0,0,0.02,0.78,1.0],[0.74,0,0,0,0,0,0.2,0.79,1.0,1.0],[0.74,0,0,0,0.04,0.56,0.98,1.0,1.0,1.0],[0.74,0,0,0.32,0.88,1.0,1.0,1.0,1.0,1.0],[0.74,0.11,0.68,1.0,1.0,1.0,1.0,1.0,1.0,1.0],[0.91,0.95,1,1,1,1,1,1,1,1]];
+// With the loop on, Live fills the brace with LoopColor over SurfaceBackground at 110/255 (running Live, Default Dark
+// Neutral Medium: 93 between #363636 and #919191, the fill code not traced; 109..110 / 255 give 93) and draws the frame
+// and the arrows exactly as with the loop off (LoopColor through the same coverage over that fill: the arrows' pixels
+// are 133 on / 125 off, the edge column 131 / 121, consistent with one mask); off, the fill is SurfaceBackground.
+const LOOP_ON_FILL = 110 / 255;
+const loopFill = on => on ? over(T.SurfaceBackground, T.LoopColor + Math.round(LOOP_ON_FILL * 255).toString(16).padStart(2, '0'), Math.round) : C.surface;
+// ... and, with the loop on, 1 px lines of LoopColor at the loop start and end, from under the brace down through the
+// scrub area, every lane (over the clips), the returns and Main, not the time ruler (running Live: x 343 and 1259, y 113..760)
+function drawLoopLines(ctx, y0, h) {
+  if (!set || !set.loop.on) return;
+  ctx.fillStyle = C.loop;
+  for (const b of [set.loop.start, set.loop.start + set.loop.length]) { const x = Math.round(xOf(b)); ctx.fillRect(x, y0, 1, h); }
+}
+function drawLoopBrace(ctx, lx0, lx1, on, sel) {
+  const fg = C.loop, bg = loopFill(on);
   ctx.fillStyle = bg; ctx.fillRect(lx0, 22, lx1 - lx0 + 1, 11);
+  if (sel) { ctx.fillStyle = C.loop; ctx.fillRect(lx0 + 10, 23, lx1 - lx0 - 19, 9); }
   ctx.fillStyle = C.loop; ctx.fillRect(lx0 + 10, 22, lx1 - lx0 - 19, 1); ctx.fillRect(lx0 + 10, 32, lx1 - lx0 - 19, 1);
   ctx.fillStyle = fg;
-  BRACE.forEach((row, y) => row.forEach((a, x) => {
+  (sel ? BRACE_SEL : BRACE).forEach((row, y) => row.forEach((a, x) => {
     if (!a) return;
     ctx.globalAlpha = a;
     const c = (x === 0 || y === 0 || y === 10) ? C.loop : fg;
@@ -3305,7 +3324,8 @@ function setupInteraction() {
     const sr = $('#ruler-scrub').getBoundingClientRect(), rr = ruler.getBoundingClientRect();
     if (e.clientY >= sr.top && e.clientY < sr.bottom) {
       const x = e.clientX - rr.left, bx0 = Math.round(xOf(set.loop.start)) - 10, bx1 = Math.round(xOf(set.loop.start + set.loop.length)) + 10;
-      if (!(e.clientY < sr.top + 11 && x >= bx0 && x <= bx1)) {
+      if (e.clientY < sr.top + 11 && x >= bx0 && x <= bx1) { braceDrag(e, x); return; }
+      {
         e.preventDefault();
         engine.scrubPress(Math.max(0, bOf(x)), quantBeats(set.quant));
         const up = () => { removeEventListener('pointerup', up, true); engine.scrubRelease(); };
@@ -3336,6 +3356,33 @@ function setupInteraction() {
     };
     ruler.addEventListener('pointermove', move); ruler.addEventListener('pointerup', up);
   });
+  // The loop brace (running Live, the owner's Set, global quantization 1 Bar, grid 1/8 at that zoom): a press on its
+  // middle selects it and a drag moves the loop by the pointer's movement, its start snapped to the grid, the length
+  // kept (+115 px -> +3 bars, +96 px -> +2.5 bars); a press on either end (the 11 px of the loop start / end point) puts
+  // that end under the pointer, snapped, the other end staying (start -> 9.3.3, end -> 113.5 beats), without selecting.
+  // The loop fields follow; a click elsewhere drops the selection. (The arrow keys Live's Info text mentions are not
+  // modelled.)
+  const braceDrag = (e, x) => {
+    e.preventDefault();
+    const rr = ruler.getBoundingClientRect(), lx0 = Math.round(xOf(set.loop.start)), lx1 = Math.round(xOf(set.loop.start + set.loop.length));
+    const mode = x >= lx0 && x <= lx0 + 10 ? 'start' : x >= lx1 - 10 && x <= lx1 ? 'end' : 'move';
+    const x0 = e.clientX, s0 = set.loop.start, end0 = s0 + set.loop.length, minLen = gridStep() || beatLen();
+    view.braceSel = mode === 'move';
+    drawAll();
+    const mv = ev => {
+      const b = bOf(ev.clientX - rr.left);
+      if (mode === 'move') set.loop.start = Math.max(0, snap(s0 + (ev.clientX - x0) / view.ppb));
+      else if (mode === 'start') { set.loop.start = Math.max(0, Math.min(snap(b), end0 - minLen)); set.loop.length = end0 - set.loop.start; }
+      else set.loop.length = Math.max(snap(b), s0 + minLen) - s0;
+      showPos('cb-ls', fmtPos(set.loop.start)); showPos('cb-ll', fmtLen(set.loop.length));
+      drawAll();
+    };
+    const up = () => {
+      removeEventListener('pointermove', mv, true); removeEventListener('pointerup', up, true);
+      if (engine.playing) { const b = engine.beatNow(); engine.jump(b, b); }   // playback follows the new loop at once
+    };
+    addEventListener('pointermove', mv, true); addEventListener('pointerup', up, true);
+  };
   // "If nothing is selected, double-clicking the beat-time ruler zooms out to show the entire Arrangement" (manual, Layout)
   const zoomAll = () => { view.beat0 = 0; setZoom(Math.min(DEFAULT_PPB, lanesWidth() / (set.end + beatsPerBar())), 0); drawAll(); };
   ruler.addEventListener('dblclick', () => { if (set) zoomAll(); });
@@ -3381,7 +3428,7 @@ function setupInteraction() {
     // 4 Audio and set the insert marker there)
     const r = list.find(r => y >= r.y && y < r.y + r.h) || (list.length && y >= list[list.length - 1].y ? list[list.length - 1] : null);
     if (r) select(r.track);
-    view.tsel = null; view.selClip = null;
+    view.tsel = null; view.selClip = null; view.braceSel = false;
     // a click on a clip's title bar selects the clip: the time selection becomes the clip's span on its track, with
     // Live's status text (running Live, harness clip Set: "Chords  Start: 1.1.1  End: 3.1.1  Length: 2.0.0", two spaces
     // between the parts: ink 49..262 like Live's); no insert marker is placed. The clip's body, from 17 px below its top,
@@ -3683,6 +3730,7 @@ function timeSelStatus() {
   status(`Time Selection     Start: ${fmtPos(b0).join('.')}     End: ${fmtPos(b1).join('.')}     Length: ${fmtLen(b1 - b0).join('.')}  (Duration: ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')})`);
 }
 function setInsert(b) {
+  view.braceSel = false;
   view.insert = b; stoppedAt = null;
   showPos('cb-pos', fmtPos(b));
   // Live's status bar after placing the insert marker, e.g. "Insert Mark 39.1.1 (Time: 1:16)". It is posted with level 0
