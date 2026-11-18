@@ -126,14 +126,14 @@
       label: 'Warp',
       spatial: true,
       levels: ['space'],
-      params: { shape: 'circle', x: '0', y: '0', size: '60', rot: '0', intensity: '12', falloff: '30', feather: '20', amount: '1' },
+      params: { shape: 'circle', x: '0', y: '0', size: '60', rot: '0', intensity: '12', falloff: '30', feather: '0.7', amount: '1' },
       choice: { shape: Shapes.NAMES },
-      ui: { size: [2, 600, 1], rot: [-180, 180, 1], intensity: [0, 300, 1], falloff: [0, 300, 1], feather: [0, 200, 1], amount: [0, 1, 0.01] },
+      ui: { size: [2, 600, 1], rot: [-180, 180, 1], intensity: [0, 300, 1], falloff: [0, 300, 1], feather: [0, 1, 0.01], amount: [0, 1, 0.01] },
       docs: {
         shape: 'shape of the modifier', x: 'centre x (drag the gizmo)', y: 'centre y', size: 'radius', rot: 'rotation (degrees)',
         intensity: 'how far beyond the shape the influence reaches; high values round off corners and points',
         falloff: 'how gradually the push fades: 0 = everything inside snaps to the edge, higher = the script bends smoothly around it',
-        feather: 'fills the area the script was pushed out of with a gradient from the script colour to black: 0 = hard edge, higher = longer gradient', amount: '0..1 how far the script is pushed out',
+        feather: 'turns the strip between where an edge was and where the warp moved it into a gradient, script colour at the new edge to black at the old one: 0 = hard edge, 1 = full gradient', amount: '0..1 how far the script is pushed out',
       },
       apply: applyWarp,
     },
@@ -330,7 +330,7 @@
   function applyWarp(S, level, c, m) {
     const sh = spatial(c, m).shape;
     const R = Math.max(0, c.num('intensity', 12)), F = Math.max(0, c.num('falloff', 30));
-    const B = Math.max(0, c.num('feather', 20)); // gradient length, drawn when the frame is drawn
+    const B = Math.min(1, Math.max(0, c.num('feather', 0.7))); // gradient strength, drawn when the frame is drawn
     const A = Math.min(1, Math.max(0, c.num('amount', 1)));
     const fx = { type: 'warp', id: m.id, shape: sh, R, F, B, A, hole: null, before: null };
     S.fx.push(fx);

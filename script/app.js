@@ -24,9 +24,9 @@
     return { id: uid(), type, level, on: true, params: def.spatial ? Object.assign({}, def.params, params) : params };
   };
   const PRESETS = {
-    'Warp: star': () => [M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', falloff: '25', feather: '20' })],
-    'Warp: long feather': () => [M('warp', 'space', { x: '330', y: '-40', size: '45', intensity: '6', falloff: '20', feather: '60' })],
-    'Warp: sweeping circle': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', falloff: '45', feather: '30' })],
+    'Warp: star': () => [M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', falloff: '25', feather: '0.7' })],
+    'Warp: full feather': () => [M('warp', 'space', { x: '330', y: '-40', size: '45', intensity: '6', falloff: '60', feather: '1' })],
+    'Warp: sweeping circle': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', falloff: '45', feather: '0.8' })],
     'Warp: star rounding off': () => [M('warp', 'space', { shape: 'star', x: '380', y: '40', size: '90', rot: 't*20', intensity: '20 + tri(t*0.15)*60', falloff: '10', feather: '0' })],
     'Wave': () => [M('transform', 'glyph', { ty: 'sin(t*3 - i*0.6) * size*0.12' })],
     'Typewriter': () => [M('visible', 'glyph', { show: 'fract(t*0.15)*n*1.6 - i' })],
@@ -227,54 +227,68 @@
   }
 
   // ---------- feather ----------
-  // Feather fills the difference between where the script was before a warp and where it is
-  // now with a gradient from the script colour to black: full colour where the vacated area
-  // touches the script, fading to black over `feather` units further in. Per warp, the current
-  // script is rasterised around the warp, an exact Euclidean distance transform gives every
-  // pixel its distance to the script, and the gradient is drawn clipped to the old outline,
-  // underneath the script.
-  function edt1(f, n, d, v, z) {
-    let k = 0; v[0] = 0; z[0] = -Infinity; z[1] = Infinity;
-    for (let q = 1; q < n; q++) {
-      let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
-      while (s <= z[k]) { k--; s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
-      k++; v[k] = q; z[k] = s; z[k + 1] = Infinity;
-    }
-    k = 0;
-    for (let q = 0; q < n; q++) { while (z[k + 1] < q) k++; d[q] = (q - v[k]) * (q - v[k]) + f[v[k]]; }
-  }
-  function edt(g, w, h) { // squared distances, in place; g = 0 on the script, huge elsewhere
-    const n = Math.max(w, h), f = new Float64Array(n), d = new Float64Array(n), v = new Int32Array(n), z = new Float64Array(n + 1);
-    for (let x = 0; x < w; x++) { for (let y = 0; y < h; y++) f[y] = g[y * w + x]; edt1(f, h, d, v, z); for (let y = 0; y < h; y++) g[y * w + x] = d[y]; }
-    for (let y = 0; y < h; y++) { for (let x = 0; x < w; x++) f[x] = g[y * w + x]; edt1(f, w, d, v, z); for (let x = 0; x < w; x++) g[y * w + x] = d[x]; }
-  }
+  // When a warp pushes an edge of the script, the strip between where the edge was and where
+  // it is now used to be script and is now background. Feather turns that strip into a
+  // gradient: the script colour at the edge's new position, fading to black at its old one.
+  // Edges the warp barely moved get a thin soft edge, edges it moved far get a long one, and
+  // edges it did not move stay crisp.
+  //
+  // Per warp, on a grid around it: every pixel that used to be script is visited in order of
+  // its distance to the shape, and inherits from the pixel just behind it (against the
+  // warp's push) the distance level where its run of old script began, i.e. the old edge.
+  // The warp maps that level to the new edge's level, and the pixel's own level gives its
+  // place between the two.
   const hexRGB = h => { const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || ''); return m ? [1, 2, 3].map(i => parseInt(m[i], 16)) : [255, 255, 255]; };
   let featherCache = { S: null, layers: [] };
   function featherLayers() {
     if (featherCache.S === S) return featherCache.layers;
     const layers = [], warps = S.fx.filter(f => f.type === 'warp' && f.B > 0 && f.before);
     if (warps.length) {
-      const now = new Path2D(glyphD.join(''));
-      const holes = S.holes.length ? new Path2D(S.holes.map(Shapes.polyD).join('')) : null;
       const [r, g, b] = hexRGB(project.fill);
       for (const w of warps) {
-        const sh = w.shape, ext = sh.bound + w.R + w.F + 4, x = sh.cx - ext, y = sh.cy - ext, size = ext * 2;
-        const n = 256, cell = size / n;
-        const cv = el('canvas', { width: n, height: n }), ctx = cv.getContext('2d', { willReadFrequently: true });
-        ctx.setTransform(1 / cell, 0, 0, 1 / cell, -x / cell, -y / cell);
-        ctx.fillStyle = '#fff';
-        ctx.fill(now);
-        if (holes) { ctx.globalCompositeOperation = 'destination-out'; ctx.fill(holes); }
-        const img = ctx.getImageData(0, 0, n, n), px = img.data, dist = new Float64Array(n * n);
-        for (let i = 0; i < n * n; i++) dist[i] = px[i * 4 + 3] > 127 ? 0 : 1e20;
-        edt(dist, n, n);
-        for (let i = 0; i < n * n; i++) {
+        const sh = w.shape, ext = sh.bound + w.R + w.F + 4, x0 = sh.cx - ext, y0 = sh.cy - ext, size = ext * 2;
+        const n = 220, cell = size / n;
+        const before = new Path2D(w.before), O = new Uint8Array(n * n);
+        {
+          const ctx = el('canvas', { width: n, height: n }).getContext('2d', { willReadFrequently: true });
+          ctx.setTransform(1 / cell, 0, 0, 1 / cell, -x0 / cell, -y0 / cell);
+          ctx.fill(before);
+          const d = ctx.getImageData(0, 0, n, n).data;
+          for (let i = 0; i < n * n; i++) O[i] = d[i * 4 + 3] > 127 ? 1 : 0;
+        }
+        const target = d => d + w.A * (FL.smax(d, w.R, w.F) - d);
+        const d0 = sh.sdf(sh.cx, sh.cy);
+        const lvl = new Float32Array(n * n), idx = [];
+        for (let i = 0; i < n * n; i++) if (O[i]) { lvl[i] = sh.sdf(x0 + (i % n + 0.5) * cell, y0 + ((i / n | 0) + 0.5) * cell); idx.push(i); }
+        idx.sort((a, c) => lvl[a] - lvl[c]);
+        const edge = new Float32Array(n * n).fill(NaN);
+        for (const i of idx) {
+          const ix = i % n, iy = i / n | 0, px = x0 + (ix + 0.5) * cell, py = y0 + (iy + 0.5) * cell;
+          let a = lvl[i];
+          if (lvl[i] > d0 + cell) {
+            const f = sh.flow(px, py);
+            for (let k = 1; k <= 3; k++) { // step back against the push until a decided pixel or the old edge
+              const qx = Math.floor((px - f[0] * cell * k - x0) / cell), qy = Math.floor((py - f[1] * cell * k - y0) / cell);
+              if (qx < 0 || qy < 0 || qx >= n || qy >= n) break;
+              const j = qy * n + qx;
+              if (!O[j]) break;
+              if (!isNaN(edge[j])) { a = edge[j]; break; }
+            }
+          }
+          edge[i] = a;
+        }
+        const cv = el('canvas', { width: n, height: n }), ctx = cv.getContext('2d'), img = ctx.createImageData(n, n), px = img.data;
+        const lo = 1 - w.B;
+        for (const i of idx) {
+          // 0 at the old edge, 1 at the new edge and beyond (under the script, which covers it)
+          const a = edge[i], e = target(a);
+          let v = e > a + 1e-6 ? Math.min(1, Math.max(0, (lvl[i] - a) / (e - a))) : 1;
+          v = v <= lo ? 0 : smooth(lo, 1, v);
           const o = i * 4;
-          px[o] = r; px[o + 1] = g; px[o + 2] = b;
-          px[o + 3] = Math.round(255 * (1 - smooth(0, w.B, Math.sqrt(dist[i]) * cell)));
+          px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = Math.round(v * 255);
         }
         ctx.putImageData(img, 0, 0);
-        layers.push({ cv, x, y, size, clip: new Path2D(w.before), clipD: w.before });
+        layers.push({ cv, x: x0, y: y0, size, clip: before, clipD: w.before });
       }
     }
     featherCache = { S, layers };
@@ -352,7 +366,7 @@
       const ext = f.F;
       const outer = ext > 0 ? Shapes.polyD(Shapes.levelPolygon(sh, f.R + ext, 72, seg)) : '';
       h += `<g data-gizmo="${f.id}" data-part="body" style="cursor:move">`
-        + `<path d="${infl || ring}" fill="${col}" fill-opacity="0.1" stroke="${col}" stroke-width="${1.5 * k}"/>`
+        + `<path d="${infl || ring}" fill="#fff" fill-opacity="0.001" stroke="${col}" stroke-width="${1.5 * k}"/>`
         + (infl ? `<path d="${ring}" fill="none" stroke="${col}" stroke-width="${k}" stroke-dasharray="${4 * k} ${3 * k}" pointer-events="none"/>` : '')
         + (outer ? `<path d="${outer}" fill="none" stroke="${col}" stroke-opacity="0.5" stroke-width="${k}" stroke-dasharray="${1.5 * k} ${3 * k}" pointer-events="none"/>` : '')
         + `<circle cx="${sh.cx}" cy="${sh.cy}" r="${2.5 * k}" fill="${col}"/></g>`
