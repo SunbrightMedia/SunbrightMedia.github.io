@@ -740,6 +740,8 @@
   function togglePlay() { playing = !playing; $('play').textContent = playing ? '❚❚' : '▶'; last = performance.now(); }
 
   // ---------- start ----------
+  const build = (/[?&]v=([^&]+)/.exec((document.querySelector('script[src*="app.js"]') || {}).src || '') || [])[1];
+  $('build').textContent = 'version ' + (build || 'dev');
   wire();
   renderList();
   refreshFonts().then(() => useFont(project.font));
