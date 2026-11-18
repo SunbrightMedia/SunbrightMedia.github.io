@@ -177,30 +177,6 @@
       },
       apply: applyKamisuki,
     },
-    // Port of "tameimp" by Enes Altun (CC BY-NC-SA 3.0): glowing cords that bend around a ball,
-    // with a wake, a coloured stream and glitter. The script bends the cords too.
-    yarn: {
-      label: 'Yarn flow',
-      spatial: true,
-      surface: true,
-      subKey: 'mode',
-      levels: ['space'],
-      params: {
-        mode: 'inside', x: '0', y: '0', size: '40', rot: '90', ball: 'show', lines: '9', flow: '0.25', bend: '1', distortion: '12',
-        stream: '0.7', glitter: '0.06', exposure: '1.2', bg: '#000000', line: '#7b3cff', core: '#ff2fb0', amber: '#ffa000',
-      },
-      choice: { mode: ['inside', 'around'], ball: ['show', 'hide', 'off'] },
-      color: ['bg', 'line', 'core', 'amber'],
-      ui: { size: [2, 400, 1], rot: [-180, 180, 1], lines: [2, 30, 0.1], flow: [0, 2, 0.01], bend: [0, 4, 0.01], distortion: [0, 40, 0.1], stream: [0, 1, 0.01], glitter: [0, 0.4, 0.005], exposure: [0, 4, 0.01] },
-      docs: {
-        mode: 'inside: the script is made of cords; around: cords flow around the script', x: 'ball centre x (drag the gizmo)', y: 'ball centre y',
-        size: 'ball radius', rot: 'flow direction in degrees: the gizmo handle points downstream', ball: 'show: drawn as a chrome ball; hide: bends the cords unseen; off: no ball',
-        lines: 'cords per font size', flow: 'flow speed', bend: 'how strongly the script bends the cords', distortion: 'turbulence in the wake',
-        stream: 'glowing stream behind the ball and the script', glitter: 'glitter density', exposure: 'brightness',
-        bg: 'plane colour', line: 'cord colour', core: 'stream colour near the source', amber: 'stream colour downstream',
-      },
-      apply: applyYarn,
-    },
   };
 
   function makeCtx(S, m, def, t) {
@@ -497,20 +473,6 @@
       scale: Math.max(0.01, c.num('scale', 6)), waves: c.num('waves', 2), rotation: c.num('rotation', 1.6), radius: c.num('radius', 0.5),
       gradient: c.num('gradient', 0), blend: Math.max(0, c.num('blend', 0.125)), sharp: Math.min(1, Math.max(0, c.num('sharp', 1))),
       level: c.num('level', 0.5), amount: c.num('amount', 1), cx: b.cx, hw: Math.max(b.w / 2, 1),
-    });
-  }
-
-  function applyYarn(S, level, c, m) {
-    const sh = spatial(c, m).shape, p = m.params || {}, def = MODIFIERS.yarn;
-    const pick = key => (def.choice[key].includes(p[key]) ? p[key] : def.params[key]);
-    const col = key => (/^#[0-9a-f]{6}$/i.test(p[key] || '') ? p[key] : def.params[key]);
-    const ball = pick('ball');
-    S.fx.push({ type: 'ball', id: m.id, shape: sh, R: 0, F: 0, A: 1 });
-    S.surface.push({
-      type: 'yarn', id: m.id, mode: pick('mode'), ball, x: sh.cx, y: sh.cy, r: sh.size, angle: (90 - sh.rot) * D2R,
-      lines: Math.max(0.1, c.num('lines', 9)), flow: c.num('flow', 0.25), bend: c.num('bend', 1), distortion: c.num('distortion', 12),
-      stream: Math.max(0, c.num('stream', 0.7)), glitter: Math.max(0, c.num('glitter', 0.06)), exposure: Math.max(0, c.num('exposure', 1.2)),
-      bg: col('bg'), line: col('line'), core: col('core'), amber: col('amber'),
     });
   }
 

@@ -10,9 +10,6 @@
  *   then one pass per surface modifier, in stack order, each reading the previous result:
  *     heatmap   thermal shading, halo, halftone grain and grey ghosts (after the poster)
  *     kamisuki  "KamisukiNoise" (shadertoy.com/view/7clyWr): fill or erode the script
- *     yarn      "tameimp" by Enes Altun, CC BY-NC-SA 3.0: cords flowing around a ball and
- *               the script, with wake, stream and glitter. The original path-traces its
- *               scene; here the lighting is a single-pass approximation of its environment.
  */
 (function (root) {
   'use strict';
@@ -151,112 +148,6 @@ void main() {
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-  // tameimp's plane material, seen from above. Units are font sizes ("plane units").
-  const YARN = COMMON + `uniform sampler2D field;
-uniform vec2 ball, flowDir;
-uniform float mode, lines, angle, flowT, bend, distortion, stream, glitD, ballR, ballOn, ballShow, exposure;
-uniform vec3 cBg, cLine, cCore, cAmber;
-const float TAU = 6.28318530718;
-vec2 rot2(vec2 v, float a) { float s = sin(a), c = cos(a); return vec2(v.x * c - v.y * s, v.x * s + v.y * c); }
-vec3 ipal(float t) { return vec3(0.5) + vec3(0.5) * cos(TAU * (vec3(1.0) * t + vec3(0.0, 0.33, 0.67))); }
-float h1(vec2 u) { return fract(sin(dot(u, vec2(12.9898, 78.233))) * 43758.5453); }
-float nz(vec2 u) {
-  vec2 i = floor(u), f = fract(u), w = f * f * (3.0 - 2.0 * f);
-  return mix(mix(h1(i), h1(i + vec2(1.0, 0.0)), w.x), mix(h1(i + vec2(0.0, 1.0)), h1(i + vec2(1.0, 1.0)), w.x), w.y);
-}
-float fb(vec2 u) {
-  float v = 0.0, a = 0.5; vec2 q = u; mat2 m = mat2(0.8, 0.6, -0.6, 0.8);
-  for (int i = 0; i < 4; i++) { v += a * nz(q); q = m * q * 2.0; a *= 0.5; }
-  return v;
-}
-vec3 glitter(vec2 p, float T) {
-  vec3 acc = vec3(0.0);
-  vec2 gp = p * 38.0, base = floor(gp);
-  for (int dy = -1; dy <= 1; dy++)
-  for (int dx = -1; dx <= 1; dx++) {
-    vec2 cell = base + vec2(float(dx), float(dy));
-    if (h1(cell) > glitD) continue;
-    vec2 cpos = cell + vec2(h1(cell + vec2(1.7, 9.2)), h1(cell + vec2(4.1, 2.3)));
-    float d = length(gp - cpos), rad = 0.26;
-    if (d > rad) continue;
-    float tw = pow(max(0.0, sin(T * (2.0 + h1(cell + vec2(8.8, 1.1)) * 5.0) + h1(cell + vec2(3.7, 6.4)) * TAU)), 6.0);
-    acc += ipal(h1(cell + vec2(7.1, 5.5))) * tw * smoothstep(rad, 0.0, d);
-  }
-  return acc * 2.4;
-}
-// shaded plane colour (linear) at plane point P; dispL and the wake come from the script
-vec3 plane(vec2 P, vec2 dispL, float wakeL, float wakeK) {
-  vec2 puv = rot2(P, angle), bp = rot2(ball, angle), dst = puv - bp;
-  float r2 = dot(dst, dst), r = sqrt(r2), pr = ballR;
-  float dfo = smoothstep(pr * 8.0, pr * 1.5, r);
-  vec2 fuv = puv - dst * ((pr * pr) / max(r2, 1e-3) * dfo) * ballOn - rot2(dispL, angle);
-  float iw = smoothstep(pr * 1.2, pr * 5.0, dst.x) * smoothstep(pr * 12.0, pr * 5.0, dst.x);
-  float wm = max(iw * smoothstep(pr * 7.0, 0.0, abs(dst.y)) * ballOn, wakeL);
-  vec2 nuv = fuv * 4.5 - vec2(flowT * 4.0, 0.0);
-  float n1 = fb(nuv), n2 = fb(nuv + vec2(5.2, 1.3) + vec2(flowT * 0.3, flowT * 0.1));
-  fuv += vec2((n2 - 0.5) * 0.5, n1 - 0.5) * distortion * 0.02 * wm;
-  float gy = fuv.y * lines, cj = floor(gy + 0.5);
-  float fz = 0.05 * (fb(vec2(fuv.x * 30.0, cj)) - 0.5);                 // frayed edge
-  float ut = (gy - cj) / 0.44 + fz;                                      // across the cord
-  float cov = 1.0 - smoothstep(0.82, 1.03, abs(ut));                     // gaps show the plane
-  float mu = min(abs(ut), 1.0), th = sqrt(max(0.0, 1.0 - mu * mu));     // round tube profile
-  float sl = th * cov;
-  float fibv = fb(vec2(fuv.x * 9.0, ut * 4.0));                          // fibre grain
-  float oil = smoothstep(0.2, 0.8, abs(n1 - 0.5) * 2.0 * wm);
-  vec3 yc = mix(cLine, ipal(n1 + flowT * 0.1), oil * 0.6);
-  yc *= mix(0.8, 1.12, fibv) * (0.45 + 0.55 * th);
-  vec3 bCol = mix(cBg, yc, cov);
-  float swW = 0.12 + 0.048 * smoothstep(0.0, 2.0, dst.x);
-  float isT = max((1.0 - smoothstep(swW * 0.8, swW, abs(fuv.y - bp.y))) * ballOn, smoothstep(0.1, 0.6, wakeL)) * stream;
-  float em = 0.5;
-  if (isT > 0.01) {
-    vec3 sc = mix(cCore, cAmber, smoothstep(0.0, 3.0, ballOn > 0.5 ? max(dst.x, 0.0) : wakeK));
-    bCol = mix(bCol, mix(sc * 0.2, sc * 1.2, sl), isT);
-    em = mix(0.5, 1.5, isT);
-  }
-  vec2 pt = rot2(vec2((n1 - 0.5) * 10.12 * wm, ut * 9.0 * cov + (fibv - 0.5) * 2.0 * cov + (n2 - 0.5) * 10.12 * wm), -angle);
-  vec3 nrm = normalize(vec3(pt.x * 0.05, 1.0, pt.y * 0.05));
-  vec3 col = bCol * sl * em;                                             // emission
-  if (glitD > 0.0) col += glitter(fuv - vec2(flowT * 0.35, 0.0), flowT);
-  // the original's environment: bright top light, ambient tinted by the plane colour
-  col += bCol * (0.2 + 0.55 * smoothstep(0.85, 1.0, nrm.y)) + cBg * 0.25;
-  col += vec3(1.0, 0.95, 0.9) * pow(max(nrm.y, 0.0), 60.0) * (1.0 - mix(0.8, 0.2, sl)) * 0.35;
-  return col;
-}
-vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
-vec3 tone(vec3 c) { return pow(aces(c * exposure), vec3(1.0 / 2.2)); }
-float fieldA(vec2 q) { return texture2D(field, q).a; }
-void main() {
-  vec2 P = worldPos() / size;
-  vec4 pv = texture2D(prev, uv), m = texture2D(mask, uv);
-  // the script deflects the cords: push away along the gradient of its blurred coverage
-  vec2 px = vec2(3.0 / res.x, 0.0), py = vec2(0.0, 3.0 / res.y);
-  vec2 grad = vec2(fieldA(uv + px) - fieldA(uv - px), -(fieldA(uv + py) - fieldA(uv - py))) * (scale * size / 6.0);
-  vec2 dispL = -grad * bend * 0.25;
-  // and leaves a wake downstream: its coverage, sampled upstream
-  float here = fieldA(uv), wake = 0.0, wk = 0.0;
-  for (int k = 1; k <= 5; k++) {
-    float d = float(k) * 0.3;
-    float f = fieldA(uv - flowDir * (d * size * scale) / res) * (1.0 - float(k) * 0.15);
-    if (f > wake) { wake = f; wk = d; }
-  }
-  vec3 pl = tone(plane(P, dispL, wake * (1.0 - here), wk));
-  vec3 col = mode < 0.5 ? mix(pv.rgb, pl, m.a) : mix(pl, pv.rgb, m.a);
-  if (ballShow > 0.5) {                                                  // chrome ball reflecting the cords
-    vec2 q = (P - ball) / ballR;
-    float rq = dot(q, q);
-    if (rq < 1.0) {
-      vec3 n3 = normalize(vec3(q, sqrt(1.0 - rq)));
-      vec3 rv = reflect(vec3(0.0, 0.0, -1.0), n3);
-      vec3 refl = plane(P + rv.xy * ballR * 2.2, vec2(0.0), 0.0, 0.0);
-      vec3 c = mix(refl * 0.85, vec3(4.0, 3.8, 3.6), smoothstep(0.75, 0.98, rv.z));
-      c += vec3(0.5, 0.6, 1.0) * 0.9 * smoothstep(0.85, 1.0, sqrt(rq));
-      col = mix(col, tone(c), smoothstep(1.0, 0.96, sqrt(rq)));
-    }
-  }
-  gl_FragColor = vec4(col, 1.0);
-}`;
-
   function create() {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false, alpha: false });
@@ -278,7 +169,7 @@ void main() {
       return { pr, u };
     };
     const P = {};
-    for (const [k, src] of Object.entries({ down: DOWN, blur: BLUR, copy: COPY, base: BASE, heatmap: HEAT, kamisuki: KAMI, yarn: YARN })) P[k] = program(src);
+    for (const [k, src] of Object.entries({ down: DOWN, blur: BLUR, copy: COPY, base: BASE, heatmap: HEAT, kamisuki: KAMI })) P[k] = program(src);
 
     const quad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quad);
@@ -402,13 +293,6 @@ void main() {
           Object.assign(u, {
             blur: blurred(0.05 * o.size * s), mode: r.mode === 'erode' ? 1 : 0, kscale: r.scale, waves: r.waves, rotation: r.rotation,
             radius: r.radius, gradient: r.gradient, blend: r.blend, sharp: r.sharp, level: r.level, amount: r.amount, cx: r.cx, hw: r.hw,
-          });
-        } else if (r.type === 'yarn') {
-          Object.assign(u, {
-            field: blurred(0.22 * o.size * s), mode: r.mode === 'around' ? 1 : 0, ball: [r.x / o.size, r.y / o.size], ballR: Math.max(r.r / o.size, 1e-3),
-            ballOn: r.ball === 'off' ? 0 : 1, ballShow: r.ball === 'show' ? 1 : 0, angle: r.angle, flowDir: [Math.cos(r.angle), Math.sin(r.angle)],
-            lines: r.lines, flowT: o.time * r.flow, bend: r.bend, distortion: r.distortion, stream: r.stream, glitD: r.glitter, exposure: r.exposure,
-            cBg: lin(r.bg), cLine: lin(r.line), cCore: lin(r.core), cAmber: lin(r.amber),
           });
         } else continue;
         use(r.type, u);

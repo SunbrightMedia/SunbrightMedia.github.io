@@ -30,8 +30,6 @@
     'Thermal scan': () => [M('heatmap', 'glyph', {})],
     'Kamisuki noise (shader demo)': () => [M('kamisuki', 'text', { scale: '5', waves: '(sin(t*.5)*.5+.5)*3+1', rotation: 'PI*(sin(t)*.5+.5)', radius: '0', gradient: '0.45' })],
     'Kamisuki erode': () => [M('kamisuki', 'text', { mode: 'erode', scale: '8', waves: '2', rotation: '1.2', radius: '0.45', blend: '0.1', amount: '0.9' })],
-    'Yarn flow: script of cords': () => [M('yarn', 'space', { x: '380', y: '-40', size: '34' })],
-    'Yarn flow: around the script': () => [M('yarn', 'space', { mode: 'around', ball: 'hide', x: '-200', y: '40', size: '20', lines: '12' })],
     'Wave': () => [M('transform', 'glyph', { ty: 'sin(t*3 - i*0.6) * size*0.12' })],
     'Typewriter': () => [M('visible', 'glyph', { show: 'fract(t*0.15)*n*1.6 - i' })],
     'Wobbly outlines': () => [
