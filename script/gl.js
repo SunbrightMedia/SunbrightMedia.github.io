@@ -190,8 +190,34 @@ void main() {
 }`;
   const ASCII_PICK = COMMON + ASCII_LIGHT + `uniform sampler2D srcA, edgeT, desc;
 uniform vec2 c0, gap, box;
-uniform float count, edges, jitter, flicker;
+uniform float count, edges, matrix, flicker;
 float h1(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+// how unlike character k is to the cell (t, also packed as t0..t3, of length tn); 1e9 if it may not be used
+float costOf(float k, bool edge, float t[16], vec4 t0, vec4 t1, vec4 t2, vec4 t3, float tn) {
+  float y = (k + 0.5) / count;
+  vec4 d0 = texture2D(desc, vec2(0.125, y)), d1 = texture2D(desc, vec2(0.375, y)), d2 = texture2D(desc, vec2(0.625, y)), d3 = texture2D(desc, vec2(0.875, y));
+  if (edge && d3.w < 0.5) return 1e9;   // only line characters trace edges
+  d3.w = 0.0;
+  if (!edge) {   // away from edges: the closest light, patch by patch
+    vec4 e0 = d0 - t0, e1 = d1 - t1, e2 = d2 - t2, e3 = d3 - t3;
+    return dot(e0, e0) + dot(e1, e1) + dot(e2, e2) + dot(e3, e3);
+  }
+  // edges: the most alike shape, whatever its amount of ink. The upright strokes of a monospace
+  // font all stand in the middle of the box, so an edge along a side may also be matched one
+  // column over, a little less readily: an edge near the side still gets a |, not the serif of
+  // a bracket.
+  float dd[16];
+  dd[0] = d0.x; dd[1] = d0.y; dd[2] = d0.z; dd[3] = d0.w; dd[4] = d1.x; dd[5] = d1.y; dd[6] = d1.z; dd[7] = d1.w;
+  dd[8] = d2.x; dd[9] = d2.y; dd[10] = d2.z; dd[11] = d2.w; dd[12] = d3.x; dd[13] = d3.y; dd[14] = d3.z; dd[15] = 0.0;
+  float here = 0.0, fromL = 0.0, fromR = 0.0, dn = 0.0;
+  for (int r = 0; r < 5; r++) for (int a = 0; a < 3; a++) {
+    float x = dd[r * 3 + a];
+    dn += x * x; here += x * t[r * 3 + a];
+    if (a > 0) fromL += x * t[r * 3 + a - 1];
+    if (a < 2) fromR += x * t[r * 3 + a + 1];
+  }
+  return 1.0 - max(here, 0.85 * max(fromL, fromR)) / (sqrt(dn) * tn + 1e-4);
+}
 void main() {
   vec2 cell = c0 + floor(gl_FragCoord.xy);
   vec2 corner = (cell + 0.5) * gap - 0.5 * box;   // top left of the character box (world, y down)
@@ -210,41 +236,30 @@ void main() {
   // an edge: light changes steeply here and within the cell, drawn by the cell on its lit side only
   bool edge = me * edges > 0.3 && mc > 0.25 && (mc - lc) * edges > 0.3;
   if (mc < 0.06 && !edge) { gl_FragColor = vec4(0.0); return; }   // near-black stays blank
+  // matrix: every cell swaps its character flicker times a second on average (each at its own pace)
+  float tick = floor(time * flicker * (0.3 + h1(cell + 3.1) * 1.4) + h1(cell) * 13.0);
+  if (matrix > 0.5 && !edge) {   // inside: any character, as in the film
+    gl_FragColor = vec4(floor(h1(cell + tick * 0.6131) * count) / 255.0, 1.0, 0.0, 1.0);
+    return;
+  }
   float t[16];
   for (int k = 0; k < 16; k++) t[k] = edge ? e[k] / me : c[k];
   vec4 t0 = vec4(t[0], t[1], t[2], t[3]), t1 = vec4(t[4], t[5], t[6], t[7]), t2 = vec4(t[8], t[9], t[10], t[11]), t3 = vec4(t[12], t[13], t[14], t[15]);
   float tn = sqrt(dot(t0, t0) + dot(t1, t1) + dot(t2, t2) + dot(t3, t3));
-  float tick = floor(time * flicker * (0.5 + h1(cell + 3.1) * 3.0) + h1(cell) * 13.0);
   float best = 1e9, bi = 0.0;
   for (int k = 0; k < 256; k++) {
     if (float(k) >= count) break;
-    float y = (float(k) + 0.5) / count;
-    vec4 d0 = texture2D(desc, vec2(0.125, y)), d1 = texture2D(desc, vec2(0.375, y)), d2 = texture2D(desc, vec2(0.625, y)), d3 = texture2D(desc, vec2(0.875, y));
-    if (edge && d3.w < 0.5) continue;   // only line characters trace edges
-    d3.w = 0.0;
-    float cost;
-    if (edge) {
-      // the most alike shape, whatever its amount of ink. The upright strokes of a monospace font
-      // all stand in the middle of the box, so an edge along a side may also be matched one
-      // column over, a little less readily: an edge near the side still gets a |, not the serif
-      // of a bracket.
-      float dd[16];
-      dd[0] = d0.x; dd[1] = d0.y; dd[2] = d0.z; dd[3] = d0.w; dd[4] = d1.x; dd[5] = d1.y; dd[6] = d1.z; dd[7] = d1.w;
-      dd[8] = d2.x; dd[9] = d2.y; dd[10] = d2.z; dd[11] = d2.w; dd[12] = d3.x; dd[13] = d3.y; dd[14] = d3.z; dd[15] = 0.0;
-      float here = 0.0, fromL = 0.0, fromR = 0.0, dn = 0.0;
-      for (int r = 0; r < 5; r++) for (int a = 0; a < 3; a++) {
-        float x = dd[r * 3 + a];
-        dn += x * x; here += x * t[r * 3 + a];
-        if (a > 0) fromL += x * t[r * 3 + a - 1];
-        if (a < 2) fromR += x * t[r * 3 + a + 1];
-      }
-      cost = 1.0 - max(here, 0.85 * max(fromL, fromR)) / (sqrt(dn) * tn + 1e-4);
-    } else {      // elsewhere: the closest light, patch by patch
-      vec4 e0 = d0 - t0, e1 = d1 - t1, e2 = d2 - t2, e3 = d3 - t3;
-      cost = dot(e0, e0) + dot(e1, e1) + dot(e2, e2) + dot(e3, e3);
-    }
-    cost *= 1.0 + jitter * h1(cell * 1.13 + vec2(float(k) * 7.31, tick));
+    float cost = costOf(float(k), edge, t, t0, t1, t2, t3, tn);
     if (cost < best) { best = cost; bi = float(k); }
+  }
+  if (matrix > 0.5) {   // edges in matrix: swap between the characters nearly as alike as the best
+    float pick = -1.0;
+    for (int k = 0; k < 256; k++) {
+      if (float(k) >= count) break;
+      if (costOf(float(k), edge, t, t0, t1, t2, t3, tn) > best + 0.1) continue;
+      float r = h1(cell * 1.13 + vec2(float(k) * 7.31, tick));
+      if (r > pick) { pick = r; bi = float(k); }
+    }
   }
   gl_FragColor = vec4(bi / 255.0, 1.0, edge ? 1.0 : 0.0, 1.0);
 }`;
@@ -257,11 +272,13 @@ float charOf(vec2 cell, out float bright, out float burn) {
   bright = 1.0; burn = 0.0;
   vec4 p = texture2D(pick, (cell - c0 + 0.5) / grid);
   if (p.g < 0.5) return -1.0;
-  if (mode > 0.5) {
-    float speed = 5.0 + h1(vec2(cell.x, 7.7)) * 12.0, len = 5.0 + h1(vec2(cell.x, 2.3)) * 14.0;
-    float d = mod(time * speed + h1(vec2(cell.x, 9.1)) * 60.0 - cell.y, 60.0);  // cells below the falling head
-    bright = mix(1.0, 0.3 + 0.7 * exp(-d / len), rain);
-    burn = smoothstep(1.2, 0.0, d) * rain * 0.75;                               // the leading glyph burns white
+  if (mode > 0.5) {   // rain: drops of light run down each column, white at the head, fading behind
+    float speed = 4.0 + h1(vec2(cell.x, 7.7)) * 10.0;    // rows a second
+    float period = 16.0 + h1(vec2(cell.x, 4.4)) * 28.0;  // rows from one drop to the next
+    float len = 3.0 + h1(vec2(cell.x, 2.3)) * 9.0;       // trail length, rows
+    float d = mod(time * speed + h1(vec2(cell.x, 9.1)) * period - cell.y, period);   // rows behind the head
+    bright = mix(1.0, 0.04 + 0.96 * exp(-d / len), rain);
+    burn = smoothstep(1.5, 0.0, d) * rain;
   }
   return floor(p.r * 255.0 + 0.5);
 }
@@ -602,7 +619,7 @@ void main() {
             draw(tintT);
             sizeTarget(pickT, grid[0], grid[1]);
             use('asciiPick', Object.assign({ srcA: beneath, edgeT: edgeT.tex, desc: ds.tex, count: ds.count, edges: r.edges,
-              jitter: r.mode === 'matrix' ? 0.6 : 0, flicker: r.flicker }, cell, common));
+              matrix: r.mode === 'matrix' ? 1 : 0, flicker: r.flicker }, cell, common));
             draw(pickT);
             Object.assign(un, {
               srcA: beneath, pick: pickT.tex, tint: tintT.tex, c0, grid, atlas: at.tex, cellUV: at.cellUV, inset0: at.inset0, insetSize: at.insetSize, cols: at.cols,

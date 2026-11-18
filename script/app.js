@@ -657,6 +657,8 @@
       box.append(field('acts on', lvl));
     }
     for (const key in def.params) {
+      const only = def.only && def.only[key];
+      if (only && !Object.keys(only).every(k => (m.params[k] || def.params[k]) === only[k])) continue;
       if (def.spatial && (key === 'x' || key === 'y')) {
         if (key === 'y') continue;
         // x and y share one row, plus a button that brings the modifier into view
@@ -675,7 +677,7 @@
       const msg = el('div', { class: 'msg' }); msg.hidden = true;
       let control, inp, rng = null;
       if (def.choice && def.choice[key]) {
-        inp = el('select', { title: doc, onchange: () => { m.params[key] = inp.value; renderList(); changed(); } }, ...def.choice[key].map(o => new Option(o, o)));
+        inp = el('select', { title: doc, onchange: () => { m.params[key] = inp.value; renderList(); if (def.only) renderInspector(); changed(); } }, ...def.choice[key].map(o => new Option(o, o)));
         inp.value = m.params[key] || def.params[key];
         control = inp;
       } else if (def.color && def.color.includes(key)) {

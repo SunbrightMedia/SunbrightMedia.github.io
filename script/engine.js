@@ -186,6 +186,7 @@
       params: { mode: 'ascii', resolution: '18', pitch: '1', edges: '1', chars: '', gain: '1.2', blur: '0', glow: '0', rain: '0.75', flicker: '1' },
       choice: { mode: ['ascii', 'matrix'] },
       text: ['chars'],
+      only: { rain: { mode: 'matrix' }, flicker: { mode: 'matrix' } },   // settings shown only in that mode
       ui: { resolution: [3, 80, 0.5], pitch: [0.35, 3, 0.01], edges: [0, 2, 0.01], gain: [0, 4, 0.01], blur: [0, 1, 0.01], glow: [0, 1, 0.01], rain: [0, 1, 0.01], flicker: [0, 4, 0.01] },
       docs: {
         mode: 'ascii: keyboard characters chosen by shape and brightness; matrix: mirrored katakana and digits chosen by shape, with falling rain',
@@ -193,7 +194,8 @@
         pitch: 'spacing between characters, across and down together: 1 = side by side, lower = closer (overlapping), higher = farther apart',
         edges: 'outline characters: where an edge crosses a cell it gets the character shaped like that edge (| through the middle, / or \\ on a diagonal, _ along the bottom, ( ) on curves); 0 = brightness only, higher = fainter edges count too', chars: 'your own characters (leave empty for the mode\'s set; ascii sorts them by ink)',
         gain: 'brightness boost before characters are chosen', blur: 'blurs what is beneath, which then shows through the characters softly and fades out past the edges',
-        glow: 'the light that shows through the characters spills out around them, like a glow', rain: 'matrix: falling trails', flicker: 'matrix: how fast characters change',
+        glow: 'the light that shows through the characters spills out around them, like a glow', rain: 'drops of light falling down each column, white at the head and fading behind: 0 = off, all characters lit; 1 = dark between drops',
+        flicker: 'how many times a second each character swaps for another (0 = still); characters on an edge only swap for ones of a similar shape',
       },
       apply: fxAscii,
     },
