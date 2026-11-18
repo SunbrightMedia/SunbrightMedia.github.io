@@ -21,13 +21,17 @@
   // ---------- presets ----------
   const M = (type, level, params) => {
     const def = FL.MODIFIERS[type];
-    return { id: uid(), type, level, on: true, params: def.spatial ? Object.assign({}, def.params, params) : params };
+    return { id: uid(), type, level, on: true, params: def.spatial || def.surface ? Object.assign({}, def.params, params) : params };
   };
   const PRESETS = {
     'Warp: star': () => [M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', falloff: '25' })],
     'Warp: sweeping circle': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', falloff: '45' })],
     'Warp: star rounding off': () => [M('warp', 'space', { shape: 'star', x: '380', y: '40', size: '90', rot: 't*20', intensity: '20 + tri(t*0.15)*60', falloff: '10' })],
-    'Thermal scan': () => [M('heatmap', 'glyph', Object.assign({}, FL.MODIFIERS.heatmap.params))],
+    'Thermal scan': () => [M('heatmap', 'glyph', {})],
+    'Kamisuki noise (shader demo)': () => [M('kamisuki', 'text', { scale: '5', waves: '(sin(t*.5)*.5+.5)*3+1', rotation: 'PI*(sin(t)*.5+.5)', radius: '0', gradient: '0.45' })],
+    'Kamisuki erode': () => [M('kamisuki', 'text', { mode: 'erode', scale: '8', waves: '2', rotation: '1.2', radius: '0.45', blend: '0.1', amount: '0.9' })],
+    'Yarn flow: script of cords': () => [M('yarn', 'space', { x: '380', y: '-40', size: '34' })],
+    'Yarn flow: around the script': () => [M('yarn', 'space', { mode: 'around', ball: 'hide', x: '-200', y: '40', size: '20', lines: '12' })],
     'Wave': () => [M('transform', 'glyph', { ty: 'sin(t*3 - i*0.6) * size*0.12' })],
     'Typewriter': () => [M('visible', 'glyph', { show: 'fract(t*0.15)*n*1.6 - i' })],
     'Wobbly outlines': () => [
@@ -242,15 +246,15 @@
   const heatFx = () => (S && S.surface ? S.surface.find(f => f.type === 'heatmap') : null);
   // Draws the frame through gl.js at W x H device pixels; null when no surface modifier is active.
   function surfaceFrame(W, H, s, ox, oy) {
-    const hm = heatFx();
-    if (!hm) return null;
+    if (!S || !S.surface || !S.surface.length) return null;
     if (!GLR && !glFailed) {
       try { GLR = FontLabGL.create(); } catch (e) { toast('WebGL failed: ' + e.message, true); }
       if (!GLR) { glFailed = true; toast('This browser has no WebGL, so the heatmap cannot be drawn.', true); }
     }
     if (!GLR) return null;
     const holes = S.holes.length ? S.holes.map(Shapes.polyD).join('') : null;
-    return GLR.render({ W, H, s, ox, oy, hm, glyphD, holes, size: S.size, time: S.t });
+    try { return GLR.render({ W, H, s, ox, oy, surface: S.surface, fill: project.fill, glyphD, holes, size: S.size, time: S.t }); }
+    catch (e) { toast('Drawing failed: ' + e.message, true); return null; }
   }
   function renderSurface() {
     const m = metrics(), q = Math.min(window.devicePixelRatio || 1, 1.5);
@@ -405,7 +409,7 @@
     const step = 3, w = Math.ceil(m.W / step), h = Math.ceil(m.H / step);
     maskSmall.width = w; maskSmall.height = h;
     const sctx = maskSmall.getContext('2d'), img = sctx.createImageData(w, h), px = img.data;
-    const fxs = S.fx.map(f => ({ f, soft: f.F, b: f.shape.bound + f.R + f.F }));
+    const fxs = S.fx.filter(f => f.type === 'warp').map(f => ({ f, soft: f.F, b: f.shape.bound + f.R + f.F }));
     for (let j = 0; j < h; j++) {
       const y = ((j + 0.5) * step - m.oy) / m.s;
       for (let i = 0; i < w; i++) {
@@ -461,7 +465,8 @@
   // ---------- stack list ----------
   const subLabel = m => {
     const def = FL.MODIFIERS[m.type];
-    return def.spatial ? (m.params.shape || def.params.shape) : (def.levels.includes(m.level) ? m.level : def.levels[0]);
+    if (def.subKey) return m.params[def.subKey] || def.params[def.subKey];
+    return def.levels.includes(m.level) ? m.level : def.levels[0];
   };
   function renderList() {
     const box = $('list');
@@ -543,7 +548,7 @@
       el('button', { class: 'ghost', title: 'Duplicate', onclick: () => { const c = Object.assign(clone(m), { id: uid() }); project.mods.splice(idx + 1, 0, c); select(c.id); changed(); } }, '⧉'),
       el('button', { class: 'ghost', title: 'Delete', onclick: () => { project.mods.splice(idx, 1); select(null); changed(); } }, '✕'));
     box.append(head);
-    if (!def.spatial) {
+    if (!def.spatial && !def.global) {
       const lvl = el('select', { onchange: () => { m.level = lvl.value; renderList(); changed(); } }, ...def.levels.map(l => new Option('per ' + l, l)));
       lvl.value = def.levels.includes(m.level) ? m.level : def.levels[0];
       box.append(field('acts on', lvl));
@@ -569,6 +574,9 @@
       if (def.choice && def.choice[key]) {
         inp = el('select', { title: doc, onchange: () => { m.params[key] = inp.value; renderList(); changed(); } }, ...def.choice[key].map(o => new Option(o, o)));
         inp.value = m.params[key] || def.params[key];
+        control = inp;
+      } else if (def.color && def.color.includes(key)) {
+        inp = el('input', { type: 'color', title: doc, value: /^#[0-9a-f]{6}$/i.test(m.params[key] || '') ? m.params[key] : def.params[key], oninput: () => { m.params[key] = inp.value; changed(); } });
         control = inp;
       } else if (def.ui && def.ui[key]) {
         const s = sliderInput(m.params[key] != null ? m.params[key] : def.params[key], def.ui[key], v => { m.params[key] = v; changed(); }, true);
@@ -680,7 +688,7 @@
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
     try {
-      const glc = hm ? surfaceFrame(W, H, m.s * dpr, m.ox * dpr, m.oy * dpr) : null;
+      const glc = surfaceFrame(W, H, m.s * dpr, m.ox * dpr, m.oy * dpr);
       if (glc) ctx.drawImage(glc, 0, 0, W, H);
       else ctx.drawImage(await svgImage(FL.toSVG(S, { fill: project.fill, background: null, viewBox: vb, width: W, height: H })), 0, 0, W, H);
       if (hm) ctx.drawImage(await svgImage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}" width="${W}" height="${H}">${hudMarkup(m, hm)}</svg>`), 0, 0, W, H);
@@ -691,14 +699,14 @@
   function exportSVG() {
     if (!S) return;
     const hm = heatFx();
-    if (!hm) { download('fontlab-frame.svg', FL.toSVG(S, { fill: project.fill, background: '#000' }), 'image/svg+xml'); return; }
+    if (!S.surface.length) { download('fontlab-frame.svg', FL.toSVG(S, { fill: project.fill, background: '#000' }), 'image/svg+xml'); return; }
     // per-pixel shading has no vector form: embed it as an image, with the HUD as vectors on top
     const m = metrics(), dpr = 2, W = Math.round(m.W * dpr), H = Math.round(m.H * dpr), vb = [-m.ox / m.s, -m.oy / m.s, m.W / m.s, m.H / m.s];
     const glc = surfaceFrame(W, H, m.s * dpr, m.ox * dpr, m.oy * dpr);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}" width="${Math.round(m.W)}" height="${Math.round(m.H)}">`
       + `<rect x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" fill="#000"/>`
       + (glc ? `<image href="${glc.toDataURL('image/png')}" x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" preserveAspectRatio="none"/>` : '')
-      + hudMarkup(m, hm) + '</svg>\n';
+      + (hm ? hudMarkup(m, hm) : '') + '</svg>\n';
     dirty = true;
     download('fontlab-frame.svg', svg, 'image/svg+xml');
   }
