@@ -25,7 +25,7 @@
   };
   const PRESETS = {
     'Warp: star': () => [M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', falloff: '25', feather: '20' })],
-    'Warp: soft blur': () => [M('warp', 'space', { x: '330', y: '-40', size: '45', intensity: '6', falloff: '20', feather: '70' })],
+    'Warp: long feather': () => [M('warp', 'space', { x: '330', y: '-40', size: '45', intensity: '6', falloff: '20', feather: '60' })],
     'Warp: sweeping circle': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', falloff: '45', feather: '30' })],
     'Warp: star rounding off': () => [M('warp', 'space', { shape: 'star', x: '380', y: '40', size: '90', rot: 't*20', intensity: '20 + tri(t*0.15)*60', falloff: '10', feather: '0' })],
     'Wave': () => [M('transform', 'glyph', { ty: 'sin(t*3 - i*0.6) * size*0.12' })],
@@ -201,8 +201,6 @@
   }
   function applyView() {
     for (const id of ['svg', 'ui']) $(id).setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
-    const big = { x: view.x - view.w * 50, y: view.y - view.h * 50, width: view.w * 101, height: view.h * 101 };
-    for (const k in big) $('bgRect').setAttribute(k, big[k]);
     dirty = true;
   }
   // Same mapping as the SVG viewBox with preserveAspectRatio="xMidYMid meet".
@@ -222,9 +220,93 @@
     for (let gi = 0; gi < S.nodes.glyph.length; gi++) glyphD.push(FL.glyphPathData(S, gi));
     const big = [view.x - view.w * 50, view.y - view.h * 50, view.w * 101, view.h * 101];
     $('scene').innerHTML = FL.frameMarkup(S, { fill: project.fill, region: big, id: 'live' });
+    renderUnder();
     renderOverlay();
     renderGizmos();
     renderMask();
+  }
+
+  // ---------- feather ----------
+  // Feather fills the difference between where the script was before a warp and where it is
+  // now with a gradient from the script colour to black: full colour where the vacated area
+  // touches the script, fading to black over `feather` units further in. Per warp, the current
+  // script is rasterised around the warp, an exact Euclidean distance transform gives every
+  // pixel its distance to the script, and the gradient is drawn clipped to the old outline,
+  // underneath the script.
+  function edt1(f, n, d, v, z) {
+    let k = 0; v[0] = 0; z[0] = -Infinity; z[1] = Infinity;
+    for (let q = 1; q < n; q++) {
+      let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+      while (s <= z[k]) { k--; s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
+      k++; v[k] = q; z[k] = s; z[k + 1] = Infinity;
+    }
+    k = 0;
+    for (let q = 0; q < n; q++) { while (z[k + 1] < q) k++; d[q] = (q - v[k]) * (q - v[k]) + f[v[k]]; }
+  }
+  function edt(g, w, h) { // squared distances, in place; g = 0 on the script, huge elsewhere
+    const n = Math.max(w, h), f = new Float64Array(n), d = new Float64Array(n), v = new Int32Array(n), z = new Float64Array(n + 1);
+    for (let x = 0; x < w; x++) { for (let y = 0; y < h; y++) f[y] = g[y * w + x]; edt1(f, h, d, v, z); for (let y = 0; y < h; y++) g[y * w + x] = d[y]; }
+    for (let y = 0; y < h; y++) { for (let x = 0; x < w; x++) f[x] = g[y * w + x]; edt1(f, w, d, v, z); for (let x = 0; x < w; x++) g[y * w + x] = d[x]; }
+  }
+  const hexRGB = h => { const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || ''); return m ? [1, 2, 3].map(i => parseInt(m[i], 16)) : [255, 255, 255]; };
+  let featherCache = { S: null, layers: [] };
+  function featherLayers() {
+    if (featherCache.S === S) return featherCache.layers;
+    const layers = [], warps = S.fx.filter(f => f.type === 'warp' && f.B > 0 && f.before);
+    if (warps.length) {
+      const now = new Path2D(glyphD.join(''));
+      const holes = S.holes.length ? new Path2D(S.holes.map(Shapes.polyD).join('')) : null;
+      const [r, g, b] = hexRGB(project.fill);
+      for (const w of warps) {
+        const sh = w.shape, ext = sh.bound + w.R + w.F + 4, x = sh.cx - ext, y = sh.cy - ext, size = ext * 2;
+        const n = 256, cell = size / n;
+        const cv = el('canvas', { width: n, height: n }), ctx = cv.getContext('2d', { willReadFrequently: true });
+        ctx.setTransform(1 / cell, 0, 0, 1 / cell, -x / cell, -y / cell);
+        ctx.fillStyle = '#fff';
+        ctx.fill(now);
+        if (holes) { ctx.globalCompositeOperation = 'destination-out'; ctx.fill(holes); }
+        const img = ctx.getImageData(0, 0, n, n), px = img.data, dist = new Float64Array(n * n);
+        for (let i = 0; i < n * n; i++) dist[i] = px[i * 4 + 3] > 127 ? 0 : 1e20;
+        edt(dist, n, n);
+        for (let i = 0; i < n * n; i++) {
+          const o = i * 4;
+          px[o] = r; px[o + 1] = g; px[o + 2] = b;
+          px[o + 3] = Math.round(255 * (1 - smooth(0, w.B, Math.sqrt(dist[i]) * cell)));
+        }
+        ctx.putImageData(img, 0, 0);
+        layers.push({ cv, x, y, size, clip: new Path2D(w.before), clipD: w.before });
+      }
+    }
+    featherCache = { S, layers };
+    return layers;
+  }
+  // M maps world to device pixels: { s, ox, oy }
+  function drawFeather(ctx, M) {
+    const layers = featherLayers();
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighten'; // overlapping warps: the brighter gradient wins
+    for (const L of layers) {
+      ctx.save();
+      ctx.setTransform(M.s, 0, 0, M.s, M.ox, M.oy);
+      ctx.clip(L.clip);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(L.cv, L.x, L.y, L.size, L.size);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  function renderUnder() {
+    const cv = $('under'), m = metrics(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.round(m.W * dpr), h = Math.round(m.H * dpr);
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    drawFeather(ctx, { s: dpr * m.s, ox: dpr * m.ox, oy: dpr * m.oy });
+  }
+  function featherSVG() {
+    return featherLayers().map((L, k) => `<clipPath id="fc${k}"><path d="${L.clipD}"/></clipPath>`
+      + `<image href="${L.cv.toDataURL()}" x="${L.x}" y="${L.y}" width="${L.size}" height="${L.size}" preserveAspectRatio="none" clip-path="url(#fc${k})"/>`).join('');
   }
 
   function renderOverlay() {
@@ -267,7 +349,7 @@
         h += `<path data-gizmo="${f.id}" data-part="body" d="${infl || ring}" fill="#fff" fill-opacity="0.001" stroke="${col}" stroke-opacity="0.45" stroke-width="${k}" style="cursor:move"/>`;
         continue;
       }
-      const ext = Math.max(f.F, f.B);
+      const ext = f.F;
       const outer = ext > 0 ? Shapes.polyD(Shapes.levelPolygon(sh, f.R + ext, 72, seg)) : '';
       h += `<g data-gizmo="${f.id}" data-part="body" style="cursor:move">`
         + `<path d="${infl || ring}" fill="${col}" fill-opacity="0.1" stroke="${col}" stroke-width="${1.5 * k}"/>`
@@ -291,7 +373,7 @@
     const step = 3, w = Math.ceil(m.W / step), h = Math.ceil(m.H / step);
     maskSmall.width = w; maskSmall.height = h;
     const sctx = maskSmall.getContext('2d'), img = sctx.createImageData(w, h), px = img.data;
-    const fxs = S.fx.map(f => ({ f, soft: Math.max(f.F, f.B), b: f.shape.bound + f.R + Math.max(f.F, f.B) }));
+    const fxs = S.fx.map(f => ({ f, soft: f.F, b: f.shape.bound + f.R + f.F }));
     for (let j = 0; j < h; j++) {
       const y = ((j + 0.5) * step - m.oy) / m.s;
       for (let i = 0; i < w; i++) {
@@ -556,12 +638,16 @@
   async function exportPNG() {
     if (!S) return;
     const m = metrics(), dpr = 2, W = Math.round(m.W * dpr), H = Math.round(m.H * dpr);
-    const svg = FL.toSVG(S, { fill: project.fill, background: '#000', viewBox: [-m.ox / m.s, -m.oy / m.s, m.W / m.s, m.H / m.s], width: W, height: H });
+    const svg = FL.toSVG(S, { fill: project.fill, background: null, viewBox: [-m.ox / m.s, -m.oy / m.s, m.W / m.s, m.H / m.s], width: W, height: H });
     const img = new Image();
     img.src = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
     try { await img.decode(); } catch (e) { toast('PNG export failed: ' + e.message, true); return; }
-    const cv = el('canvas', { width: W, height: H });
-    cv.getContext('2d').drawImage(img, 0, 0, W, H);
+    const cv = el('canvas', { width: W, height: H }), ctx = cv.getContext('2d');
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    drawFeather(ctx, { s: dpr * m.s, ox: dpr * m.ox, oy: dpr * m.oy });
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(img, 0, 0, W, H);
     URL.revokeObjectURL(img.src);
     cv.toBlob(b => download('fontlab-frame.png', b), 'image/png');
   }
@@ -587,7 +673,7 @@
     pref('gizmos', 'gizmos', 'checked'); pref('maskView', 'mask', 'checked'); pref('statsOn', 'stats', 'checked');
     pref('overlay', 'overlay', 'value'); pref('speed', 'speed', 'value');
 
-    $('exportSvg').onclick = () => { if (S) download('fontlab-frame.svg', FL.toSVG(S, { fill: project.fill, background: '#000' }), 'image/svg+xml'); };
+    $('exportSvg').onclick = () => { if (S) download('fontlab-frame.svg', FL.toSVG(S, { fill: project.fill, background: '#000', under: featherSVG() }), 'image/svg+xml'); };
     $('exportPng').onclick = exportPNG;
     $('exportGlyphs').onclick = () => { if (font) download(fontLabel(font).replace(/[^\w.-]+/g, '_') + '.glyphs.json', JSON.stringify(FL.fontToJSON(font)), 'application/json'); };
     $('saveProj').onclick = () => download('fontlab-project.json', JSON.stringify(project, null, 2), 'application/json');
@@ -688,5 +774,5 @@
   refreshFonts().then(() => useFont(project.font));
   requestAnimationFrame(frame);
 
-  window.fontlab = { get project() { return project; }, get frame() { return S; }, get font() { return font; } }; // for console tinkering
+  window.fontlab = { get project() { return project; }, get frame() { return S; }, get font() { return font; }, featherLayers }; // for console tinkering
 })();

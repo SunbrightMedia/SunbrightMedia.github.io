@@ -128,12 +128,12 @@
       levels: ['space'],
       params: { shape: 'circle', x: '0', y: '0', size: '60', rot: '0', intensity: '12', falloff: '30', feather: '20', amount: '1' },
       choice: { shape: Shapes.NAMES },
-      ui: { size: [2, 600, 1], rot: [-180, 180, 1], intensity: [0, 300, 1], falloff: [0, 300, 1], feather: [0, 150, 1], amount: [0, 1, 0.01] },
+      ui: { size: [2, 600, 1], rot: [-180, 180, 1], intensity: [0, 300, 1], falloff: [0, 300, 1], feather: [0, 200, 1], amount: [0, 1, 0.01] },
       docs: {
         shape: 'shape of the modifier', x: 'centre x (drag the gizmo)', y: 'centre y', size: 'radius', rot: 'rotation (degrees)',
         intensity: 'how far beyond the shape the influence reaches; high values round off corners and points',
         falloff: 'how gradually the push fades: 0 = everything inside snaps to the edge, higher = the script bends smoothly around it',
-        feather: 'blurs the script along the edge of the warp: 0 = crisp, higher = softer and wider', amount: '0..1 how far the script is pushed out',
+        feather: 'fills the area the script was pushed out of with a gradient from the script colour to black: 0 = hard edge, higher = longer gradient', amount: '0..1 how far the script is pushed out',
       },
       apply: applyWarp,
     },
@@ -330,11 +330,13 @@
   function applyWarp(S, level, c, m) {
     const sh = spatial(c, m).shape;
     const R = Math.max(0, c.num('intensity', 12)), F = Math.max(0, c.num('falloff', 30));
-    const B = Math.max(0, c.num('feather', 20)); // blur, applied when the frame is drawn
+    const B = Math.max(0, c.num('feather', 20)); // gradient length, drawn when the frame is drawn
     const A = Math.min(1, Math.max(0, c.num('amount', 1)));
-    const fx = { type: 'warp', id: m.id, shape: sh, R, F, B, A, hole: null };
+    const fx = { type: 'warp', id: m.id, shape: sh, R, F, B, A, hole: null, before: null };
     S.fx.push(fx);
     if (A <= 0) return;
+    // where the script was before this warp: feather fills (before minus after) with a gradient
+    if (B > 0) { let d = ''; for (let gi = 0; gi < S.nodes.glyph.length; gi++) d += glyphPathData(S, gi); fx.before = d; }
     const reach = R + F, bound = sh.bound + reach, b2 = bound * bound, cx = sh.cx, cy = sh.cy;
     const target = d => d + A * (smax(d, R, F) - d);
 
@@ -557,55 +559,29 @@
   }
   function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
 
-  // The drawable frame as SVG markup: the glyphs with warp holes cut out, and, for each warp
-  // with feather, a blurred copy of the glyphs cross-faded in around the warp's edge, so the
-  // script goes soft where it meets the warp. Used for the live stage and for every export.
+  // The drawable frame as SVG markup: the glyphs, with warp holes cut out.
   // o: { fill, region: [x, y, w, h] the area masks must cover, id: unique prefix }
   function frameMarkup(S, o) {
     const p = o.id || 'fl', reg = o.region.map(f);
     const rect = `x="${reg[0]}" y="${reg[1]}" width="${reg[2]}" height="${reg[3]}"`;
-    let defs = '', glyphs = '';
+    let glyphs = '';
     S.nodes.glyph.forEach((g, gi) => {
       const d = glyphPathData(S, gi);
       if (d) glyphs += `<path d="${d}"${styleAttrs(S.style[gi], o)}/>`;
     });
-    let holes = '';
-    if (S.holes.length) {
-      defs += `<mask id="${p}-holes" maskUnits="userSpaceOnUse" ${rect}><rect ${rect} fill="#fff"/><path fill="#000" d="${S.holes.map(Shapes.polyD).join('')}"/></mask>`;
-      holes = ` mask="url(#${p}-holes)"`;
-    }
-    defs += `<g id="${p}-glyphs"${holes}>${glyphs}</g>`;
-
-    let cut = '', soft = '';
-    S.fx.forEach((w, k) => {
-      if (w.type !== 'warp' || !(w.B > 0) || !(w.A > 0)) return;
-      const sh = w.shape, B = w.B;
-      // soft band: fully blurred up to the influence edge, sharp again about one feather further out
-      const poly = Shapes.levelPolygon(sh, w.R + B * 0.5, 120);
-      if (!poly) return;
-      const reach = sh.bound + w.R + w.F + B * 3;
-      const box = `x="${f(sh.cx - reach)}" y="${f(sh.cy - reach)}" width="${f(reach * 2)}" height="${f(reach * 2)}"`;
-      defs += `<filter id="${p}-mb${k}" filterUnits="userSpaceOnUse" ${box}><feGaussianBlur stdDeviation="${f(B / 4)}"/></filter>`
-        + `<filter id="${p}-tb${k}" filterUnits="userSpaceOnUse" ${box}><feGaussianBlur stdDeviation="${f(B * 0.4)}"/></filter>`;
-      const band = `<path d="${Shapes.polyD(poly)}" filter="url(#${p}-mb${k})" fill-opacity="${f(w.A)}"`;
-      defs += `<mask id="${p}-fm${k}" maskUnits="userSpaceOnUse" ${box}>${band} fill="#fff"/></mask>`;
-      cut += `${band} fill="#000"/>`;
-      // the stage is black, so adding the two layers is an exact cross-fade
-      soft += `<g mask="url(#${p}-fm${k})" style="mix-blend-mode:plus-lighter"><use href="#${p}-glyphs" filter="url(#${p}-tb${k})"/></g>`;
-    });
-    if (!soft) return `<defs>${defs}</defs><use href="#${p}-glyphs"/>`;
-    defs += `<mask id="${p}-sharp" maskUnits="userSpaceOnUse" ${rect}><rect ${rect} fill="#fff"/>${cut}</mask>`;
-    return `<defs>${defs}</defs><g mask="url(#${p}-sharp)"><use href="#${p}-glyphs"/></g>${soft}`;
+    if (!S.holes.length) return `<g>${glyphs}</g>`;
+    return `<defs><mask id="${p}-holes" maskUnits="userSpaceOnUse" ${rect}><rect ${rect} fill="#fff"/>`
+      + `<path fill="#000" d="${S.holes.map(Shapes.polyD).join('')}"/></mask></defs><g mask="url(#${p}-holes)">${glyphs}</g>`;
   }
 
   function toSVG(S, defaults) {
-    defaults = Object.assign({ fill: '#fff', background: '#000', viewBox: null, width: null, height: null }, defaults);
+    defaults = Object.assign({ fill: '#fff', background: '#000', viewBox: null, width: null, height: null, under: '' }, defaults);
     let vb = defaults.viewBox;
     if (!vb) { const b = bounds(S, true), pad = S.size * 0.1; vb = [b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2]; }
     vb = vb.map(f);
     let out = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}" width="${defaults.width || vb[2]}" height="${defaults.height || vb[3]}">\n`;
     if (defaults.background) out += `<rect x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" fill="${esc(defaults.background)}"/>\n`;
-    out += frameMarkup(S, { fill: defaults.fill, region: vb, id: 'fl' }) + '\n';
+    out += defaults.under + frameMarkup(S, { fill: defaults.fill, region: vb, id: 'fl' }) + '\n';
     return out + '</svg>\n';
   }
 
