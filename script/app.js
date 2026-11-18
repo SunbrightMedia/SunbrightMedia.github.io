@@ -64,6 +64,7 @@
     'Satin': () => [E('satin', {})],
     'Satin in colour (the shader)': () => [E('satin', {}), E('gradmap', { map: 'satin' })],
   };
+  if (FL.EFFECTS.nebula) FX_PRESETS['Nebula'] = () => [E('nebula', {})];
 
   // Transitions are latched to a script.
   const T = (type, params) => ({ id: uid(), type, on: true, params: Object.assign({}, TR.TRANSITIONS[type].params, params) });
@@ -418,8 +419,28 @@
     }
     if (!GLR) return null;
     const holes = S.holes.length ? S.holes.map(Shapes.polyD).join('') : null;
-    try { return GLR.render({ W, H, s, ox, oy, glyphD, style: S.style, fills, holes, gradient: gradientLUT, units: units(), time: S.t }); }
+    try {
+      const cv = GLR.render({ W, H, s, ox, oy, glyphD, style: S.style, fills, holes, gradient: gradientLUT, units: units(), time: S.t });
+      const ne = GLR.nebulaError();
+      if (ne && ne !== nebulaToast) { nebulaToast = ne; toast('Nebula: ' + ne, true); }
+      return cv;
+    }
     catch (e) { toast('Drawing failed: ' + e.message, true); return null; }
+  }
+  let nebulaToast = null, exporting = false;
+  // For exports: draw until effects that refine over frames (the Nebula) are complete.
+  async function effectFrameDone(W, H, s, ox, oy) {
+    exporting = true;
+    try {
+      let cv = effectFrame(W, H, s, ox, oy);
+      const t0 = performance.now();
+      while (cv && GLR && GLR.busy()) {
+        if (performance.now() - t0 > 600000) { toast('The Nebula had not finished refining after ten minutes; exported as far as it got.', true); break; }
+        await new Promise(r => setTimeout(r, 0));
+        cv = effectFrame(W, H, s, ox, oy);
+      }
+      return cv;
+    } finally { exporting = false; }
   }
   function renderEffects() {
     const m = metrics(), q = Math.min(window.devicePixelRatio || 1, 2);
@@ -537,6 +558,8 @@
     if (playing) { t += dt * (+prefs.speed || 0); dirty = true; }
     fpsN++;
     if (now - fpsT > 500) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; updateStats(); }
+    if (exporting) return;
+    if (!dirty && S && GLR && needsGL() && GLR.busy()) { renderEffects(); return; }   // the Nebula refining
     if (!dirty || !base) return;
     dirty = false;
     const t0 = performance.now();
@@ -985,26 +1008,26 @@
     try { await img.decode(); return img; } finally { setTimeout(() => URL.revokeObjectURL(img.src), 1000); }
   };
   async function exportPNG() {
-    if (!S) return;
+    if (!S || exporting) return;
     const m = metrics(), dpr = 2, W = Math.round(m.W * dpr), H = Math.round(m.H * dpr);
     const vb = [-m.ox / m.s, -m.oy / m.s, m.W / m.s, m.H / m.s];
     const cv = el('canvas', { width: W, height: H }), ctx = cv.getContext('2d');
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
     try {
-      const glc = effectFrame(W, H, m.s * dpr, m.ox * dpr, m.oy * dpr);
+      const glc = await effectFrameDone(W, H, m.s * dpr, m.ox * dpr, m.oy * dpr);
       if (glc) ctx.drawImage(glc, 0, 0, W, H);
       else ctx.drawImage(await svgImage(FL.toSVG(S, { fill: '#ffffff', fills, background: null, viewBox: vb, width: W, height: H })), 0, 0, W, H);
     } catch (e) { toast('PNG export failed: ' + e.message, true); return; }
     dirty = true; // the stage's GL canvas was used at export size; draw it again
     cv.toBlob(b => download('fontlab-frame.png', b), 'image/png');
   }
-  function exportSVG() {
-    if (!S) return;
+  async function exportSVG() {
+    if (!S || exporting) return;
     if (!needsGL()) { download('fontlab-frame.svg', FL.toSVG(S, { fill: '#ffffff', fills, background: '#000' }), 'image/svg+xml'); return; }
     // per-pixel effects have no vector form: embed them as an image
     const m = metrics(), dpr = 2, W = Math.round(m.W * dpr), H = Math.round(m.H * dpr), vb = [-m.ox / m.s, -m.oy / m.s, m.W / m.s, m.H / m.s];
-    const glc = effectFrame(W, H, m.s * dpr, m.ox * dpr, m.oy * dpr);
+    const glc = await effectFrameDone(W, H, m.s * dpr, m.ox * dpr, m.oy * dpr);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}" width="${Math.round(m.W)}" height="${Math.round(m.H)}">`
       + `<rect x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" fill="#000"/>`
       + (glc ? `<image href="${glc.toDataURL('image/png')}" x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" preserveAspectRatio="none"/>` : '')
@@ -1171,5 +1194,5 @@
   requestAnimationFrame(frame);
 
   // for console tinkering
-  window.fontlab = { get project() { return project; }, get frame() { return S; }, get effects() { return fxOut; }, select: k => select(k) };
+  window.fontlab = { get project() { return project; }, get frame() { return S; }, get effects() { return fxOut; }, get refining() { return !!(GLR && GLR.busy()); }, select: k => select(k) };
 })();

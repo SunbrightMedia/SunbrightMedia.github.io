@@ -20,7 +20,7 @@
 
   const LEVELS = ['text', 'line', 'word', 'glyph', 'contour', 'point'];
   const D2R = Math.PI / 180;
-  const Shapes = root.FontLabShapes, Schemes = root.FontLabSchemes;
+  const Shapes = root.FontLabShapes, Schemes = root.FontLabSchemes, Nebula = root.FontLabNebula;
 
   // ---------- helpers usable inside expressions ----------
   function hash2(a, b) {
@@ -241,6 +241,51 @@
       apply: fxGradmap,
     },
   };
+
+  // The Nebula shader of BlenderNebula (github.com/poly3blend/BlenderNebula), rendered as Cycles
+  // renders shader.blend (nebula.js). Its settings are the material's inputs, with the file's values;
+  // the camera's frame covers the script. Shown a group at a time.
+  if (Nebula) {
+    const L = ['light seed', 'light scale', 'light strength', 'light fade', 'light colour', 'light 2 seed', 'light 2 scale', 'light 2 strength', 'light 2 fade', 'light 2 colour'];
+    const D = ['dust density', 'ambient absorption', 'noise scale', 'scale ratio', 'noise detail', 'roughness', 'roughness 2', 'distortion', 'global scale', 'rotate', 'swirl', 'dust colour', 'dust colour 2', 'coordinates'];
+    const only = {};
+    for (const k of ['camera', 'exposure', 'amount']) only[k] = { settings: 'view' };
+    for (const k of L) only[k] = { settings: 'lights' };
+    for (const k of D) only[k] = { settings: 'dust' };
+    EFFECTS.nebula = {
+      label: 'Nebula',
+      global: true,
+      levels: ['text'],
+      params: Object.assign({ settings: 'view', camera: Nebula.CAMERA, exposure: String(Nebula.EXPOSURE), amount: '1' }, Nebula.DEFAULTS, { coordinates: 'generated' }),
+      choice: { settings: ['view', 'lights', 'dust'], camera: Nebula.CAMERAS, coordinates: ['generated', 'object'] },
+      color: ['light colour', 'light 2 colour', 'dust colour', 'dust colour 2'],
+      only,
+      ui: {
+        exposure: [-5, 15, 0.05], amount: [0, 1, 0.01],
+        'light seed': [-10, 10, 0.01], 'light scale': [0.1, 10, 0.01], 'light strength': [0, 10, 0.01], 'light fade': [0, 5, 0.01],
+        'light 2 seed': [-10, 10, 0.01], 'light 2 scale': [0.1, 10, 0.01], 'light 2 strength': [0, 10, 0.01], 'light 2 fade': [0, 5, 0.01],
+        'dust density': [0, 2000, 1], 'ambient absorption': [0, 10, 0.01], 'noise scale': [0, 20, 0.01], 'scale ratio': [0.1, 10, 0.01],
+        'noise detail': [0, 15, 0.01], roughness: [0, 1, 0.01], 'roughness 2': [0, 1, 0.01], distortion: [0, 10, 0.01],
+        'global scale': [0.1, 10, 0.01], rotate: [-6.2832, 6.2832, 0.01], swirl: [0, 10, 0.01],
+      },
+      docs: {
+        settings: 'which settings to show: the view, the point lights or the dust',
+        camera: 'one of the file\'s cameras; its frame covers the script. Camera.009 is the one the file renders with (the nebula as a ball in dark space, so letters towards the ends of a script can be dark); Camera.005, the default, is filled with nebula',
+        exposure: 'the view exposure, in stops (the file uses 5.25)', amount: 'how much it replaces the colour beneath',
+        'light seed': 'which arrangement of the first layer of point lights (the W of its 4D Voronoi)', 'light scale': 'how many lights in the first layer (its Voronoi scale)',
+        'light strength': 'brightness of the first layer', 'light fade': 'how soon the first layer fades out towards the edge of the sphere (higher = smaller sphere)',
+        'light colour': 'colour of the first layer', 'light 2 seed': 'which arrangement of the second layer', 'light 2 scale': 'how many lights in the second layer',
+        'light 2 strength': 'brightness of the second layer', 'light 2 fade': 'how soon the second layer fades out towards the edge', 'light 2 colour': 'colour of the second layer',
+        'dust density': 'how thick the dust is where there is dust', 'ambient absorption': 'how much the space between the dust absorbs',
+        'noise scale': 'size of the dust\'s fluid noise (higher = finer)', 'scale ratio': 'the ratio between the fluid noise\'s two noise scales',
+        'noise detail': 'detail of the fluid noise', roughness: 'roughness of the noise that distorts', 'roughness 2': 'roughness of the dust noise itself',
+        distortion: 'how far the first noise distorts the second', 'global scale': 'scale of the coordinates the dust is made from', rotate: 'turns the dust (radians)',
+        swirl: 'how much the dust turns with the distance from the centre', 'dust colour': 'the first absorption colour (what the dust lets through)',
+        'dust colour 2': 'the second absorption colour', coordinates: 'the coordinates the dust is made from: the cube\'s generated (the file\'s choice) or object coordinates',
+      },
+      apply: fxNebula,
+    };
+  }
 
   function makeCtx(S, m, def, t) {
     const env = { i: 0, n: 1, u: 0, t, x: 0, y: 0, w: 0, h: 0, li: 0, wi: 0, gi: 0, ci: 0, pi: 0, ctrl: 0, k: 0, ch: 0, size: S.size };
@@ -565,6 +610,19 @@
       unit: owner.size * 4 * Math.max(0.01, c.num('scale', 1)), grain: Math.max(0, c.num('grain', 1)), shimmer: p.shimmer !== 'off',
       amount: Math.min(1, Math.max(0, c.num('amount', 1))),
     };
+  }
+  function fxNebula(S, owner, c, e) {
+    const cs = [];
+    for (const g of owner.glyphs) for (const ci of S.nodes.glyph[g].cs) if (!S.hidden[ci]) cs.push(ci);
+    const p = e.params || {}, def = EFFECTS.nebula, out = {};
+    for (const k in def.params) {
+      if (k === 'settings') continue;
+      if (def.choice[k]) out[k] = def.choice[k].includes(p[k]) ? p[k] : def.params[k];
+      else if (def.color.includes(k)) out[k] = /^#[0-9a-f]{6}$/i.test(p[k] || '') ? p[k].toLowerCase() : def.params[k];
+      else out[k] = c.num(k, +def.params[k]);
+    }
+    out.amount = Math.min(1, Math.max(0, out.amount));
+    return { box: bbox(S, cs), params: out };
   }
   function fxGradmap(S, owner, c, e) {
     const p = e.params || {}, maps = EFFECTS.gradmap.choice.map;

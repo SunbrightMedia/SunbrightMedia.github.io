@@ -1,0 +1,11 @@
+agx-base-srgb.bin.gz
+
+Blender's AgX view transform lookup table for sRGB displays (AgX_Base_sRGB.cube, 57 x 57 x 57),
+from Blender 5.3's colour configuration (release/datafiles/colormanagement/luts), repacked
+without change beyond rounding to 16 bits: per channel, the steps along red from one entry to
+the next, low bytes then high bytes, gzip compressed. nebula.js unpacks it.
+
+Based on the original AgX by Troy Sobotka (https://github.com/sobotka/AgX); this version
+developed by Zijun Eary Zhou, Mark Faderbauer and Sakari Kapanen
+(https://github.com/EaryChow/AgX). Distributed with Blender (https://www.blender.org), which is
+free software under the GNU General Public License, version 2 or later.

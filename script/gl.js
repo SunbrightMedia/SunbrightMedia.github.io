@@ -18,6 +18,8 @@
  *   posterize what is beneath, reduced to a number of levels per colour channel
  *   satin     a satin-like play of light (after a satin-noise shader), in black and white
  *   gradmap   what is beneath, recoloured by brightness through a gradient map (schemes.js)
+ *   nebula    the Nebula shader of BlenderNebula, rendered as Cycles renders it (nebula.js),
+ *             refined over several frames; needs WebGL 2
  *
  * Blurs (of the script's coverage, or of what is beneath) are made on demand: halved with a
  * 4x4 box filter until the radius is a few texels, then two separable Gaussian passes.
@@ -379,7 +381,8 @@ void main() {
 
   function create() {
     const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false, alpha: false });
+    const attrs = { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false, alpha: false };
+    const gl = canvas.getContext('webgl2', attrs) || canvas.getContext('webgl', attrs);   // WebGL 2 for the nebula
     if (!gl) return null;
 
     const compile = (type, src) => {
@@ -590,8 +593,21 @@ void main() {
     // fills: default colour per glyph; holes: warp holes; reveal: what transitions show of each glyph;
     // units: what to draw, in order:
     //   { kind: 'script', glyphs, records, size } or { kind: 'group', members: [scripts], glyphs, records, size }
+    // the nebula (nebula.js): made on first use; refines over frames, so render() reports when it wants more
+    let NEB, nebError = null, busy = false;
+    const nebula = () => {
+      if (NEB === undefined) {
+        NEB = null;
+        try { NEB = root.FontLabNebula ? root.FontLabNebula.create(gl) : null; } catch (e) { nebError = e.message; }
+        if (!NEB && !nebError) nebError = 'the Nebula needs WebGL 2 with float render targets, which this browser lacks';
+      }
+      return NEB;
+    };
+
     function render(o) {
       const { W, H, s, ox, oy } = o;
+      busy = false;
+      const nebulaIds = [];
       if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
       if (mcv.width !== W || mcv.height !== H) { mcv.width = W; mcv.height = H; }
       for (const k in fixed) sizeTarget(fixed[k], W, H);
@@ -744,6 +760,17 @@ void main() {
             vals.sort();
             un.lo = vals[Math.floor(vals.length * 0.01)]; un.hi = vals[Math.floor(vals.length * 0.99)];
             un.probe = 0;
+          } else if (r.type === 'nebula') {
+            if (nebError || !nebula()) continue;
+            nebulaIds.push(r.id);
+            // the script's box in device pixels, bottom up, with a little margin for antialiased edges
+            const b = r.box, x0 = b.x * s + ox, x1 = (b.x + b.w) * s + ox, yt = b.y * s + oy, yb = (b.y + b.h) * s + oy;
+            try {
+              busy = NEB.render({ id: r.id, W, H, rect: [x0 - 2, H - yb - 2, x1 + 2, H - yt + 2], params: r.params, prev: cur.tex, target: other, url: 'lib/agx-base-srgb.bin.gz' }) || busy;
+            } catch (e) { nebError = e.message; continue; }
+            if (NEB.error()) nebError = NEB.error();
+            [cur, other] = [other, cur];
+            continue;
           } else if (r.type === 'gradmap') {
             const data = o.gradient ? o.gradient(r.map) : null;
             if (!data) continue;
@@ -776,12 +803,13 @@ void main() {
         } else result = script(u);
         over(result.tex, fixed.acc);
       }
+      if (NEB) NEB.keep(nebulaIds);
       use('final', { src: fixed.acc.tex });
       draw(null, W, H);
       return canvas;
     }
 
-    return { canvas, render };
+    return { canvas, render, busy: () => busy, nebulaError: () => nebError };
   }
 
   root.FontLabGL = { create, PALETTES, CHARSETS, paletteColor };
