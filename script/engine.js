@@ -126,13 +126,14 @@
       label: 'Warp',
       spatial: true,
       levels: ['space'],
-      params: { shape: 'circle', x: '0', y: '0', size: '60', rot: '0', intensity: '12', feather: '30', amount: '1' },
+      params: { shape: 'circle', x: '0', y: '0', size: '60', rot: '0', intensity: '12', falloff: '30', feather: '20', amount: '1' },
       choice: { shape: Shapes.NAMES },
-      ui: { size: [2, 600, 1], rot: [-180, 180, 1], intensity: [0, 300, 1], feather: [0, 300, 1], amount: [0, 1, 0.01] },
+      ui: { size: [2, 600, 1], rot: [-180, 180, 1], intensity: [0, 300, 1], falloff: [0, 300, 1], feather: [0, 150, 1], amount: [0, 1, 0.01] },
       docs: {
         shape: 'shape of the modifier', x: 'centre x (drag the gizmo)', y: 'centre y', size: 'radius', rot: 'rotation (degrees)',
         intensity: 'how far beyond the shape the influence reaches; high values round off corners and points',
-        feather: 'soft edge width: 0 = hard cut, higher = smooth falloff', amount: '0..1 how far the script is pushed out',
+        falloff: 'how gradually the push fades: 0 = everything inside snaps to the edge, higher = the script bends smoothly around it',
+        feather: 'blurs the script along the edge of the warp: 0 = crisp, higher = softer and wider', amount: '0..1 how far the script is pushed out',
       },
       apply: applyWarp,
     },
@@ -317,24 +318,55 @@
     return Math.max(a, b) + h * h * k * 0.25;
   }
 
-  // Warp: every point within reach is pushed straight out from the shape's centre until
-  // its distance to the shape becomes smax(d, intensity, feather). Points inside the
-  // influence area end up on its edge; with feather they ease out smoothly instead of
-  // stopping at a hard edge. Pushing radially (rather than to the nearest edge) keeps the
-  // map continuous for shapes with arms and notches, so outlines never jump or fold.
-  // Everything the map leaves empty is clipped out as a hole.
+  // Warp: every point within reach flows away from the shape until its distance to the shape
+  // becomes smax(d, intensity, falloff). Points inside the influence area end up on its edge;
+  // with falloff they ease out smoothly instead of stopping at a hard edge.
+  //
+  // The flow follows a smoothed version of the distance field's gradient: close to the shape
+  // it pushes straight away from the nearest edge, and where two edges compete (the middle
+  // of a star's arm, the inside of a notch) the directions blend instead of jumping. Flow
+  // lines of a smooth field never cross, so outlines never fold or tear. Segments the flow
+  // stretches are subdivided, and everything the map leaves empty is clipped as a hole.
   function applyWarp(S, level, c, m) {
     const sh = spatial(c, m).shape;
-    const R = Math.max(0, c.num('intensity', 12)), F = Math.max(0, c.num('feather', 30));
+    const R = Math.max(0, c.num('intensity', 12)), F = Math.max(0, c.num('falloff', 30));
+    const B = Math.max(0, c.num('feather', 20)); // blur, applied when the frame is drawn
     const A = Math.min(1, Math.max(0, c.num('amount', 1)));
-    const fx = { type: 'warp', id: m.id, shape: sh, R, F, A, hole: null };
+    const fx = { type: 'warp', id: m.id, shape: sh, R, F, B, A, hole: null };
     S.fx.push(fx);
     if (A <= 0) return;
     const reach = R + F, bound = sh.bound + reach, b2 = bound * bound, cx = sh.cx, cy = sh.cy;
     const target = d => d + A * (smax(d, R, F) - d);
 
-    // Densify outlines where the warp reaches, so straight edges and curves can bend.
-    const step = Math.min(4, Math.max(0.5, S.size / 90));
+    const hMax = Math.max(0.25, sh.size * 0.09), dir = sh.flow;
+    const warp = (px, py) => {
+      const ox = px - cx, oy = py - cy;
+      if (ox * ox + oy * oy > b2) return [px, py];
+      let d = sh.sdf(px, py);
+      if (d >= reach) return [px, py];
+      const want = target(d);
+      if (want - d < 1e-4) return [px, py];
+      let x = px, y = py;
+      for (let it = 0; it < 400 && d < want - 0.005; it++) {
+        const h = Math.min(hMax, want - d); // the field grows at most 1 per unit, so this never overshoots by much
+        const a = dir(x, y), b = dir(x + a[0] * h * 0.5, y + a[1] * h * 0.5);
+        let nx = x + b[0] * h, ny = y + b[1] * h, dn = sh.sdf(nx, ny);
+        if (dn <= d + h * 0.05) { // barely any progress: take an exact gradient step instead
+          const g = sh.grad(x, y);
+          nx = x + g[0] * h; ny = y + g[1] * h; dn = sh.sdf(nx, ny);
+        }
+        if (dn > want) { // land exactly on the wanted level
+          let lo = 0, hi = 1;
+          for (let k = 0; k < 14; k++) { const t = (lo + hi) / 2; if (sh.sdf(x + (nx - x) * t, y + (ny - y) * t) < want) lo = t; else hi = t; }
+          nx = x + (nx - x) * hi; ny = y + (ny - y) * hi; dn = want;
+        }
+        x = nx; y = ny; d = dn;
+      }
+      return [x, y];
+    };
+
+    // Densify outlines where the warp reaches, then warp, splitting any segment it stretches.
+    const step = Math.min(3, Math.max(0.4, S.size / 140)), maxLen = step * 1.6;
     const near = pts => {
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (const p of pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
@@ -343,32 +375,28 @@
     };
     for (let ci = 0; ci < S.contours.length; ci++) {
       const con = S.contours[ci];
-      if (con.attach || S.hidden[ci]) continue;
-      const pts = [];
-      for (const k of con.cmds) for (const p of k.p) pts.push(p);
-      if (pts.length && near(pts)) con.cmds = resampleCmds(con.cmds, step, near);
-    }
-
-    for (let ci = 0; ci < S.contours.length; ci++) {
       if (S.hidden[ci]) continue;
-      for (const k of S.contours[ci].cmds) for (const p of k.p) {
-        const dx = p[0] - cx, dy = p[1] - cy;
-        if (dx * dx + dy * dy > b2) continue;
-        const d = sh.sdf(p[0], p[1]);
-        if (d >= reach) continue;
-        const want = target(d);
-        if (want - d < 1e-4) continue;
-        let ux = dx, uy = dy, rho = Math.hypot(dx, dy);
-        if (rho < 1e-9) { ux = 1; uy = 0; rho = 0; } else { ux /= rho; uy /= rho; }
-        // march out along the ray until the wanted level is passed, then bisect
-        let lo = rho, hi = rho + (want - d) + 0.5;
-        for (let it = 0; it < 24 && sh.sdf(cx + ux * hi, cy + uy * hi) < want; it++) { lo = hi; hi = rho + (hi - rho) * 2; }
-        for (let it = 0; it < 22; it++) {
-          const mid = (lo + hi) / 2;
-          if (sh.sdf(cx + ux * mid, cy + uy * mid) < want) lo = mid; else hi = mid;
+      if (con.attach) { for (const k of con.cmds) for (const p of k.p) { const w = warp(p[0], p[1]); p[0] = w[0]; p[1] = w[1]; } continue; }
+      const all = [];
+      for (const k of con.cmds) for (const p of k.p) all.push(p);
+      if (!all.length || !near(all)) continue;
+      const cmds = resampleCmds(con.cmds, step, near), out = [];
+      let aO = null, aW = null, sO = null, sW = null;
+      const emit = (pO, pW, qO, qW, depth) => {
+        if (depth < 7 && Math.hypot(qW[0] - pW[0], qW[1] - pW[1]) > maxLen) {
+          const mO = [(pO[0] + qO[0]) / 2, (pO[1] + qO[1]) / 2], mW = warp(mO[0], mO[1]);
+          emit(pO, pW, mO, mW, depth + 1); emit(mO, mW, qO, qW, depth + 1);
+        } else out.push({ t: 'L', p: [qW] });
+      };
+      for (const cm of cmds) {
+        if (cm.t === 'M') { sO = aO = cm.p[0]; sW = aW = warp(aO[0], aO[1]); out.push({ t: 'M', p: [aW] }); }
+        else if (cm.t === 'L') { const qO = cm.p[0], qW = warp(qO[0], qO[1]); emit(aO, aW, qO, qW, 0); aO = qO; aW = qW; }
+        else if (cm.t === 'Z') { if (aO && sO && (aO[0] !== sO[0] || aO[1] !== sO[1])) { emit(aO, aW, sO, sW, 0); out.pop(); } out.push(cm); aO = sO; aW = sW; }
+        else { // curves the warp cannot reach stay curves
+          out.push(cm); const e = cm.p[cm.p.length - 1]; aO = e; aW = [e[0], e[1]];
         }
-        p[0] = cx + ux * hi; p[1] = cy + uy * hi;
       }
+      con.cmds = out;
     }
 
     // Nothing maps closer to the shape than target(deepest point): that area becomes a hole.
@@ -529,25 +557,56 @@
   }
   function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
 
+  // The drawable frame as SVG markup: the glyphs with warp holes cut out, and, for each warp
+  // with feather, a blurred copy of the glyphs cross-faded in around the warp's edge, so the
+  // script goes soft where it meets the warp. Used for the live stage and for every export.
+  // o: { fill, region: [x, y, w, h] the area masks must cover, id: unique prefix }
+  function frameMarkup(S, o) {
+    const p = o.id || 'fl', reg = o.region.map(f);
+    const rect = `x="${reg[0]}" y="${reg[1]}" width="${reg[2]}" height="${reg[3]}"`;
+    let defs = '', glyphs = '';
+    S.nodes.glyph.forEach((g, gi) => {
+      const d = glyphPathData(S, gi);
+      if (d) glyphs += `<path d="${d}"${styleAttrs(S.style[gi], o)}/>`;
+    });
+    let holes = '';
+    if (S.holes.length) {
+      defs += `<mask id="${p}-holes" maskUnits="userSpaceOnUse" ${rect}><rect ${rect} fill="#fff"/><path fill="#000" d="${S.holes.map(Shapes.polyD).join('')}"/></mask>`;
+      holes = ` mask="url(#${p}-holes)"`;
+    }
+    defs += `<g id="${p}-glyphs"${holes}>${glyphs}</g>`;
+
+    let cut = '', soft = '';
+    S.fx.forEach((w, k) => {
+      if (w.type !== 'warp' || !(w.B > 0) || !(w.A > 0)) return;
+      const sh = w.shape, B = w.B;
+      // soft band: fully blurred up to the influence edge, sharp again about one feather further out
+      const poly = Shapes.levelPolygon(sh, w.R + B * 0.5, 120);
+      if (!poly) return;
+      const reach = sh.bound + w.R + w.F + B * 3;
+      const box = `x="${f(sh.cx - reach)}" y="${f(sh.cy - reach)}" width="${f(reach * 2)}" height="${f(reach * 2)}"`;
+      defs += `<filter id="${p}-mb${k}" filterUnits="userSpaceOnUse" ${box}><feGaussianBlur stdDeviation="${f(B / 4)}"/></filter>`
+        + `<filter id="${p}-tb${k}" filterUnits="userSpaceOnUse" ${box}><feGaussianBlur stdDeviation="${f(B * 0.4)}"/></filter>`;
+      const band = `<path d="${Shapes.polyD(poly)}" filter="url(#${p}-mb${k})" fill-opacity="${f(w.A)}"`;
+      defs += `<mask id="${p}-fm${k}" maskUnits="userSpaceOnUse" ${box}>${band} fill="#fff"/></mask>`;
+      cut += `${band} fill="#000"/>`;
+      // the stage is black, so adding the two layers is an exact cross-fade
+      soft += `<g mask="url(#${p}-fm${k})" style="mix-blend-mode:plus-lighter"><use href="#${p}-glyphs" filter="url(#${p}-tb${k})"/></g>`;
+    });
+    if (!soft) return `<defs>${defs}</defs><use href="#${p}-glyphs"/>`;
+    defs += `<mask id="${p}-sharp" maskUnits="userSpaceOnUse" ${rect}><rect ${rect} fill="#fff"/>${cut}</mask>`;
+    return `<defs>${defs}</defs><g mask="url(#${p}-sharp)"><use href="#${p}-glyphs"/></g>${soft}`;
+  }
+
   function toSVG(S, defaults) {
-    defaults = Object.assign({ fill: '#000', background: null, viewBox: null, width: null, height: null }, defaults);
+    defaults = Object.assign({ fill: '#fff', background: '#000', viewBox: null, width: null, height: null }, defaults);
     let vb = defaults.viewBox;
     if (!vb) { const b = bounds(S, true), pad = S.size * 0.1; vb = [b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2]; }
     vb = vb.map(f);
     let out = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}" width="${defaults.width || vb[2]}" height="${defaults.height || vb[3]}">\n`;
     if (defaults.background) out += `<rect x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" fill="${esc(defaults.background)}"/>\n`;
-    let open = '';
-    if (S.holes.length) {
-      out += `<defs><mask id="holes" maskUnits="userSpaceOnUse" x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}">`
-        + `<rect x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" fill="#fff"/><path fill="#000" d="${S.holes.map(Shapes.polyD).join('')}"/></mask></defs>\n`;
-      out += '<g mask="url(#holes)">\n';
-      open = '</g>\n';
-    }
-    S.nodes.glyph.forEach((g, gi) => {
-      const d = glyphPathData(S, gi);
-      if (d) out += `<path data-glyph="${gi}" d="${d}"${styleAttrs(S.style[gi], defaults)}/>\n`;
-    });
-    return out + open + '</svg>\n';
+    out += frameMarkup(S, { fill: defaults.fill, region: vb, id: 'fl' }) + '\n';
+    return out + '</svg>\n';
   }
 
   // Attach extra points to a glyph. They are carried through every modifier that moves the
@@ -571,5 +630,5 @@
     return { family: pick('fontFamily'), style: pick('fontSubfamily'), unitsPerEm: font.unitsPerEm, ascender: font.ascender, descender: font.descender, glyphs };
   }
 
-  root.FontLab = { LEVELS, VARS, HELPERS: HN, MODIFIERS, LAYOUT_DEFAULTS, Shapes, compile, layout, evaluate, attach, bbox, bounds, glyphPathData, styleAttrs, toSVG, fontToJSON, smax };
+  root.FontLab = { LEVELS, VARS, HELPERS: HN, MODIFIERS, LAYOUT_DEFAULTS, Shapes, compile, layout, evaluate, attach, bbox, bounds, glyphPathData, styleAttrs, frameMarkup, toSVG, fontToJSON, smax };
 })(typeof window !== 'undefined' ? window : globalThis);

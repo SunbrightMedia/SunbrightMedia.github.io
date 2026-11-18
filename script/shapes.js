@@ -72,6 +72,36 @@
   const NAMES = Object.keys(UNIT);
   const BOUND = 1.2; // every unit shape fits inside this radius
 
+  // Smoothed gradient of a unit shape's distance field (central differences 0.2 apart), the
+  // direction the warp pushes things. It depends only on the shape type, so it is computed
+  // once on a grid and looked up with bilinear interpolation afterwards.
+  const FIELDS = {}, FE = 0.2;
+  function unitDir(f, x, y) {
+    let gx = f(x + FE, y) - f(x - FE, y), gy = f(x, y + FE) - f(x, y - FE);
+    let l = len(gx, gy);
+    if (l < 1e-9) { gx = x; gy = y; l = len(gx, gy); if (l < 1e-9) return [1, 0]; }
+    return [gx / l, gy / l];
+  }
+  function flowField(name) {
+    if (FIELDS[name]) return FIELDS[name];
+    const f = UNIT[name] || UNIT.circle, N = 161, G = 3, cell = (2 * G) / (N - 1);
+    const gx = new Float32Array(N * N), gy = new Float32Array(N * N);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const d = unitDir(f, -G + i * cell, -G + j * cell);
+      gx[j * N + i] = d[0]; gy[j * N + i] = d[1];
+    }
+    const sample = (x, y) => {
+      const fx = (x + G) / cell, fy = (y + G) / cell, i = Math.floor(fx), j = Math.floor(fy);
+      if (i < 0 || j < 0 || i >= N - 1 || j >= N - 1) return unitDir(f, x, y);
+      const tx = fx - i, ty = fy - j, k = j * N + i;
+      const ax = gx[k] + (gx[k + 1] - gx[k]) * tx, bx = gx[k + N] + (gx[k + N + 1] - gx[k + N]) * tx;
+      const ay = gy[k] + (gy[k + 1] - gy[k]) * tx, by = gy[k + N] + (gy[k + N + 1] - gy[k + N]) * tx;
+      const vx = ax + (bx - ax) * ty, vy = ay + (by - ay) * ty, l = len(vx, vy);
+      return l < 0.2 ? unitDir(f, x, y) : [vx / l, vy / l]; // opposing samples: compute exactly
+    };
+    return (FIELDS[name] = sample);
+  }
+
   // A placed shape: centre, radius (size), rotation in degrees, clockwise on screen.
   function make(name, cx, cy, size, rotDeg) {
     const f = UNIT[name] || UNIT.circle;
@@ -88,25 +118,51 @@
       if (l < 1e-9) { gx = x - cx; gy = y - cy; l = len(gx, gy); if (l < 1e-9) return [1, 0]; }
       return [gx / l, gy / l];
     };
-    return { name, cx, cy, size: s, rot: rotDeg || 0, sdf, grad, bound: s * BOUND, handle: [cx + s * sn, cy - s * c] };
+    const field = flowField(UNIT[name] ? name : 'circle');
+    const flow = (x, y) => {
+      const dx = (x - cx) / s, dy = (y - cy) / s;
+      const g = field(dx * c + dy * sn, -(-dx * sn + dy * c));
+      const gyd = -g[1]; // back to y down, then to world rotation
+      return [g[0] * c - gyd * sn, g[0] * sn + gyd * c];
+    };
+    return { name, cx, cy, size: s, rot: rotDeg || 0, sdf, grad, flow, bound: s * BOUND, handle: [cx + s * sn, cy - s * c] };
   }
 
-  // Polygon of the level set sdf = level, by bisection along rays from the centre.
-  // Exact for every built-in shape, since they are all star-shaped around their centre.
-  function levelPolygon(sh, level, n) {
+  // Polygon of the level set sdf = level, by bisection along rays from the centre. Rays are
+  // added wherever neighbouring points are more than maxSeg apart, so rounded tips and sharp
+  // notches stay smooth at any zoom. Exact for every built-in shape, since they are all
+  // star-shaped around their centre.
+  function levelPolygon(sh, level, n, maxSeg) {
     n = n || 120;
+    maxSeg = maxSeg || Math.max(sh.size * 0.028, 0.25);
     if (sh.sdf(sh.cx, sh.cy) >= level) return null;
-    const hiMax = sh.bound + Math.max(level, 0) + 1, out = [];
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a);
+    const hiMax = sh.bound + Math.max(level, 0) + 1, TAU = Math.PI * 2;
+    const at = a => {
+      const dx = Math.cos(a), dy = Math.sin(a);
       let lo = 0, hi = hiMax;
-      for (let it = 0; it < 26; it++) {
+      for (let it = 0; it < 16; it++) {
         const mid = (lo + hi) / 2;
         if (sh.sdf(sh.cx + dx * mid, sh.cy + dy * mid) < level) lo = mid; else hi = mid;
       }
-      out.push([sh.cx + dx * lo, sh.cy + dy * lo]);
+      return [sh.cx + dx * lo, sh.cy + dy * lo];
+    };
+    let angs = [], pts = [];
+    for (let i = 0; i < n; i++) { angs.push((i / n) * TAU); pts.push(at(angs[i])); }
+    for (let pass = 0; pass < 6; pass++) {
+      const na = [], np = [];
+      let added = false;
+      for (let i = 0; i < angs.length; i++) {
+        const j = (i + 1) % angs.length;
+        na.push(angs[i]); np.push(pts[i]);
+        if (Math.hypot(pts[j][0] - pts[i][0], pts[j][1] - pts[i][1]) > maxSeg) {
+          const a = angs[i] + ((j === 0 ? angs[0] + TAU : angs[j]) - angs[i]) / 2;
+          na.push(a); np.push(at(a)); added = true;
+        }
+      }
+      angs = na; pts = np;
+      if (!added || angs.length > 4000) break;
     }
-    return out;
+    return pts;
   }
 
   function polyD(poly) {

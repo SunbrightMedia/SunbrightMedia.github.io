@@ -24,9 +24,10 @@
     return { id: uid(), type, level, on: true, params: def.spatial ? Object.assign({}, def.params, params) : params };
   };
   const PRESETS = {
-    'Warp: star': () => [M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', feather: '25' })],
-    'Warp: sweeping circle': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', feather: '45' })],
-    'Warp: star rounding off': () => [M('warp', 'space', { shape: 'star', x: '380', y: '40', size: '90', rot: 't*20', intensity: '20 + tri(t*0.15)*60', feather: '10' })],
+    'Warp: star': () => [M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', falloff: '25', feather: '20' })],
+    'Warp: soft blur': () => [M('warp', 'space', { x: '330', y: '-40', size: '45', intensity: '6', falloff: '20', feather: '70' })],
+    'Warp: sweeping circle': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', falloff: '45', feather: '30' })],
+    'Warp: star rounding off': () => [M('warp', 'space', { shape: 'star', x: '380', y: '40', size: '90', rot: 't*20', intensity: '20 + tri(t*0.15)*60', falloff: '10', feather: '0' })],
     'Wave': () => [M('transform', 'glyph', { ty: 'sin(t*3 - i*0.6) * size*0.12' })],
     'Typewriter': () => [M('visible', 'glyph', { show: 'fract(t*0.15)*n*1.6 - i' })],
     'Wobbly outlines': () => [
@@ -201,7 +202,7 @@
   function applyView() {
     for (const id of ['svg', 'ui']) $(id).setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
     const big = { x: view.x - view.w * 50, y: view.y - view.h * 50, width: view.w * 101, height: view.h * 101 };
-    for (const id of ['bgRect', 'holesRect', 'holesMask']) for (const k in big) $(id).setAttribute(k, big[k]);
+    for (const k in big) $('bgRect').setAttribute(k, big[k]);
     dirty = true;
   }
   // Same mapping as the SVG viewBox with preserveAspectRatio="xMidYMid meet".
@@ -216,30 +217,11 @@
   }
 
   // ---------- rendering ----------
-  const paths = [];
   function render() {
-    const content = $('content'), n = S.nodes.glyph.length;
-    while (paths.length < n) { const p = document.createElementNS(SVGNS, 'path'); content.append(p); paths.push(p); }
-    while (paths.length > n) paths.pop().remove();
     glyphD = [];
-    for (let gi = 0; gi < n; gi++) {
-      const p = paths[gi], st = S.style[gi], d = FL.glyphPathData(S, gi);
-      glyphD.push(d);
-      p.setAttribute('d', d);
-      p.setAttribute('fill', st.fill != null ? st.fill : project.fill);
-      if (st.stroke != null) {
-        p.setAttribute('stroke', st.stroke);
-        p.setAttribute('stroke-width', st.sw != null ? st.sw : 1);
-        p.setAttribute('stroke-linejoin', 'round'); p.setAttribute('stroke-linecap', 'round');
-      } else p.removeAttribute('stroke');
-      if (st.opacity != null) p.setAttribute('opacity', st.opacity); else p.removeAttribute('opacity');
-      if (st.draw != null) { p.setAttribute('pathLength', '1'); p.setAttribute('stroke-dasharray', `${Math.max(0, Math.min(1, st.draw))} 1.0001`); }
-      else { p.removeAttribute('pathLength'); p.removeAttribute('stroke-dasharray'); }
-    }
-    if (S.holes.length) {
-      $('holesPath').setAttribute('d', S.holes.map(Shapes.polyD).join(''));
-      content.setAttribute('mask', 'url(#holesMask)');
-    } else content.removeAttribute('mask');
+    for (let gi = 0; gi < S.nodes.glyph.length; gi++) glyphD.push(FL.glyphPathData(S, gi));
+    const big = [view.x - view.w * 50, view.y - view.h * 50, view.w * 101, view.h * 101];
+    $('scene').innerHTML = FL.frameMarkup(S, { fill: project.fill, region: big, id: 'live' });
     renderOverlay();
     renderGizmos();
     renderMask();
@@ -279,13 +261,14 @@
     let h = '';
     for (const f of S.fx) {
       const sh = f.shape, sel = f.id === selected;
-      const ring = Shapes.polyD(Shapes.levelPolygon(sh, 0, 96));
-      const infl = f.R > 0 ? Shapes.polyD(Shapes.levelPolygon(sh, f.R, 96)) : '';
+      const seg = sh.size * 0.05, ring = Shapes.polyD(Shapes.levelPolygon(sh, 0, 72, seg));
+      const infl = f.R > 0 ? Shapes.polyD(Shapes.levelPolygon(sh, f.R, 72, seg)) : '';
       if (!sel) {
         h += `<path data-gizmo="${f.id}" data-part="body" d="${infl || ring}" fill="#fff" fill-opacity="0.001" stroke="${col}" stroke-opacity="0.45" stroke-width="${k}" style="cursor:move"/>`;
         continue;
       }
-      const outer = f.F > 0 ? Shapes.polyD(Shapes.levelPolygon(sh, f.R + f.F, 96)) : '';
+      const ext = Math.max(f.F, f.B);
+      const outer = ext > 0 ? Shapes.polyD(Shapes.levelPolygon(sh, f.R + ext, 72, seg)) : '';
       h += `<g data-gizmo="${f.id}" data-part="body" style="cursor:move">`
         + `<path d="${infl || ring}" fill="${col}" fill-opacity="0.1" stroke="${col}" stroke-width="${1.5 * k}"/>`
         + (infl ? `<path d="${ring}" fill="none" stroke="${col}" stroke-width="${k}" stroke-dasharray="${4 * k} ${3 * k}" pointer-events="none"/>` : '')
@@ -308,17 +291,17 @@
     const step = 3, w = Math.ceil(m.W / step), h = Math.ceil(m.H / step);
     maskSmall.width = w; maskSmall.height = h;
     const sctx = maskSmall.getContext('2d'), img = sctx.createImageData(w, h), px = img.data;
-    const fxs = S.fx.map(f => ({ f, b: f.shape.bound + f.R + f.F }));
+    const fxs = S.fx.map(f => ({ f, soft: Math.max(f.F, f.B), b: f.shape.bound + f.R + Math.max(f.F, f.B) }));
     for (let j = 0; j < h; j++) {
       const y = ((j + 0.5) * step - m.oy) / m.s;
       for (let i = 0; i < w; i++) {
         const x = ((i + 0.5) * step - m.ox) / m.s;
         let v = 0;
-        for (const { f, b } of fxs) {
+        for (const { f, soft, b } of fxs) {
           const sh = f.shape, dx = x - sh.cx, dy = y - sh.cy;
           if (dx * dx + dy * dy > b * b) continue;
           const d = sh.sdf(x, y);
-          const wv = (f.F > 0 ? 1 - smooth(f.R - f.F, f.R + f.F, d) : d < f.R ? 1 : 0) * f.A;
+          const wv = (soft > 0 ? 1 - smooth(f.R - soft, f.R + soft, d) : d < f.R ? 1 : 0) * f.A;
           if (wv > v) v = wv;
         }
         const o = (j * w + i) * 4, c = Math.round(v * 255);
