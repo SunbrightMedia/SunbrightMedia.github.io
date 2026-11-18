@@ -92,8 +92,8 @@
     stroke: {
       label: 'Stroke',
       roles: ['intro', 'outro'],
-      params: { role: 'intro', duration: '3', curve: 'ease in-out', bezier: '0.42, 0, 0.58, 1', stagger: '0.2', order: 'reading', erase: 'reverse', softness: '0.05' },
-      choice: { role: ['intro', 'outro'], order: ['reading', 'reverse', 'centre out', 'random'], erase: ['reverse', 'forward'] },
+      params: { role: 'intro', duration: '3', curve: 'ease in-out', bezier: '0.42, 0, 0.58, 1', stagger: '0.2', order: 'reading', erase: 'reverse', pen: 'flat', softness: '0' },
+      choice: { role: ['intro', 'outro'], order: ['reading', 'reverse', 'centre out', 'random'], erase: ['reverse', 'forward'], pen: ['flat', 'round'] },
       curve: ['curve'],
       text: ['bezier'],
       only: { erase: { role: 'outro' }, bezier: { curve: 'custom' } },
@@ -108,7 +108,8 @@
         stagger: 'how the letters follow each other: 0 = all at once, 1 = each one starts when the one before has finished',
         order: 'which letters go first',
         erase: 'reverse: the pen runs back over its strokes, last first; forward: the strokes vanish in the order they were drawn',
-        softness: 'how soft the front of the pen is',
+        pen: 'flat: the front of the pen is a straight edge across the stroke, like a broad nib; round: it is rounded in the middle of a stroke and squares off at the ends',
+        softness: 'how soft the edge of what is drawn is',
       },
     },
   };
@@ -125,8 +126,8 @@
   }
 
   // What each glyph shows at a time: undefined (all of it), 0 (nothing), or { lo, hi, soft }: the
-  // part the pen reaches between moments lo and hi (0..1, see strokes.js), with a soft front of
-  // `soft` pixels. scripts: the project's scripts; glyphsOf(si): the glyph indices of script si
+  // part the pen covers between moments lo and hi (0..1, see strokes.js), and how soft its edge is
+  // (0..1). scripts: the project's scripts; glyphsOf(si): the glyph indices of script si
   // that have a shape; runs: script id -> { id, t0 } (a transition playing since t0) or
   // { loop: true, t0 } (its intro, a hold, its outro and a pause, over and over).
   const HOLD = 1.2, GAP = 0.8;
@@ -159,7 +160,7 @@
       if (intro ? prog >= 1 : prog <= 0) return;   // done, or not begun: the text as it is
       const stagger = Math.min(1, Math.max(0, num(p.stagger, 0.2))), rk = ranks(n, p.order);
       const steps = Math.max(...rk) || 0, D = 1 / (1 + steps * stagger), ease = curve(p.curve, p.bezier);
-      const sw = 1.5 + Math.min(1, Math.max(0, num(p.softness, 0.05))) * 58;
+      const sw = Math.min(1, Math.max(0, num(p.softness, 0)));
       for (let j = 0; j < n; j++) {
         const g = Math.min(1, Math.max(0, (prog - rk[j] * stagger * D) / D));
         const e = g <= 0 ? 0 : g >= 1 ? 1 : ease(g);
@@ -169,7 +170,7 @@
         else hi = g >= 1 ? -1 : 1 - e;
         if (lo <= 0 && hi >= 1) continue;
         any = true;
-        out[glyphs[j]] = hi <= 0 || lo >= 1 || hi <= lo ? 0 : { lo, hi, soft: sw };
+        out[glyphs[j]] = hi <= 0 || lo >= 1 || hi <= lo ? 0 : { lo, hi, soft: sw, round: p.pen === 'round' };
       }
     });
     return any ? out : null;

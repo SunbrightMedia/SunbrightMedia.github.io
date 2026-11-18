@@ -433,6 +433,7 @@ void main() {
     let poolUsed = 0, lutName = null;
     const mcv = document.createElement('canvas'), mctx = mcv.getContext('2d');
     const gcv = document.createElement('canvas'), gctx = gcv.getContext('2d'); // one glyph at a time, for transitions
+    const kcv = document.createElement('canvas'), kctx = kcv.getContext('2d'); // and what a transition shows of it
 
     // bind a program and set uniforms by name: numbers, [x, y], [r, g, b], [x, y, z, w] or textures
     function use(prog, uniforms) {
@@ -611,8 +612,8 @@ void main() {
       };
       const cutHoles = () => { if (holes) { mctx.globalAlpha = 1; mctx.globalCompositeOperation = 'destination-out'; mctx.fill(holes); } };
       // Draw one glyph with fn(ctx). A transition may show only part of it: o.reveal[gi] is 0
-      // (nothing) or { cv, x, y, w, h }, a mask in world units; then the glyph is drawn on its own
-      // and masked before it joins the rest.
+      // (nothing) or { draw, x, y, w, h, blur }: draw(ctx) paints what shows, in world units,
+      // within the box; then the glyph is drawn on its own and cut to that before it joins the rest.
       function drawGlyph(gi, fn) {
         const rv = o.reveal && o.reveal[gi];
         if (rv === 0) return;
@@ -625,9 +626,16 @@ void main() {
         gctx.clearRect(0, 0, gw, gh);
         gctx.setTransform(s, 0, 0, s, ox - x0, oy - y0);
         fn(gctx);
-        gctx.setTransform(1, 0, 0, 1, 0, 0); gctx.globalAlpha = 1; gctx.globalCompositeOperation = 'destination-in'; gctx.imageSmoothingEnabled = true;
-        gctx.drawImage(rv.cv, rv.x * s + ox - x0, rv.y * s + oy - y0, rv.w * s, rv.h * s);
-        gctx.clearRect(gw, 0, gcv.width - gw, gcv.height); gctx.clearRect(0, gh, gw, gcv.height - gh);
+        if (kcv.width < gw || kcv.height < gh) { kcv.width = Math.max(kcv.width, gw); kcv.height = Math.max(kcv.height, gh); }
+        kctx.setTransform(1, 0, 0, 1, 0, 0); kctx.globalCompositeOperation = 'source-over'; kctx.globalAlpha = 1;
+        kctx.clearRect(0, 0, gw, gh);
+        kctx.setTransform(s, 0, 0, s, ox - x0, oy - y0);
+        kctx.fillStyle = kctx.strokeStyle = '#fff';
+        rv.draw(kctx);
+        gctx.setTransform(1, 0, 0, 1, 0, 0); gctx.globalAlpha = 1; gctx.globalCompositeOperation = 'destination-in';
+        if (rv.blur > 0.3) gctx.filter = `blur(${rv.blur.toFixed(1)}px)`;
+        gctx.drawImage(kcv, 0, 0, gw, gh, 0, 0, gw, gh);
+        gctx.filter = 'none';
         gctx.globalCompositeOperation = 'source-over';
         mctx.save(); mctx.setTransform(1, 0, 0, 1, 0, 0); mctx.globalAlpha = 1; mctx.globalCompositeOperation = 'source-over';
         mctx.drawImage(gcv, 0, 0, gw, gh, x0, y0, gw, gh);

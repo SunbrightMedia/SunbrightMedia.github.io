@@ -12,15 +12,17 @@
  * when a stroke is mostly level; closed loops start at the top and run anticlockwise, like an o;
  * strokes are drawn top to bottom, then left to right; dots (of i and j) last.
  *
- * Finally every pixel gets the moment (0..1) the pen reaches it, on a grid twice as fine
- * (FIELD pixels per analysis pixel): the moment its nearest point on a stroke is drawn, less a
- * lead for a round pen. The pen is as wide as the stroke under it; it starts flat, rounds out
- * along the stroke and squares off again towards its end, so square ends and corners are swept
- * by a straight edge instead of popping in. A transition shows the pixels whose moment has come.
+ * Drawing them is vector, as in Hanzi Writer and the after-effects write-on: the pen is a band
+ * along each stroke's centre line (smoothed), as wide as the letter there, cut square at its
+ * front (or, as an option, rounded in the middle of a stroke); the band is then cut to the
+ * glyph's own outline, so every edge is the font's own curve or the pen's, at any size. Free tips and the
+ * pieces split at corners are carried straight out to the edge at full width, so square ends and
+ * corners are swept, not popped in. The few bits no band covers (serifs, ink traps) are found
+ * once and shown as the pen passes them.
  */
 (function (root) {
   'use strict';
-  const STROKE_RES = 150, PAD = 6, FIELD = 2;
+  const STROKE_RES = 150, PAD = 6;
   const cache = new Map();
   let cv = null, ctx = null;
 
@@ -199,7 +201,14 @@
         const end = A.type === 'end' && deg(B) >= 3 ? A : B.type === 'end' && deg(A) >= 3 ? B : null;
         if (!end) continue;
         const j = end === A ? B : A, L = polyLength(e.pts);
-        if (L < Math.max(3, 1.15 * D(j))) { drop(e); end.edges = []; changed = true; }
+        if (L >= Math.max(3, 1.15 * D(j))) continue;
+        // a short end that carries straight on from another line through the junction is real (the
+        // ear of a p's stem above its bowl), not a corner spur: keep it if it is not tiny
+        const dirFrom = (f, atNode) => { const p = f.a === j.id && atNode ? f.pts : f.b === j.id ? f.pts.slice().reverse() : f.pts; const q = along(p, Math.min(polyLength(p) * 0.6, Math.max(3, D(j)))); const dx = q[0] - j.x, dy = q[1] - j.y, l = Math.hypot(dx, dy) || 1; return [dx / l, dy / l]; };
+        const ds = dirFrom(e, true);
+        const straight = j.edges.some(f => { if (f === e) return false; const d = dirFrom(f, true); return -(d[0] * ds[0] + d[1] * ds[1]) > 0.85; });
+        if (straight && L > Math.max(3, 0.35 * D(j))) continue;
+        drop(e); end.edges = []; changed = true;
       }
       for (const e of [...alive]) {
         if (!alive.has(e) || e.closed || e.a === e.b) continue;
@@ -276,7 +285,9 @@
     for (const e0 of G.edges) {
       if (usedE.has(e0)) continue;
       usedE.add(e0);
-      let pts = e0.pts.slice(), closed = e0.closed;
+      let pts = e0.pts.slice(), closed = e0.closed, endA = 'junction', endB = 'junction';
+      // what a stroke's end is: a free tip of the glyph, or where it meets others
+      const kind = id => (G.nodes[id] && (G.nodes[id].type === 'end' || G.nodes[id].type === 'dot') ? 'free' : 'junction');
       // forwards from b, then backwards from a
       for (const fwd of [true, false]) {
         let e = e0, atA = !fwd;
@@ -290,11 +301,12 @@
           if (fwd) pts = pts.concat(seg.slice(1)); else pts = seg.slice().reverse().slice(0, -1).concat(pts);
           e = nx.e; atA = !nx.atA;
         }
+        if (fwd) endB = kind(atA ? e.a : e.b); else endA = kind(atA ? e.a : e.b);
       }
-      strokes.push({ pts: smoothPts(pts, 2), closed });
+      strokes.push({ pts: smoothPts(pts, 2), closed, endA, endB });
     }
     // lone pixels (a tiny dot)
-    for (const n of G.nodes) if (n.type === 'dot') strokes.push({ pts: [[n.x, n.y], [n.x + 0.01, n.y]], closed: false });
+    for (const n of G.nodes) if (n.type === 'dot') strokes.push({ pts: [[n.x, n.y], [n.x + 0.01, n.y]], closed: false, endA: 'free', endB: 'free' });
     void w;
     return strokes;
   }
@@ -334,12 +346,12 @@
       for (let k = 0; k < cuts.length; k++) {
         const from = cuts[k], to = cuts[(k + 1) % cuts.length], part = [];
         for (let i = from; ; i = (i + 1) % m) { part.push(q[i]); if (i === to % m && part.length > 1) break; if (part.length > m + 1) break; }
-        pieces.push({ pts: part, closed: false, cutA: true, cutB: true });
+        pieces.push({ pts: part, closed: false, cutA: true, cutB: true, endA: 'corner', endB: 'corner' });
       }
     } else {
       let from = 0;
-      cuts.forEach((c, k) => { pieces.push({ pts: p.slice(from, c + 1), closed: false, cutA: k > 0, cutB: true }); from = c; });
-      pieces.push({ pts: p.slice(from), closed: false, cutA: true, cutB: false });
+      cuts.forEach((c, k) => { pieces.push({ pts: p.slice(from, c + 1), closed: false, cutA: k > 0, cutB: true, endA: k > 0 ? 'corner' : s.endA, endB: 'corner' }); from = c; });
+      pieces.push({ pts: p.slice(from), closed: false, cutA: true, cutB: false, endA: 'corner', endB: s.endB });
     }
     // the skeleton rounds a corner off; cut that bend away, so each piece runs straight into the corner
     for (const x of pieces) {
@@ -372,7 +384,7 @@
       } else {
         const a = p[0], b = p[p.length - 1], dx = Math.abs(b[0] - a[0]), dy = Math.abs(b[1] - a[1]);
         const flip = dy >= 0.5 * dx ? b[1] < a[1] : b[0] < a[0];
-        if (flip) s.pts = p.slice().reverse();
+        if (flip) { s.pts = p.slice().reverse(); [s.endA, s.endB] = [s.endB, s.endA]; }
       }
       s.length = polyLength(s.pts);
       s.dot = s.length < 1.6 * meanWidth;
@@ -393,109 +405,272 @@
       for (let d = 1; d <= reach; d++) { const x = from[0] + ux * d, y = from[1] + uy * d; if (D(x, y) < 0.5) break; out.push([x, y]); }
       return out;
     };
-    const head = ext(s.pts, s.pts[0]).reverse(), tail = ext(s.pts.slice().reverse(), s.pts[s.pts.length - 1]);
+    // only free tips and corners: where a stroke meets others it stops at their middle
+    const out = e => e === 'free' || e === 'corner';
+    const head = out(s.endA) ? ext(s.pts, s.pts[0]).reverse() : [], tail = out(s.endB) ? ext(s.pts.slice().reverse(), s.pts[s.pts.length - 1]) : [];
     s.pts = head.concat(s.pts, tail);
     s.headN = head.length; s.tailN = tail.length;
+    s.headLen = head.length ? polyLength(head.concat([s.pts[head.length]])) : 0;
+    s.tailLen = tail.length ? polyLength([s.pts[s.pts.length - tail.length - 1]].concat(tail)) : 0;
   }
 
-  // The moment the pen reaches each pixel of a grid F times finer than the analysis.
-  function field(strokes, dist, w, h, F) {
-    const W = w * F, H = h * F, N = W * H, tau = new Float32Array(N);
+  // resample a polyline (and a value per point) to points `step` apart
+  function resample(p, vals, step, closed) {
+    const cum = [0];
+    for (let i = 1; i < p.length; i++) cum.push(cum[i - 1] + len(p[i - 1], p[i]));
+    const L = cum[cum.length - 1], n = Math.max(2, Math.round(L / step) + 1), P = [], V = [];
+    let j = 0;
+    for (let k = 0; k < n; k++) {
+      const at = (k / (n - 1)) * L;
+      while (j < p.length - 2 && cum[j + 1] < at) j++;
+      const seg = cum[j + 1] - cum[j], u = seg > 0 ? Math.min(1, Math.max(0, (at - cum[j]) / seg)) : 0;
+      P.push([p[j][0] + (p[j + 1][0] - p[j][0]) * u, p[j][1] + (p[j + 1][1] - p[j][1]) * u]);
+      V.push(vals[j] + (vals[j + 1] - vals[j]) * u);
+    }
+    void closed;
+    return { P, V };
+  }
+  // Gaussian smoothing of a list of numbers or points (ends held for open lines, wrapped for closed)
+  function gauss(arr, sigma, closed, holdEnds) {
+    const n = arr.length, R = Math.ceil(sigma * 2.5), kern = [];
+    for (let k = -R; k <= R; k++) kern.push(Math.exp(-(k * k) / (2 * sigma * sigma)));
+    const isPt = Array.isArray(arr[0]), out = [];
+    for (let i = 0; i < n; i++) {
+      let sx = 0, sy = 0, sw = 0;
+      for (let k = -R; k <= R; k++) {
+        let j = i + k;
+        if (closed) j = ((j % n) + n) % n; else if (j < 0 || j >= n) continue;
+        const wk = kern[k + R];
+        if (isPt) { sx += arr[j][0] * wk; sy += arr[j][1] * wk; } else sx += arr[j] * wk;
+        sw += wk;
+      }
+      out.push(isPt ? [sx / sw, sy / sw] : sx / sw);
+    }
+    if (holdEnds && !closed && n > 1) { out[0] = arr[0]; out[n - 1] = arr[n - 1]; }
+    return out;
+  }
+
+  // The pen for each stroke: its centre line and half-width, smoothed, in world units, and when
+  // it is drawn (t0..t1 of the glyph's 0..1).
+  function brushes(strokes, dist, inside, w, h, x0, y0, k) {
     const D = (x, y) => { const xi = Math.round(x), yi = Math.round(y); return xi < 0 || yi < 0 || xi >= w || yi >= h ? 0 : dist[yi * w + xi]; };
-    // timing: the pen moves at a constant pace, with a short lift between strokes
-    const lift = strokes.length > 1 ? 0.15 * strokes.reduce((a, s) => a + s.length, 0) / strokes.length : 0;
-    let total = 0;
-    for (const s of strokes) {
-      const p = s.pts;
-      s.cum = new Float64Array(p.length);
-      for (let i = 1; i < p.length; i++) s.cum[i] = s.cum[i - 1] + len(p[i - 1], p[i]);
-      s.len2 = Math.max(s.cum[p.length - 1], 1e-3);
-      s.r = p.map(q => Math.max(0.5, D(q[0], q[1])));
+    const out = strokes.map(s => {
+      let p = s.pts;
+      if (s.closed && p.length > 2 && len(p[0], p[p.length - 1]) > 0.01) p = p.concat([p[0]]);
+      const r = p.map(q => Math.max(0.5, D(q[0], q[1])));
       // the carried-on ends run out to the edge, where the distance shrinks: the pen keeps its width there
       const h0 = Math.min(s.headN || 0, p.length - 1), t0 = Math.max(h0, p.length - 1 - (s.tailN || 0));
-      for (let i = 0; i < h0; i++) s.r[i] = s.r[h0];
-      for (let i = t0 + 1; i < p.length; i++) s.r[i] = s.r[t0];
-      s.at = total; total += s.len2 + lift;
-    }
-    total = Math.max(total - lift, 1e-3);
-    for (const s of strokes) { s.t0 = s.at / total; s.t1 = (s.at + s.len2) / total; }
-    // every stroke drawn into the grid, each pixel keeping the earliest stroke point on it
-    const srcS = new Int32Array(N).fill(-1), srcI = new Int32Array(N), srcT = new Float32Array(N);
-    const toF = v => (v + 0.5) * F - 0.5;
-    strokes.forEach((s, si) => {
-      const p = s.pts;
-      for (let i = 0; i < p.length - 1; i++) {
-        const ax = toF(p[i][0]), ay = toF(p[i][1]), bx = toF(p[i + 1][0]), by = toF(p[i + 1][1]);
-        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 0.5));
-        for (let k = 0; k <= steps; k++) {
-          const u = k / steps, X = Math.round(ax + (bx - ax) * u), Y = Math.round(ay + (by - ay) * u);
-          if (X < 0 || Y < 0 || X >= W || Y >= H) continue;
-          const j = Y * W + X, T = s.at + s.cum[i] + (s.cum[i + 1] - s.cum[i]) * u;
-          if (srcS[j] < 0 || T < srcT[j]) { srcS[j] = si; srcI[j] = i; srcT[j] = T; }
+      for (let i = 0; i < h0; i++) r[i] = r[h0];
+      for (let i = t0 + 1; i < p.length; i++) r[i] = r[t0];
+      const rs = resample(p, r, 1, s.closed);
+      let P = gauss(rs.P, 2, s.closed, true);
+      // widths: a running median against pixel noise, then smoothed
+      const med = rs.V.map((v, i) => { const win = []; for (let j = Math.max(0, i - 3); j <= Math.min(rs.V.length - 1, i + 3); j++) win.push(rs.V[j]); win.sort((a, b) => a - b); return win[win.length >> 1]; });
+      const R = gauss(med, 3, s.closed, false);
+      if (s.closed) P[P.length - 1] = P[0].slice();
+      // Near a free tip the pen takes the letter's own width on each side, measured straight across
+      // (a serif, a flared or slanted end), so the tip is swept whole as the pen arrives.
+      const RL = R.slice(), RR = R.slice(), n = P.length;
+      const across = (q, nx, ny, cap) => { let d = 0; for (; d < cap; d += 0.5) { const x = Math.round(q[0] + nx * d), y = Math.round(q[1] + ny * d); if (x < 0 || y < 0 || x >= w || y >= h || !inside[y * w + x]) break; } return d; };
+      const cumA = [0];
+      for (let i = 1; i < n; i++) cumA.push(cumA[i - 1] + len(P[i - 1], P[i]));
+      // the carried-out part of a free tip: as wide as the letter there, up to four times the stroke
+      // (a serif, a flared or slanted end), as long as the measure ends at the letter's edge
+      const ext = [s.headLen || 0, s.tailLen || 0];
+      for (const [free, fromEnd] of [[s.endA === 'free', false], [s.endB === 'free', true]]) {
+        if (!free || s.closed) continue;
+        const zone = ext[fromEnd ? 1 : 0] + 1;
+        for (let i = 0; i < n; i++) {
+          const along = fromEnd ? cumA[n - 1] - cumA[i] : cumA[i];
+          if (along > zone) continue;
+          const a0 = P[Math.max(0, i - 1)], a1 = P[Math.min(n - 1, i + 1)], l = Math.hypot(a1[0] - a0[0], a1[1] - a0[1]) || 1;
+          const nx = -(a1[1] - a0[1]) / l, ny = (a1[0] - a0[0]) / l, cap = 4 * R[i];
+          const eL = across(P[i], nx, ny, cap), eR = across(P[i], -nx, -ny, cap);
+          if (eL < cap) RL[i] = Math.max(RL[i], eL - 0.5);
+          if (eR < cap) RR[i] = Math.max(RR[i], eR - 0.5);
         }
       }
+      const pts = P.map(q => [x0 + (q[0] + 0.5) / k, y0 + (q[1] + 0.5) / k]);
+      const toW = v => (v * 1.08 + 0.8) / k, hwL = RL.map(toW), hwR = RR.map(toW), hw = hwL.map((v, i) => (v + hwR[i]) / 2);
+      const cum = [0];
+      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + len(pts[i - 1], pts[i]));
+      return { pts, hw, hwL, hwR, cum, L: Math.max(cum[cum.length - 1], 1e-6), closed: s.closed, dot: s.dot };
     });
-    // Each stroke in turn sweeps its whole width: the pixels it covers first are its own, so where
-    // strokes meet (a corner, a junction) the one drawn first takes the shared part.
-    const own = new Int32Array(N).fill(-1), ownI = new Int32Array(N);
-    strokes.forEach((s, si) => {
-      const p = s.pts;
-      for (let i = 0; i < p.length - 1; i++) {
-        const ax = toF(p[i][0]), ay = toF(p[i][1]), bx = toF(p[i + 1][0]), by = toF(p[i + 1][1]);
-        const R = Math.max(s.r[i], s.r[i + 1]) * F * 1.05 + 0.75, steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / Math.max(0.5, R / 4)));
-        for (let k = 0; k <= steps; k++) {
-          const u = k / steps, px = ax + (bx - ax) * u, py = ay + (by - ay) * u, rr = (s.r[i] + (s.r[i + 1] - s.r[i]) * u) * F * 1.05 + 0.75;
-          const x0 = Math.max(0, Math.floor(px - rr)), x1 = Math.min(W - 1, Math.ceil(px + rr)), y0 = Math.max(0, Math.floor(py - rr)), y1 = Math.min(H - 1, Math.ceil(py + rr));
-          for (let Y = y0; Y <= y1; Y++) for (let X = x0; X <= x1; X++) {
-            const j = Y * W + X;
-            if (own[j] >= 0) continue;
-            if ((X - px) * (X - px) + (Y - py) * (Y - py) <= rr * rr) { own[j] = si; ownI[j] = i; }
-          }
+    // Short strokes that sprout from a longer one (the wings of a serif, half a crossbar) grow out
+    // of it while its pen passes there, from that end outwards, instead of being drawn on their own.
+    const avg = b => b.hw.reduce((x, y) => x + y, 0) / b.hw.length;
+    for (const b of out) {
+      if (b.closed || b.dot || b.L > 5 * avg(b)) continue;
+      let best = null;
+      for (const p of out) {
+        if (p === b || p.attach || p.L <= b.L) continue;
+        for (let i = 0; i < p.pts.length; i++) for (const [be, bStart] of [[b.pts[0], true], [b.pts[b.pts.length - 1], false]]) {
+          const d = len(p.pts[i], be);
+          if (d < 1.6 * p.hw[i] && (!best || d < best.d)) best = { p, i, bStart, d };
         }
       }
-    });
-    // anything no stroke swept: the nearest stroke point (down each column, then the lower envelope along each row)
-    const INF = 1e20, n = Math.max(W, H), f = new Float64Array(n), d = new Float64Array(n), v = new Int32Array(n), z = new Float64Array(n + 1), arg = new Int32Array(n);
-    const colD = new Float64Array(N), colR = new Int32Array(N);
-    for (let X = 0; X < W; X++) {
-      let last = -1;
-      for (let Y = 0; Y < H; Y++) { if (srcS[Y * W + X] >= 0) last = Y; colR[Y * W + X] = last; }
-      last = -1;
-      for (let Y = H - 1; Y >= 0; Y--) {
-        const j = Y * W + X;
-        if (srcS[j] >= 0) last = Y;
-        const up = colR[j];
-        let best = -1;
-        if (up >= 0) best = up;
-        if (last >= 0 && (best < 0 || last - Y < Y - best)) best = last;
-        colR[j] = best; colD[j] = best < 0 ? INF : (Y - best) * (Y - best);
+      if (!best) continue;
+      if (!best.bStart) { // run it from the end that touches the parent
+        b.pts.reverse(); const l = b.hwL.slice().reverse(); b.hwL = b.hwR.slice().reverse(); b.hwR = l; b.hw.reverse();
+        b.cum = [0]; for (let i = 1; i < b.pts.length; i++) b.cum.push(b.cum[i - 1] + len(b.pts[i - 1], b.pts[i]));
       }
+      b.attach = best;
     }
-    const nearest = new Int32Array(N).fill(-1);
-    for (let Y = 0; Y < H; Y++) {
-      for (let X = 0; X < W; X++) f[X] = colD[Y * W + X];
-      dt1d(f, W, d, v, z, arg);
-      for (let X = 0; X < W; X++) { const px = arg[X], r = colR[Y * W + px]; nearest[Y * W + X] = r < 0 ? -1 : r * W + px; }
+    // timing: a constant pace, with a short lift between strokes
+    const main = out.filter(b => !b.attach);
+    const lift = main.length > 1 ? 0.15 * main.reduce((a, b) => a + b.L, 0) / main.length : 0;
+    let total = 0;
+    for (const b of main) { b.at = total; total += b.L + lift; }
+    total = Math.max(total - lift, 1e-6);
+    for (const b of main) { b.t0 = b.at / total; b.t1 = (b.at + b.L) / total; }
+    for (const b of out) {
+      if (!b.attach) continue;
+      const p = b.attach.p, span = p.t1 - p.t0, at = p.t0 + (p.cum[b.attach.i] / p.L) * span, part = span * Math.min(0.5, b.L / p.L);
+      b.t0 = Math.max(p.t0, Math.min(at, p.t1 - part)); b.t1 = b.t0 + part;
     }
-    // the moment: where the pixel lies along its stroke, less the lead of a round pen
-    for (let Y = 0; Y < H; Y++) for (let X = 0; X < W; X++) {
-      const j = Y * W + X, src = nearest[j];
-      let si, seg;
-      if (own[j] >= 0) { si = own[j]; seg = ownI[j]; } else if (src >= 0) { si = srcS[src]; seg = srcI[src]; } else { tau[j] = 1; continue; }
-      const s = strokes[si], p = s.pts, cx = (X + 0.5) / F - 0.5, cy = (Y + 0.5) / F - 0.5;
-      let bestD = Infinity, arc = 0, r = 1;
-      for (let i = Math.max(0, seg - 6); i <= Math.min(p.length - 2, seg + 6); i++) {
-        const ax = p[i][0], ay = p[i][1], ex = p[i + 1][0] - ax, ey = p[i + 1][1] - ay, l2 = ex * ex + ey * ey;
-        const u = l2 > 0 ? Math.min(1, Math.max(0, ((cx - ax) * ex + (cy - ay) * ey) / l2)) : 0;
-        const qx = ax + ex * u - cx, qy = ay + ey * u - cy, dd = qx * qx + qy * qy;
-        if (dd < bestD) { bestD = dd; arc = s.cum[i] + (s.cum[i + 1] - s.cum[i]) * u; r = s.r[i] + (s.r[i + 1] - s.r[i]) * u; }
+    return out;
+  }
+
+  // Draw the part of a stroke's pen between arc lengths A and B (world units) with ctx: the band
+  // along its centre line, square at both ends; with `round`, a rounded lead ahead of B that is
+  // full in the middle of the stroke and gone at its ends (so the pen squares off into an end).
+  function drawBand(ctx, b, A, B, round, fat) {
+    const { pts, hw, hwL, hwR, cum } = b;
+    if (B - A <= 1e-6) return;
+    fat = fat || 0; // a little extra, so neighbouring pieces overlap instead of meeting in a faint seam
+    const at = arc => {
+      let lo = 0, hi = cum.length - 1;
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cum[m] <= arc) lo = m; else hi = m; }
+      const seg = cum[hi] - cum[lo], u = seg > 0 ? Math.min(1, Math.max(0, (arc - cum[lo]) / seg)) : 0;
+      const mix = arr => arr[lo] + (arr[hi] - arr[lo]) * u;
+      return { i: lo, p: [pts[lo][0] + (pts[hi][0] - pts[lo][0]) * u, pts[lo][1] + (pts[hi][1] - pts[lo][1]) * u], w: mix(hw), wl: mix(hwL), wr: mix(hwR) };
+    };
+    const a = at(A), z = at(B), P = [a.p], WL = [a.wl], WR = [a.wr];
+    const lead = round && !b.dot ? Math.min(1, Math.min(B, b.L - B) / (2 * z.w)) : 0;
+    for (let i = a.i + 1; i <= z.i; i++) { P.push(pts[i]); WL.push(hwL[i]); WR.push(hwR[i]); }
+    P.push(z.p); WL.push(z.wl); WR.push(z.wr);
+    // the ends pushed out by `fat` along the line
+    const push = (i, j) => { const dx = P[i][0] - P[j][0], dy = P[i][1] - P[j][1], l = Math.hypot(dx, dy); if (l > 1e-9 && fat) P[i] = [P[i][0] + dx / l * fat, P[i][1] + dy / l * fat]; };
+    if (P.length > 1) { push(0, 1); push(P.length - 1, P.length - 2); }
+    // One outline whose width follows the stroke smoothly: each segment adds the strip on either
+    // side of the centre line between its ends' offset points (shared with the next segment, so
+    // there are no gaps), as triangles all wound the same way, so one fill is their union. Where a
+    // tight inner curve folds a side back on itself, its triangles turn the other way round: those
+    // are left out (the neighbours cover that part), so nothing cancels out into a crack.
+    const n = P.length, N = [];
+    for (let i = 0; i < n; i++) {
+      const a0 = P[Math.max(0, i - 1)], a1 = P[Math.min(n - 1, i + 1)];
+      let dx = a1[0] - a0[0], dy = a1[1] - a0[1];
+      const l = Math.hypot(dx, dy) || 1;
+      N.push([-dy / l, dx / l]);
+    }
+    const Lp = P.map((q, i) => [q[0] + N[i][0] * (WL[i] + fat), q[1] + N[i][1] * (WL[i] + fat)]);
+    const Rp = P.map((q, i) => [q[0] - N[i][0] * (WR[i] + fat), q[1] - N[i][1] * (WR[i] + fat)]);
+    const path = new Path2D();
+    const tri = (a, b, c) => {
+      if ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) <= 0) return; // folded over: leave it out
+      path.moveTo(a[0], a[1]); path.lineTo(b[0], b[1]); path.lineTo(c[0], c[1]); path.closePath();
+    };
+    for (let i = 0; i < n - 1; i++) {
+      tri(P[i], P[i + 1], Lp[i + 1]); tri(P[i], Lp[i + 1], Lp[i]);
+      tri(P[i], Rp[i], Rp[i + 1]); tri(P[i], Rp[i + 1], P[i + 1]);
+    }
+    ctx.fill(path, 'nonzero');
+    if (lead > 0.01 && n > 1) { // the round front of the pen (whole, so it overlaps the band behind it)
+      const q = P[n - 2], dx = z.p[0] - q[0], dy = z.p[1] - q[1];
+      ctx.beginPath(); ctx.ellipse(z.p[0], z.p[1], Math.max(1e-6, lead * z.w), z.w + fat, Math.atan2(dy, dx), 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // what the pen has covered when the glyph's moment runs from lo to hi, drawn with ctx (world units)
+  // round: the pen's front is rounded in the middle of a stroke (else it is flat, like a broad nib)
+  function drawReveal(a, lo, hi, ctx, round) {
+    const fat = 0.75 / (ctx.getTransform().a || 1); // about a device pixel
+    for (const b of a.bands) {
+      if (hi <= b.t0 || lo >= b.t1) continue;
+      const span = Math.max(1e-9, b.t1 - b.t0);
+      const A = lo <= b.t0 ? 0 : Math.min(1, (lo - b.t0) / span) * b.L, B = hi >= b.t1 ? b.L : Math.max(0, (hi - b.t0) / span) * b.L;
+      if (B > A) drawBand(ctx, b, A, B, !!round && B < b.L, fat);
+    }
+    for (const r of a.rest) if (r.t <= hi && r.t >= lo) ctx.fill(r.path);
+  }
+
+  // A smooth outline of a set of pixels (marching squares over the set, softened), in world units:
+  // each cell's piece of the inside, all wound the same way, so one fill is the whole shape.
+  function contour(comp, w, h, x0, y0, k) {
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+    for (const j of comp) { const x = j % w, y = Math.floor(j / w); bx0 = Math.min(bx0, x); by0 = Math.min(by0, y); bx1 = Math.max(bx1, x); by1 = Math.max(by1, y); }
+    const gw = bx1 - bx0 + 5, gh = by1 - by0 + 5, ox = bx0 - 2, oy = by0 - 2, m = new Float32Array(gw * gh), f = new Float32Array(gw * gh);
+    for (const j of comp) m[(Math.floor(j / w) - oy) * gw + (j % w) - ox] = 1;
+    for (let y = 1; y < gh - 1; y++) for (let x = 1; x < gw - 1; x++) { // a light blur, so the outline is smooth
+      let s = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += m[(y + dy) * gw + x + dx] * (dx && dy ? 1 : dx || dy ? 2 : 4);
+      f[y * gw + x] = s / 16;
+    }
+    const path = new Path2D(), X = x => x0 + (x + ox + 0.5) / k, Y = y => y0 + (y + oy + 0.5) / k, iso = 0.3;
+    for (let y = 0; y < gh - 1; y++) for (let x = 0; x < gw - 1; x++) {
+      const c = [[x, y, f[y * gw + x]], [x + 1, y, f[y * gw + x + 1]], [x + 1, y + 1, f[(y + 1) * gw + x + 1]], [x, y + 1, f[(y + 1) * gw + x]]];
+      const ins = c.map(q => q[2] >= iso);
+      if (!ins.some(Boolean)) continue;
+      const pts = [];
+      for (let i = 0; i < 4; i++) {
+        const a = c[i], b = c[(i + 1) % 4];
+        if (ins[i]) pts.push([a[0], a[1]]);
+        if (ins[i] !== ins[(i + 1) % 4]) { const u = (iso - a[2]) / (b[2] - a[2]); pts.push([a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u]); }
       }
-      // round in the middle of a stroke, flat at its ends: square ends are swept, not popped in
-      const round = Math.min(1, Math.min(arc, s.len2 - arc) / (2 * r));
-      const lead = round * Math.sqrt(Math.max(0, r * r - bestD));
-      tau[j] = (s.at + Math.max(0, arc - lead)) / total;
+      path.moveTo(X(pts[0][0]), Y(pts[0][1]));
+      for (let i = 1; i < pts.length; i++) path.lineTo(X(pts[i][0]), Y(pts[i][1]));
+      path.closePath();
     }
-    return { tau, total, W, H };
+    return path;
+  }
+
+  // the bits of the glyph no pen covers, each shown when the pen passes nearest to it
+  function leftovers(bands, inside, w, h, x0, y0, k) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.setTransform(k, 0, 0, k, -x0 * k, -y0 * k);
+    g.fillStyle = g.strokeStyle = '#fff';
+    for (const b of bands) drawBand(g, b, 0, b.L, false);
+    const img = g.getImageData(0, 0, w, h).data, rest = new Uint8Array(w * h);
+    let any = false;
+    for (let j = 0; j < w * h; j++) if (inside[j] && img[j * 4 + 3] < 48) { rest[j] = 1; any = true; }
+    if (!any) return [];
+    // grow them a little so they overlap the bands around them
+    const grown = Uint8Array.from(rest);
+    for (let pass = 0; pass < 2; pass++) {
+      const prev = Uint8Array.from(grown);
+      for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const j = y * w + x; if (!prev[j] && (prev[j - 1] || prev[j + 1] || prev[j - w] || prev[j + w])) grown[j] = 1; }
+    }
+    const seen = new Uint8Array(w * h), out = [];
+    for (let j0 = 0; j0 < w * h; j0++) {
+      if (!grown[j0] || seen[j0]) continue;
+      const comp = [j0];
+      seen[j0] = 1;
+      for (let q = 0; q < comp.length; q++) {
+        const j = comp[q], x = j % w;
+        for (const n of [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1, j - w, j + w]) if (n >= 0 && n < w * h && grown[n] && !seen[n]) { seen[n] = 1; comp.push(n); }
+      }
+
+      // when: once the pen has made its last pass over any of it (so none of its edges ever shows
+      // against what is still to come), or, if no pen comes near, when the nearest one passes
+      let T = -1, nearT = 1, near = Infinity;
+      const reach = 3 / k;
+      for (const b of bands) for (let i = 0; i < b.pts.length; i += 2) {
+        let bd = Infinity;
+        for (const j of comp) {
+          const d = Math.hypot(b.pts[i][0] - (x0 + ((j % w) + 0.5) / k), b.pts[i][1] - (y0 + (Math.floor(j / w) + 0.5) / k)) - b.hw[i];
+          if (d < bd) bd = d;
+        }
+        const bt = b.t0 + (b.cum[i] / b.L) * (b.t1 - b.t0);
+        if (bd <= reach + 0.5 * b.hw[i]) T = Math.max(T, bt);
+        if (bd < near) { near = bd; nearT = bt; }
+      }
+      if (T < 0) T = nearT;
+      const path = contour(comp, w, h, x0, y0, k);
+      out.push({ path, t: T });
+    }
+    return out;
   }
 
   // d: the glyph's path (world units), box: its bounds, size: its font size
@@ -523,47 +698,17 @@
     const meanWidth = wn ? wsum / wn : 4;
     strokes = arrange(strokes, meanWidth);
     for (const s of strokes) extendEnds(s, dist, w, h);
-    const fl = area && strokes.length ? field(strokes, dist, w, h, FIELD) : { tau: new Float32Array(w * h * FIELD * FIELD), total: 1, W: w * FIELD, H: h * FIELD };
-    const toWorld = p => [x0 + (p[0] + 0.5) / k, y0 + (p[1] + 0.5) / k];
+    const bands = area ? brushes(strokes, dist, inside, w, h, x0, y0, k) : [];
+    const rest = bands.length ? leftovers(bands, inside, w, h, x0, y0, k) : [];
     const out = {
-      // tau[j]: the moment (0..1) the pen reaches pixel j of a w x h grid, k pixels per world unit; total: the pen's path in analysis pixels
-      w: fl.W, h: fl.H, x: x0, y: y0, k: k * FIELD, tau: fl.tau, total: fl.total,
-      strokes: strokes.map(s => ({ pts: s.pts.map(toWorld), closed: s.closed, dot: s.dot, t0: s.t0, t1: s.t1 })),
+      x: x0, y: y0, w: w / k, h: h / k, // the glyph's box (world units)
+      bands, rest, // the pen of each stroke, in order, and the bits no pen covers (see drawReveal)
+      strokes: bands.map(b => ({ pts: b.pts, closed: b.closed, dot: b.dot, t0: b.t0, t1: b.t1 })),
     };
     cache.set(key, out);
     if (cache.size > 400) cache.delete(cache.keys().next().value);
     return out;
   }
 
-  // A mask of the glyph's pixels whose moment lies in [lo, hi], soft over `soft` pixels of pen
-  // travel, drawn into the given canvas at `m` mask pixels per field pixel. The moments are
-  // interpolated before they are cut, so the front stays smooth however large the glyph is drawn.
-  function mask(a, lo, hi, soft, canvas, m) {
-    const { w, h, tau } = a;
-    m = Math.max(1, Math.min(4, m || 1));
-    const W = Math.max(1, Math.round(w * m)), H = Math.max(1, Math.round(h * m));
-    if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
-    const c2 = canvas.getContext('2d'), img = c2.createImageData(W, H), px = img.data;
-    const sw = Math.max(1, soft) / a.total, k = 255 / sw, cut = lo > 0;
-    const x0 = new Int32Array(W), fx = new Float32Array(W);
-    for (let X = 0; X < W; X++) { const f = Math.min(w - 1, Math.max(0, (X + 0.5) / m - 0.5)), i = Math.min(w - 2, Math.floor(f)); x0[X] = Math.max(0, i); fx[X] = w > 1 ? f - x0[X] : 0; }
-    for (let Y = 0; Y < H; Y++) {
-      const f = Math.min(h - 1, Math.max(0, (Y + 0.5) / m - 0.5)), j = Math.max(0, Math.min(h - 2, Math.floor(f))), fy = h > 1 ? f - j : 0;
-      const r0 = j * w, r1 = Math.min(h - 1, j + 1) * w;
-      for (let X = 0; X < W; X++) {
-        const i = x0[X], i1 = Math.min(w - 1, i + 1), u = fx[X];
-        const top = tau[r0 + i] + (tau[r0 + i1] - tau[r0 + i]) * u, bot = tau[r1 + i] + (tau[r1 + i1] - tau[r1 + i]) * u;
-        const T = top + (bot - top) * fy;
-        let v = (hi - T) * k + 127.5;
-        if (cut) v = Math.min(v, (T - lo) * k + 127.5);
-        const o = (Y * W + X) * 4;
-        px[o] = px[o + 1] = px[o + 2] = 255;
-        px[o + 3] = v < 0 ? 0 : v > 255 ? 255 : v;
-      }
-    }
-    c2.putImageData(img, 0, 0);
-    return canvas;
-  }
-
-  root.FontLabStrokes = { analyze, mask, STROKE_RES };
+  root.FontLabStrokes = { analyze, drawReveal, STROKE_RES };
 })(typeof window !== 'undefined' ? window : globalThis);

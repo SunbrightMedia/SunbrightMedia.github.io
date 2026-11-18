@@ -392,7 +392,6 @@
     if (!(b.w > 0 && b.h > 0)) return null;
     return ST.analyze(d, b, (S.sizes && S.sizes[g.si]) || S.size);
   }
-  const maskCanvases = new Map();
   // transitions playing: script id -> { id: transition, t0 } or { loop: true, t0 } (not saved)
   const runs = new Map();
   function playTransition(tr, owner) {
@@ -419,8 +418,8 @@
       let a = null;
       try { a = strokeAnalysis(gi); } catch (e) { console.error(e); }
       if (!a) return;
-      if (!maskCanvases.has(gi)) maskCanvases.set(gi, document.createElement('canvas'));
-      out[gi] = { cv: ST.mask(a, v.lo, v.hi, v.soft, maskCanvases.get(gi), px / a.k), x: a.x, y: a.y, w: a.w / a.k, h: a.h / a.k };
+      const size = (S.sizes && S.sizes[S.nodes.glyph[gi].si]) || S.size;
+      out[gi] = { draw: c => ST.drawReveal(a, v.lo, v.hi, c, v.round), x: a.x, y: a.y, w: a.w, h: a.h, blur: v.soft * 0.12 * size * px };
     });
     return out;
   }
