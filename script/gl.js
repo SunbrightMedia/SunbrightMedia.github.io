@@ -8,7 +8,7 @@
  *           Gaussian passes. Gives how "deep inside" the script each pixel is.
  *   base    the plain script colour on black
  *   then one pass per surface modifier, in stack order, each reading the previous result:
- *     heatmap   thermal shading, halo, halftone grain and grey ghosts (after the poster)
+ *     heatmap   thermal colours inside the script, and a heat glow around it
  *     kamisuki  "KamisukiNoise" (shadertoy.com/view/7clyWr): fill or erode the script
  */
 (function (root) {
@@ -72,8 +72,7 @@ float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int k = 0; k < 4; k++) { s += a
 void main() { gl_FragColor = vec4(fill * texture2D(mask, uv).a, 1.0); }`;
 
   const HEAT = COMMON + `uniform sampler2D blur, lut;
-uniform vec2 ghostOff[3];
-uniform float core, mottle, glow, grain, ghosts;
+uniform float core, mottle, glow;
 vec3 pal(float t) { return texture2D(lut, vec2(clamp(t, 0.0, 1.0) * 0.996 + 0.002, 0.5)).rgb; }
 void main() {
   vec4 m = texture2D(mask, uv), b = texture2D(blur, uv);
@@ -84,18 +83,8 @@ void main() {
   T += mottle * (fbm(w * (4.5 / size) + vec2(m.g * 41.0, time * 0.12)) - 0.5) * 0.9;
   T = clamp(T, 0.0, 1.0);
   vec3 col = pal(T);
-  vec2 hp = mat2(0.7071, 0.7071, -0.7071, 0.7071) * w / (size * 0.022);  // halftone screen
-  col *= mix(1.0, 0.8 + 0.32 * smoothstep(0.46, 0.2, length(fract(hp) - 0.5)), grain);
   vec3 halo = pal(clamp(tb * 0.85, 0.0, 1.0)) * smoothstep(0.0, 0.7, b.a) * glow * 0.8;
-  float gh = 0.0;
-  for (int k = 0; k < 3; k++) {
-    vec2 q = uv + ghostOff[k];
-    gh = max(gh, mix(texture2D(mask, q).a, texture2D(blur, q).a, 0.45) * (0.5 - 0.12 * float(k)));
-  }
-  vec3 back = texture2D(prev, uv).rgb * (1.0 - a) + vec3(0.42, 0.42, 0.47) * gh * ghosts + halo;
-  vec3 outc = mix(back, col, a);
-  outc += (hash(gl_FragCoord.xy + fract(time) * 91.0) - 0.5) * 0.08 * grain;
-  gl_FragColor = vec4(outc, 1.0);
+  gl_FragColor = vec4(mix(texture2D(prev, uv).rgb * (1.0 - a) + halo, col, a), 1.0);
 }`;
 
   // Kamisuki noise, as in the original (hash22 by Dave_Hoskins, smin by iq).
@@ -284,11 +273,7 @@ void main() {
             gl.bindTexture(gl.TEXTURE_2D, lutTex);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
           }
-          const off = [];
-          [[-0.42, 0.06], [0.5, -0.04], [-0.85, 0.12]].forEach(([gx, gy], k) => {
-            off.push((gx + 0.06 * Math.sin(o.time * 0.35 + k * 2.1)) * o.size * s / W, -gy * o.size * s / H);
-          });
-          Object.assign(u, { blur: blurred(r.spread * o.size * s), lut: lutTex, ghostOff: new Float32Array(off), core: r.core, mottle: r.mottle, glow: r.glow, grain: r.grain, ghosts: r.ghosts });
+          Object.assign(u, { blur: blurred(r.spread * o.size * s), lut: lutTex, core: r.core, mottle: r.mottle, glow: r.glow });
         } else if (r.type === 'kamisuki') {
           Object.assign(u, {
             blur: blurred(0.05 * o.size * s), mode: r.mode === 'erode' ? 1 : 0, kscale: r.scale, waves: r.waves, rotation: r.rotation,

@@ -145,16 +145,14 @@
       surface: true,
       levels: ['glyph', 'word', 'line', 'text'],
       params: {
-        temp: '0.68 + 0.26*noise(i*0.9 + 3, t*0.2)', palette: 'thermal', core: '0.6', spread: '0.12', mottle: '0.35',
-        glow: '0.6', grain: '0.4', ghosts: '0.35', hud: 'word', bars: 'on',
+        temp: '0.68 + 0.26*noise(i*0.9 + 3, t*0.2)', palette: 'thermal', core: '0.6', spread: '0.12', mottle: '0.35', glow: '0.6',
       },
-      choice: { palette: ['thermal', 'iron', 'arctic', 'white hot'], hud: ['off', 'glyph', 'word', 'line'], bars: ['on', 'off'] },
-      ui: { core: [0, 1, 0.01], spread: [0, 0.5, 0.01], mottle: [0, 1, 0.01], glow: [0, 1, 0.01], grain: [0, 1, 0.01], ghosts: [0, 1, 0.01] },
+      choice: { palette: ['thermal', 'iron', 'arctic', 'white hot'] },
+      ui: { core: [0, 1, 0.01], spread: [0, 0.5, 0.01], mottle: [0, 1, 0.01], glow: [0, 1, 0.01] },
       docs: {
         temp: 'temperature of each element, 0 = coldest colour, 1 = hottest (an expression per element)',
         palette: 'colour scale', core: 'how much hotter the thick middle of strokes runs', spread: 'how far heat diffuses and glows, relative to the font size',
-        mottle: 'drifting blotches of warmer and cooler heat', glow: 'heat halo around the script', grain: 'halftone and sensor grain',
-        ghosts: 'grey silhouettes of the script drifting behind it', hud: 'scan boxes with labels and temperature readouts', bars: 'temperature scale bars at the sides',
+        mottle: 'drifting blotches of warmer and cooler heat', glow: 'heat halo around the script',
       },
       apply: applyHeatmap,
     },
@@ -166,12 +164,13 @@
       global: true,
       subKey: 'mode',
       levels: ['text'],
-      params: { mode: 'fill', scale: '6', waves: '2', rotation: '1.6', radius: '0.5', gradient: '0', blend: '0.125', sharp: '1', level: '0.5', amount: '1' },
+      params: { mode: 'fill', scale: '6', waves: '(sin(t*0.5)*0.5 + 0.5)*3 + 1', rotation: 'PI*(sin(t)*0.5 + 0.5)', radius: '0', gradient: '0', blend: '0.125', sharp: '1', level: '0.5', amount: '1' },
       choice: { mode: ['fill', 'erode'] },
       ui: { scale: [1, 40, 0.1], waves: [0, 8, 0.01], rotation: [0, 6.2832, 0.01], radius: [-1, 1.5, 0.01], gradient: [-1, 1, 0.01], blend: [0, 0.5, 0.005], sharp: [0, 1, 0.01], level: [0, 1.5, 0.01], amount: [0, 2, 0.01] },
       docs: {
         mode: 'fill: the pattern inside the script; erode: the pattern eats into the script from its edges',
-        scale: 'kernels per font size', waves: 'waves per kernel (n)', rotation: 'maximum kernel rotation, radians (a)',
+        scale: 'kernels per font size', waves: 'waves per kernel (n); animates over time by default, as in the shader demo',
+        rotation: 'maximum kernel rotation, radians (a); animates over time by default',
         radius: 'kernel radius (r)', gradient: 'radius change from the left to the right of the script (the demo uses 0.45)',
         blend: 'smooth-minimum blending (k)', sharp: '0 = raw noise, 1 = thresholded', level: 'threshold', amount: 'strength',
       },
@@ -460,9 +459,8 @@
     const p = m.params || {}, def = MODIFIERS.heatmap;
     const pick = key => (def.choice[key].includes(p[key]) ? p[key] : def.params[key]);
     S.surface.push({
-      type: 'heatmap', id: m.id, temps, palette: pick('palette'), hud: pick('hud'), bars: pick('bars'),
-      core: k('core', 0.55), spread: Math.min(0.5, Math.max(0, c.num('spread', 0.12))), mottle: k('mottle', 0.35),
-      glow: k('glow', 0.55), grain: k('grain', 0.4), ghosts: k('ghosts', 0.35),
+      type: 'heatmap', id: m.id, temps, palette: pick('palette'),
+      core: k('core', 0.6), spread: Math.min(0.5, Math.max(0, c.num('spread', 0.12))), mottle: k('mottle', 0.35), glow: k('glow', 0.6),
     });
   }
 

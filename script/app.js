@@ -27,9 +27,9 @@
     'Warp: star': () => [M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', falloff: '25' })],
     'Warp: sweeping circle': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', falloff: '45' })],
     'Warp: star rounding off': () => [M('warp', 'space', { shape: 'star', x: '380', y: '40', size: '90', rot: 't*20', intensity: '20 + tri(t*0.15)*60', falloff: '10' })],
-    'Thermal scan': () => [M('heatmap', 'glyph', {})],
-    'Kamisuki noise (shader demo)': () => [M('kamisuki', 'text', { scale: '5', waves: '(sin(t*.5)*.5+.5)*3+1', rotation: 'PI*(sin(t)*.5+.5)', radius: '0', gradient: '0.45' })],
-    'Kamisuki erode': () => [M('kamisuki', 'text', { mode: 'erode', scale: '8', waves: '2', rotation: '1.2', radius: '0.45', blend: '0.1', amount: '0.9' })],
+    'Thermal heatmap': () => [M('heatmap', 'glyph', {})],
+    'Kamisuki noise (shader demo)': () => [M('kamisuki', 'text', { scale: '5', radius: '0', gradient: '0.45' })],
+    'Kamisuki erode': () => [M('kamisuki', 'text', { mode: 'erode', scale: '8', radius: '0.45', blend: '0.1', amount: '0.9' })],
     'Wave': () => [M('transform', 'glyph', { ty: 'sin(t*3 - i*0.6) * size*0.12' })],
     'Typewriter': () => [M('visible', 'glyph', { show: 'fract(t*0.15)*n*1.6 - i' })],
     'Wobbly outlines': () => [
@@ -73,6 +73,11 @@
     p.mods = (p.mods || []).filter(m => FL.MODIFIERS[m.type]).map(m => {
       m = Object.assign({ id: uid(), on: true, params: {} }, m);
       const def = FL.MODIFIERS[m.type];
+      if (m.type === 'kamisuki') { // earlier static defaults now animate on their own
+        if (['2'].includes(String(m.params.waves).trim())) delete m.params.waves;
+        if (['1.6', '1.2'].includes(String(m.params.rotation).trim())) delete m.params.rotation;
+        if (String(m.params.radius).trim() === '0.5' && m.params.mode !== 'erode') delete m.params.radius;
+      }
       if (def.spatial || def.surface) { // keep only settings the modifier still has
         const p = Object.assign({}, def.params);
         for (const k in p) if (m.params[k] != null) p[k] = m.params[k];
@@ -203,12 +208,6 @@
     const b = FL.bounds(FL.evaluate(base, [], 0), false);
     const pad = Math.max(b.w, b.h, base.size) * 0.15;
     view = { x: b.x - pad, y: b.y - pad, w: Math.max(b.w + pad * 2, 1), h: Math.max(b.h + pad * 2, 1) };
-    // a heatmap's scale bars, header and labels sit at the screen edges: keep the script clear of them
-    if (project.mods.some(m => m.type === 'heatmap' && m.on !== false && (m.params.bars || 'on') === 'on')) {
-      const e = $('stageWrap'), W = e.clientWidth || 1, H = e.clientHeight || 1, mx = Math.min(72, W * 0.12), my = Math.min(84, H * 0.15);
-      const k = Math.min((W - 2 * mx) / view.w, (H - 2 * my) / view.h);
-      if (k > 0) { const nw = W / k, nh = H / k; view = { x: view.x + view.w / 2 - nw / 2, y: view.y + view.h / 2 - nh / 2, w: nw, h: nh }; }
-    }
     applyView();
   }
   function applyView() {
@@ -233,7 +232,6 @@
     const big = [view.x - view.w * 50, view.y - view.h * 50, view.w * 101, view.h * 101];
     $('scene').innerHTML = FL.frameMarkup(S, { fill: project.fill, region: big, id: 'live' });
     renderSurface();
-    renderHUD();
     renderOverlay();
     renderGizmos();
     renderMask();
@@ -241,7 +239,6 @@
 
   // ---------- surface modifiers (WebGL) ----------
   let GLR = null, glFailed = false;
-  const heatFx = () => (S && S.surface ? S.surface.find(f => f.type === 'heatmap') : null);
   // Draws the frame through gl.js at W x H device pixels; null when no surface modifier is active.
   function surfaceFrame(W, H, s, ox, oy) {
     if (!S || !S.surface || !S.surface.length) return null;
@@ -260,87 +257,6 @@
     if (cv && !cv.isConnected) { cv.id = 'gl'; $('svg').after(cv); }
     if (GLR) GLR.canvas.style.display = cv ? 'block' : 'none';
     $('scene').style.visibility = cv ? 'hidden' : '';
-  }
-
-  // Thermal-scan HUD after the reference poster: a box per element with corner dots and a faint
-  // grid, a name label with a status dot, a temperature readout (red from 38 °C), green brackets
-  // locked on the hottest glyph, a crosshair, and side scale bars. The scan boxes scale with the
-  // script (never smaller than legible); the bars and header are fixed to the screen.
-  const HUD_GREEN = '#3dff3d', HUD_RED = '#ff2e2e', MONO = 'font-family="ui-monospace, Consolas, monospace"';
-  const xesc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-  const degC = T => 22 + T * 18;
-  function hudMarkup(m, hm) {
-    const k = Math.max(S.size / 160, 0.62 / m.s), n = v => +v.toFixed(2);
-    let h = `<defs><pattern id="hudPlus" patternUnits="userSpaceOnUse" width="${n(26 * k)}" height="${n(26 * k)}">`
-      + `<path d="M${n(12 * k)} ${n(13 * k)}h${n(2 * k)}M${n(13 * k)} ${n(12 * k)}v${n(2 * k)}" stroke="#fff" stroke-opacity="0.25" stroke-width="${n(0.9 * k)}"/></pattern></defs>`;
-    if (hm.hud !== 'off') {
-      const label = nd => nd.level === 'glyph' ? (nd.ch ? String.fromCodePoint(nd.ch) : nd.name || '?') : (nd.text || '');
-      const boxes = [];
-      for (const nd of S.nodes[hm.hud] || []) {
-        const b = FL.bbox(S, nd.cs.filter(ci => !S.hidden[ci]));
-        if (!b.w || !b.h) continue;
-        let sum = 0, cnt = 0, hot = -1, hotT = -1;
-        for (const g of nd.gl) { const T = hm.temps[g]; if (!isNaN(T)) { sum += T; cnt++; if (T > hotT) { hotT = T; hot = g; } } }
-        const px = 10 * k + b.w * 0.04, py = 12 * k;
-        boxes.push({ nd, b, T: cnt ? sum / cnt : 0.5, hot, x: b.x - px, y: b.y - py, w: b.w + 2 * px, h: b.h + 2 * py, text: label(nd).toUpperCase() });
-      }
-      boxes.forEach(B => {
-        const C = degC(B.T), col = C >= 38 ? HUD_RED : HUD_GREEN;
-        h += `<rect x="${n(B.x)}" y="${n(B.y)}" width="${n(B.w)}" height="${n(B.h)}" fill="url(#hudPlus)" stroke="#fff" stroke-opacity="0.55" stroke-width="${n(k)}"/>`;
-        for (const [cx, cy] of [[B.x, B.y], [B.x + B.w, B.y], [B.x, B.y + B.h], [B.x + B.w, B.y + B.h]]) h += `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(2.6 * k)}" fill="#fff"/>`;
-        if (B.hot >= 0) { // brackets locked on the hottest glyph
-          const g = FL.bbox(S, S.nodes.glyph[B.hot].cs.filter(ci => !S.hidden[ci]));
-          if (g.w) {
-            const e = 5 * k, x0 = g.x - e, y0 = g.y - e, x1 = g.x + g.w + e, y1 = g.y + g.h + e, a = Math.min(g.w, g.h) * 0.22 + 4 * k;
-            const d = `M${n(x0)} ${n(y0 + a)}V${n(y0)}H${n(x0 + a)}M${n(x1 - a)} ${n(y0)}H${n(x1)}V${n(y0 + a)}M${n(x0)} ${n(y1 - a)}V${n(y1)}H${n(x0 + a)}M${n(x1 - a)} ${n(y1)}H${n(x1)}V${n(y1 - a)}`;
-            h += `<path d="${d}" fill="none" stroke="${HUD_GREEN}" stroke-width="${n(1.8 * k)}"/>`;
-          }
-        }
-        const cx = B.b.cx, cy = B.b.cy;
-        h += `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(6 * k)}" fill="none" stroke="#fff" stroke-width="${n(1.3 * k)}"/>`
-          + `<path d="M${n(cx - 12 * k)} ${n(cy)}h${n(8 * k)}M${n(cx + 4 * k)} ${n(cy)}h${n(8 * k)}M${n(cx)} ${n(cy - 12 * k)}v${n(8 * k)}M${n(cx)} ${n(cy + 4 * k)}v${n(8 * k)}" stroke="#fff" stroke-width="${n(1.3 * k)}"/>`;
-        const lh = 21 * k, lw = Math.max(B.w, (B.text.length * 7.9 + 36) * k), lx = B.x, ly = B.y - lh - 8 * k;
-        B.lx = lx; B.ly = ly + lh / 2; B.lw = lw;
-        h += `<rect x="${n(lx)}" y="${n(ly)}" width="${n(lw)}" height="${n(lh)}" fill="#e8e8e8"/>`
-          + `<text x="${n(lx + 6 * k)}" y="${n(ly + lh * 0.72)}" font-size="${n(13 * k)}" fill="#151515" ${MONO}>${xesc(B.text)}</text>`
-          + `<circle cx="${n(lx + lw - 11 * k)}" cy="${n(ly + lh / 2)}" r="${n(5 * k)}" fill="${col}"/>`
-          + `<text x="${n(B.x + B.w - 3 * k)}" y="${n(B.y + 15 * k)}" text-anchor="end" font-size="${n(12 * k)}" fill="${col}" ${MONO}>▲${C.toFixed(2)}°C</text>`
-          + `<path d="M${n(cx - 6 * k)} ${n(B.y + B.h + 21 * k)}h${n(12 * k)}l${n(-6 * k)} ${n(-10 * k)}z" fill="#fff"/>`;
-      });
-      // dotted connectors between neighbouring labels on the same line
-      for (let i = 1; i < boxes.length; i++) {
-        const a = boxes[i - 1], b = boxes[i];
-        if (a.nd.li !== b.nd.li) continue;
-        const x1 = a.lx + a.lw, x2 = b.lx, xm = (x1 + x2) / 2;
-        h += `<path d="M${n(x1)} ${n(a.ly)}H${n(xm)}V${n(b.ly)}H${n(x2)}" fill="none" stroke="${HUD_GREEN}" stroke-width="${n(1.2 * k)}" stroke-dasharray="${n(2 * k)} ${n(3 * k)}"/>`;
-      }
-    }
-    if (hm.bars === 'on') { // scale bars and header, fixed to the screen
-      const k = 1 / m.s, wx = sx => (sx - m.ox) / m.s, wy = sy => (sy - m.oy) / m.s;
-      const top = 70, bot = m.H - 50, stops = (FontLabGL.PALETTES[hm.palette] || FontLabGL.PALETTES.thermal);
-      const grad = (id, hotTop) => `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="${n(wy(hotTop ? bot : top))}" x2="0" y2="${n(wy(hotTop ? top : bot))}">`
-        + stops.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('') + '</linearGradient>';
-      h += `<defs>${grad('hudBarL', true)}${grad('hudBarR', false)}</defs>`;
-      const bar = (x0, id, hotTop, tickSide) => {
-        let s = `<rect x="${n(wx(x0))}" y="${n(wy(top))}" width="${n(10 * k)}" height="${n((bot - top) * k)}" fill="url(#${id})"/>`, d = '';
-        for (let i = 0; i <= 72; i++) {
-          const y = hotTop ? bot - (bot - top) * i / 72 : top + (bot - top) * i / 72, major = i % 8 === 0, len = major ? 9 : 4;
-          const xa = tickSide < 0 ? x0 - 3 : x0 + 13;
-          d += `M${n(wx(xa))} ${n(wy(y))}h${n(tickSide * len * k)}`;
-          if (major) s += `<text x="${n(wx(tickSide < 0 ? x0 + 16 : x0 - 6))}" y="${n(wy(y) + 3.5 * k)}" text-anchor="${tickSide < 0 ? 'start' : 'end'}" font-size="${n(10 * k)}" fill="#fff" ${MONO}>${22 + i / 4}</text>`;
-        }
-        return s + `<path d="${d}" stroke="#fff" stroke-opacity="0.7" stroke-width="${n(k)}"/>`;
-      };
-      h += bar(20, 'hudBarL', true, -1) + bar(m.W - 30, 'hudBarR', false, 1);
-      h += `<text x="${n(wx(m.W / 2))}" y="${n(wy(34))}" text-anchor="middle" font-size="${n(15 * k)}" letter-spacing="${n(3 * k)}" fill="#fff" ${MONO}>THERMAL SCAN · CAM 1 · °C</text>`;
-      for (const [sx, sy] of [[12, 30], [m.W - 12, 30], [12, m.H - 20], [m.W - 12, m.H - 20]])
-        h += `<path d="M${n(wx(sx - 7))} ${n(wy(sy))}h${n(14 * k)}M${n(wx(sx))} ${n(wy(sy - 7))}v${n(14 * k)}" stroke="#fff" stroke-width="${n(k)}"/>`;
-    }
-    return h;
-  }
-  function renderHUD() {
-    const hm = heatFx(), g = $('hudG');
-    g.innerHTML = hm && (hm.hud !== 'off' || hm.bars === 'on') ? hudMarkup(metrics(), hm) : '';
   }
 
   function renderOverlay() {
@@ -680,7 +596,7 @@
   };
   async function exportPNG() {
     if (!S) return;
-    const m = metrics(), dpr = 2, W = Math.round(m.W * dpr), H = Math.round(m.H * dpr), hm = heatFx();
+    const m = metrics(), dpr = 2, W = Math.round(m.W * dpr), H = Math.round(m.H * dpr);
     const vb = [-m.ox / m.s, -m.oy / m.s, m.W / m.s, m.H / m.s];
     const cv = el('canvas', { width: W, height: H }), ctx = cv.getContext('2d');
     ctx.fillStyle = '#000';
@@ -689,22 +605,20 @@
       const glc = surfaceFrame(W, H, m.s * dpr, m.ox * dpr, m.oy * dpr);
       if (glc) ctx.drawImage(glc, 0, 0, W, H);
       else ctx.drawImage(await svgImage(FL.toSVG(S, { fill: project.fill, background: null, viewBox: vb, width: W, height: H })), 0, 0, W, H);
-      if (hm) ctx.drawImage(await svgImage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}" width="${W}" height="${H}">${hudMarkup(m, hm)}</svg>`), 0, 0, W, H);
     } catch (e) { toast('PNG export failed: ' + e.message, true); return; }
     dirty = true; // the stage's GL canvas was used at export size; draw it again
     cv.toBlob(b => download('fontlab-frame.png', b), 'image/png');
   }
   function exportSVG() {
     if (!S) return;
-    const hm = heatFx();
     if (!S.surface.length) { download('fontlab-frame.svg', FL.toSVG(S, { fill: project.fill, background: '#000' }), 'image/svg+xml'); return; }
-    // per-pixel shading has no vector form: embed it as an image, with the HUD as vectors on top
+    // per-pixel shading has no vector form: embed it as an image
     const m = metrics(), dpr = 2, W = Math.round(m.W * dpr), H = Math.round(m.H * dpr), vb = [-m.ox / m.s, -m.oy / m.s, m.W / m.s, m.H / m.s];
     const glc = surfaceFrame(W, H, m.s * dpr, m.ox * dpr, m.oy * dpr);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}" width="${Math.round(m.W)}" height="${Math.round(m.H)}">`
       + `<rect x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" fill="#000"/>`
       + (glc ? `<image href="${glc.toDataURL('image/png')}" x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" preserveAspectRatio="none"/>` : '')
-      + (hm ? hudMarkup(m, hm) : '') + '</svg>\n';
+      + '</svg>\n';
     dirty = true;
     download('fontlab-frame.svg', svg, 'image/svg+xml');
   }
