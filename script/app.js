@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const FL = window.FontLab, Shapes = FL.Shapes, TR = window.FontLabTransitions, ST = window.FontLabStrokes, SCH = window.FontLabSchemes;
+  const FL = window.FontLab, Shapes = FL.Shapes, TR = window.FontLabTransitions, SCH = window.FontLabSchemes;
   const $ = id => document.getElementById(id);
   const clone = o => JSON.parse(JSON.stringify(o));
   const uid = () => Math.random().toString(36).slice(2, 9);
@@ -67,12 +67,7 @@
 
   // Transitions are latched to a script.
   const T = (type, params) => ({ id: uid(), type, on: true, params: Object.assign({}, TR.TRANSITIONS[type].params, params) });
-  const TR_PRESETS = {
-    'Stroke in': () => T('stroke', { role: 'intro' }),
-    'Stroke out': () => T('stroke', { role: 'outro' }),
-    'Stroke in, letter by letter': () => T('stroke', { role: 'intro', duration: '4', stagger: '1', curve: 'sine in-out' }),
-    'Stroke in, all at once': () => T('stroke', { role: 'intro', duration: '2', stagger: '0', curve: 'cubic out' }),
-  };
+  const TR_PRESETS = {};
 
   const DEFAULT_FONT = 'url:../fonts/segoeuib.ttf';
   const newScript = o => Object.assign({
@@ -362,8 +357,7 @@
     return out;
   }
   const hasEffects = () => fxOut.some(o => o.records.length);
-  let reveal = null; // what transitions show of each glyph this frame (null: everything)
-  const needsGL = () => hasEffects() || !!reveal;
+  const needsGL = () => hasEffects();
 
   // ---------- schemes ----------
   const gradientLUT = name => SCH.lut(name, project.schemes.gradientMaps[name] ? project.schemes.gradientMaps[name].params : {}, t);
@@ -385,36 +379,6 @@
   }
 
   // ---------- transitions ----------
-  function glyphBox(gi) { return FL.bbox(S, S.nodes.glyph[gi].cs.filter(ci => !S.hidden[ci] && !S.contours[ci].attach)); }
-  function strokeAnalysis(gi) {
-    const d = glyphD[gi];
-    if (!d) return null;
-    const g = S.nodes.glyph[gi], b = glyphBox(gi);
-    if (!(b.w > 0 && b.h > 0)) return null;
-    return ST.analyze(d, b, (S.sizes && S.sizes[g.si]) || S.size);
-  }
-  // Work out the strokes of every glyph a transition may draw in idle moments, ahead of time, so the
-  // first frame of a transition does not wait for them.
-  let warmQueued = false;
-  const warmed = new Set();
-  function warmStrokes() {
-    if (warmQueued || !S) return;
-    const want = new Set(project.scripts.map((sc, si) => (sc.transitions.some(tr => tr.on !== false) ? si : -1)).filter(si => si >= 0));
-    if (!want.size) return;
-    const todo = S.nodes.glyph.map((g, gi) => (want.has(g.si) && glyphD[gi] && !warmed.has(glyphD[gi]) ? gi : -1)).filter(gi => gi >= 0);
-    if (!todo.length) return;
-    warmQueued = true;
-    const idle = window.requestIdleCallback || (fn => setTimeout(() => fn({ timeRemaining: () => 12 }), 30));
-    const step = deadline => {
-      while (todo.length && deadline.timeRemaining() > 6) {
-        const gi = todo.shift(), d = glyphD[gi];
-        try { strokeAnalysis(gi); } catch (e) { /* drawn whole */ }
-        if (d) { warmed.add(d); if (warmed.size > 2000) warmed.delete(warmed.values().next().value); }
-      }
-      if (todo.length) idle(step); else warmQueued = false;
-    };
-    idle(step);
-  }
   // transitions playing: script id -> { id: transition, t0 } or { loop: true, t0 } (not saved)
   const runs = new Map();
   function playTransition(tr, owner) {
@@ -429,31 +393,11 @@
     dirty = true;
     renderInspector();
   }
-  function transitionReveal() {
-    if (!project.scripts.some(sc => sc.transitions.some(tr => tr.on !== false))) return null;
-    const lists = project.scripts.map(() => []);
-    S.nodes.glyph.forEach((g, gi) => { if (glyphD[gi] && lists[g.si]) lists[g.si].push(gi); });
-    const r = TR.evaluate(project.scripts, si => lists[si], t, runs);
-    if (!r) return null;
-    const out = [], px = metrics().s * Math.min(window.devicePixelRatio || 1, 2); // device pixels per world unit
-    r.forEach((v, gi) => {
-      if (v === 0) { out[gi] = 0; return; }
-      let a = null;
-      try { a = strokeAnalysis(gi); } catch (e) { console.error(e); }
-      if (!a) return;
-      const size = (S.sizes && S.sizes[S.nodes.glyph[gi].si]) || S.size;
-      out[gi] = { draw: c => ST.drawReveal(a, v.lo, v.hi, c, v.round), x: a.x, y: a.y, w: a.w, h: a.h, blur: v.soft * 0.12 * size * px };
-    });
-    return out;
-  }
-
   // ---------- rendering ----------
   function render() {
     glyphD = S.nodes.glyph.map((g, gi) => FL.glyphPathData(S, gi));
     fills = S.nodes.glyph.map(g => (project.scripts[g.si] || {}).fill || '#ffffff');
     fxOut = FL.evaluateEffects(S, owners(), S.t);
-    reveal = transitionReveal();
-    warmStrokes();
     const big = [view.x - view.w * 50, view.y - view.h * 50, view.w * 101, view.h * 101];
     $('scene').innerHTML = needsGL() ? '' : FL.frameMarkup(S, { fill: '#ffffff', fills, region: big, id: 'live' });
     renderEffects();
@@ -474,7 +418,7 @@
     }
     if (!GLR) return null;
     const holes = S.holes.length ? S.holes.map(Shapes.polyD).join('') : null;
-    try { return GLR.render({ W, H, s, ox, oy, glyphD, style: S.style, fills, holes, reveal, gradient: gradientLUT, units: units(), time: S.t }); }
+    try { return GLR.render({ W, H, s, ox, oy, glyphD, style: S.style, fills, holes, gradient: gradientLUT, units: units(), time: S.t }); }
     catch (e) { toast('Drawing failed: ' + e.message, true); return null; }
   }
   function renderEffects() {
@@ -491,24 +435,7 @@
     const g = $('overlayG'), lvl = prefs.overlay;
     let h = '';
     const k = 1 / metrics().s;
-    if (lvl === 'strokes') { // how each glyph is probably drawn: its strokes in order, from the dot, numbered
-      let n = 0;
-      for (let gi = 0; gi < S.nodes.glyph.length && n < 400; gi++) {
-        let a = null;
-        try { a = strokeAnalysis(gi); } catch (e) { console.error(e); }
-        if (!a) continue;
-        a.strokes.forEach((st, j) => {
-          n++;
-          const col = `hsl(${(j * 67 + 190) % 360},90%,62%)`, p = st.pts;
-          const d = 'M' + p.map(q => q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join('L');
-          h += `<path d="${d}" fill="none" stroke="${col}" stroke-width="${(1.6 * k).toFixed(2)}" stroke-linejoin="round" stroke-linecap="round"/>`;
-          const e = p[p.length - 1], f = p[Math.max(0, p.length - 4)], ang = Math.atan2(e[1] - f[1], e[0] - f[0]), L = 7 * k;
-          if (!st.dot) h += `<path d="M${(e[0] - Math.cos(ang - 0.45) * L).toFixed(1)} ${(e[1] - Math.sin(ang - 0.45) * L).toFixed(1)}L${e[0].toFixed(1)} ${e[1].toFixed(1)}L${(e[0] - Math.cos(ang + 0.45) * L).toFixed(1)} ${(e[1] - Math.sin(ang + 0.45) * L).toFixed(1)}" fill="none" stroke="${col}" stroke-width="${(1.6 * k).toFixed(2)}"/>`;
-          h += `<circle cx="${p[0][0].toFixed(1)}" cy="${p[0][1].toFixed(1)}" r="${(3 * k).toFixed(2)}" fill="${col}"/>`
-            + `<text x="${(p[0][0] + 4 * k).toFixed(1)}" y="${(p[0][1] - 4 * k).toFixed(1)}" font-size="${(k * 11).toFixed(1)}" fill="${col}" font-family="monospace">${j + 1}</text>`;
-        });
-      }
-    } else if (lvl === 'point') {
+    if (lvl === 'point') {
       let c = 0;
       outer: for (let ci = 0; ci < S.contours.length; ci++) {
         if (S.hidden[ci] || S.contours[ci].attach) continue;
@@ -1037,8 +964,11 @@
       const def = TR.TRANSITIONS[k];
       for (const role of def.roles) tm.append(el('button', { onclick: () => addTransition(T(k, { role })) }, `${def.label} (${role})`));
     }
-    tm.append(el('hr'), el('div', { class: 'mh' }, 'Preset'));
-    for (const name in TR_PRESETS) tm.append(el('button', { onclick: () => addTransition(TR_PRESETS[name]()) }, name));
+    if (!Object.keys(TR.TRANSITIONS).length) tm.append(el('div', { class: 'mh' }, 'none yet'));
+    if (Object.keys(TR_PRESETS).length) {
+      tm.append(el('hr'), el('div', { class: 'mh' }, 'Preset'));
+      for (const name in TR_PRESETS) tm.append(el('button', { onclick: () => addTransition(TR_PRESETS[name]()) }, name));
+    }
   }
 
   // ---------- files ----------
@@ -1102,7 +1032,6 @@
     $('fit').onclick = fit;
     const pref = (id, key, prop) => { const e = $(id); e[prop] = prefs[key]; e.onchange = e.oninput = () => { prefs[key] = prop === 'checked' ? e.checked : e.value; save(); dirty = true; updateStats(); }; };
     for (const l of FL.LEVELS) $('overlay').append(new Option(l, l));
-    $('overlay').append(new Option('strokes (how letters are drawn)', 'strokes'));
     pref('gizmos', 'gizmos', 'checked'); pref('maskView', 'mask', 'checked'); pref('statsOn', 'stats', 'checked');
     pref('overlay', 'overlay', 'value'); pref('speed', 'speed', 'value');
 
@@ -1242,5 +1171,5 @@
   requestAnimationFrame(frame);
 
   // for console tinkering
-  window.fontlab = { get project() { return project; }, get frame() { return S; }, get effects() { return fxOut; }, select: k => select(k), strokes: gi => strokeAnalysis(gi), glyphD: gi => glyphD[gi] };
+  window.fontlab = { get project() { return project; }, get frame() { return S; }, get effects() { return fxOut; }, select: k => select(k) };
 })();

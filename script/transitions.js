@@ -8,8 +8,7 @@
  * script can also loop its intro and outro for previewing. Its progress runs through an
  * animation curve.
  *
- *   stroke  (intro, outro) the letters are drawn in the way they are probably written, stroke
- *           by stroke (see strokes.js); the outro undraws them
+ * There are none at the moment.
  */
 (function (root) {
   'use strict';
@@ -88,31 +87,8 @@
   }
 
   // ---------- transitions ----------
-  const TRANSITIONS = {
-    stroke: {
-      label: 'Stroke',
-      roles: ['intro', 'outro'],
-      params: { role: 'intro', duration: '3', curve: 'ease in-out', bezier: '0.42, 0, 0.58, 1', stagger: '0.2', order: 'reading', erase: 'reverse', pen: 'flat', softness: '0' },
-      choice: { role: ['intro', 'outro'], order: ['reading', 'reverse', 'centre out', 'random'], erase: ['reverse', 'forward'], pen: ['flat', 'round'] },
-      curve: ['curve'],
-      text: ['bezier'],
-      only: { erase: { role: 'outro' }, bezier: { curve: 'custom' } },
-      ends: { stagger: ['all at once', 'one by one'] },
-      dims: { order: p => (num(p.stagger, 0.2) > 0 ? '' : 'stagger is 0: every letter goes at once, so the order makes no difference') },
-      ui: { duration: [0.1, 10, 0.05], stagger: [0, 1, 0.01], softness: [0, 1, 0.01] },
-      docs: {
-        role: 'intro: the text is drawn in; outro: it is undrawn',
-        duration: 'how long it takes, in seconds, for the whole script',
-        curve: 'the pace of each letter: how its pen speeds up and slows down',
-        bezier: 'cubic-bezier x1, y1, x2, y2, as in CSS',
-        stagger: 'how the letters follow each other: 0 = all at once, 1 = each one starts when the one before has finished',
-        order: 'which letters go first',
-        erase: 'reverse: the pen runs back over its strokes, last first; forward: the strokes vanish in the order they were drawn',
-        pen: 'flat: the front of the pen is a straight edge across the stroke, like a broad nib; round: it is rounded in the middle of a stroke and squares off at the ends',
-        softness: 'how soft the edge of what is drawn is',
-      },
-    },
-  };
+  // (none yet: the stroke-by-stroke intro and outro was taken out; see the git history)
+  const TRANSITIONS = {};
 
   const num = (v, d) => { const n = parseFloat(v); return isFinite(n) ? n : d; };
   const hash = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -126,7 +102,7 @@
   }
 
   // What each glyph shows at a time: undefined (all of it), 0 (nothing), or { lo, hi, soft }: the
-  // part the pen covers between moments lo and hi (0..1, see strokes.js), and how soft its edge is
+  // part shown between moments lo and hi (0..1), and how soft its edge is
   // (0..1). scripts: the project's scripts; glyphsOf(si): the glyph indices of script si
   // that have a shape; runs: script id -> { id, t0 } (a transition playing since t0) or
   // { loop: true, t0 } (its intro, a hold, its outro and a pause, over and over).
