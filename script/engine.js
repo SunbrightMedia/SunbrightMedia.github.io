@@ -183,15 +183,17 @@
       global: true,
       subKey: 'mode',
       levels: ['text'],
-      params: { mode: 'ascii', resolution: '18', chars: '', gain: '1.2', blur: '0', glow: '0', rain: '0.75', flicker: '1' },
+      params: { mode: 'ascii', resolution: '18', pitch: '1', edges: '1', chars: '', gain: '1.2', blur: '0', glow: '0', rain: '0.75', flicker: '1' },
       choice: { mode: ['ascii', 'matrix'] },
       text: ['chars'],
-      ui: { resolution: [3, 80, 0.5], gain: [0, 4, 0.01], blur: [0, 1, 0.01], glow: [0, 1, 0.01], rain: [0, 1, 0.01], flicker: [0, 4, 0.01] },
+      ui: { resolution: [3, 80, 0.5], pitch: [0.35, 3, 0.01], edges: [0, 2, 0.01], gain: [0, 4, 0.01], blur: [0, 1, 0.01], glow: [0, 1, 0.01], rain: [0, 1, 0.01], flicker: [0, 4, 0.01] },
       docs: {
-        mode: 'ascii: characters chosen by brightness; matrix: mirrored katakana and digits with falling rain',
-        resolution: 'characters per font size: higher = smaller characters', chars: 'your own characters (leave empty for the mode\'s set; ascii sorts them by ink)',
-        gain: 'brightness boost before characters are chosen', blur: 'blurs what is beneath before it becomes characters',
-        glow: 'makes what is beneath spill outwards, so characters glow out around it', rain: 'matrix: falling trails', flicker: 'matrix: how fast characters change',
+        mode: 'ascii: keyboard characters chosen by shape and brightness; matrix: mirrored katakana and digits chosen by shape, with falling rain',
+        resolution: 'characters per font size: higher = smaller characters',
+        pitch: 'spacing between characters, across and down together: 1 = side by side, lower = closer (overlapping), higher = farther apart',
+        edges: 'outline characters: where an edge crosses a cell it gets the character shaped like that edge (| through the middle, / or \\ on a diagonal, _ along the bottom, ( ) on curves); 0 = brightness only, higher = fainter edges count too', chars: 'your own characters (leave empty for the mode\'s set; ascii sorts them by ink)',
+        gain: 'brightness boost before characters are chosen', blur: 'blurs what is beneath, which then shows through the characters softly and fades out past the edges',
+        glow: 'the light that shows through the characters spills out around them, like a glow', rain: 'matrix: falling trails', flicker: 'matrix: how fast characters change',
       },
       apply: fxAscii,
     },
@@ -516,7 +518,7 @@
     const p = e.params || {}, def = EFFECTS.ascii, k = (key, d) => Math.min(1, Math.max(0, c.num(key, d)));
     return {
       mode: def.choice.mode.includes(p.mode) ? p.mode : 'ascii', chars: typeof p.chars === 'string' ? p.chars : '',
-      resolution: Math.max(0.5, c.num('resolution', 18)), gain: Math.max(0, c.num('gain', 1.2)),
+      resolution: Math.max(0.5, c.num('resolution', 18)), pitch: Math.min(3, Math.max(0.34, c.num('pitch', 1))), edges: Math.max(0, c.num('edges', 1)), gain: Math.max(0, c.num('gain', 1.2)),
       blur: k('blur', 0), glow: k('glow', 0), rain: k('rain', 0.75), flicker: Math.max(0, c.num('flicker', 1)),
     };
   }

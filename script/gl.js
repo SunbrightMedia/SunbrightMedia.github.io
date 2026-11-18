@@ -12,8 +12,9 @@
  * Every effect pass reads what is beneath it (the result so far) and writes a new result:
  *   heatmap   thermal colours inside the script and a heat glow around it
  *   kamisuki  "KamisukiNoise" (shadertoy.com/view/7clyWr): fill or erode the script
- *   ascii     characters coloured by what is beneath, transparent between them; blur and
- *             glow act on what is beneath before it is turned into characters
+ *   ascii     characters in the colour of what is beneath (transparent between them): edges
+ *             traced in characters shaped like them (| / \ _ ( ) ...), the rest by brightness;
+ *             blur blurs what is beneath first, glow spills the characters' light around them
  *   posterize what is beneath, reduced to a number of levels per colour channel
  *
  * Blurs (of the script's coverage, or of what is beneath) are made on demand: halved with a
@@ -45,9 +46,11 @@
   // ASCII character sets. "ascii" is sorted by ink at load; "matrix" is the half-width katakana
   // and digits of the film's digital rain, drawn mirrored as they were there.
   const CHARSETS = {
-    ascii: " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$",
+    ascii: " .'`^\",:;Il!i><~+_¯-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$",
     matrix: 'ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789Z:.=*+-<>¦',
   };
+  // The characters that may trace an edge; in a set of your own (and in matrix) any may.
+  const EDGE_CHARS = { ascii: "|/\\_¯-()[]<>'.,`^~\"" };
   const FAMILIES = {
     ascii: 'ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace',
     matrix: '"MS Gothic", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Noto Sans CJK JP", "IPAGothic", "Yu Gothic", monospace',
@@ -152,39 +155,142 @@ void main() {
   }
 }`;
 
-  // ASCII: a grid of characters, each coloured by what is beneath its cell and chosen by how
-  // bright that is (ascii), or random and flickering with falling rain (matrix).
-  const ASCII = COMMON + `uniform sampler2D srcA, srcG, atlas;
-uniform vec2 cellUV, inset0, insetSize;
-uniform float glow, cols, count, cellW, cellH, mode, gain, rain, flicker;
-float h1(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+  // ASCII. What is beneath is first turned into an edge map (how steeply its light changes, at
+  // the scale of a character). Then, once per cell, the pick pass measures the cell's character box
+  // in a 3x5 grid of patches. Where an edge crosses the cell, it picks the character whose ink lies
+  // most like the edge does: a vertical edge through the middle gets a |, a diagonal a / or \, a
+  // bottom edge an _, a curve a ( or ), a corner an L or a 7 (matrix: the katakana shaped most
+  // alike, flickering between near matches). Elsewhere it picks by brightness. The tint pass takes
+  // each cell's colour. The draw pass then shows the characters in the colour of what is beneath
+  // them, transparent between them. Pitch spaces the grid without resizing the characters; below 1
+  // they overlap their neighbours, so each pixel looks at the characters of the 3x3 cells around it.
+  const DESC_X = 3, DESC_Y = 5;
+  const ASCII_LIGHT = `uniform float gain;
+float light(vec4 s) { s = clamp(s, 0.0, 1.0); return clamp((max(max(s.r, s.g), s.b) * 0.5 + dot(s.rgb, vec3(0.299, 0.587, 0.114)) * 0.5) * gain, 0.0, 1.0); }
 vec2 toUV(vec2 w) { return vec2((w.x * scale + origin.x) / res.x, 1.0 - (w.y * scale + origin.y) / res.y); }
+`;
+  const ASCII_EDGE = COMMON + ASCII_LIGHT + `uniform sampler2D src;
+uniform vec2 texel;
+uniform float k;
 void main() {
-  vec2 cs = vec2(cellW, cellH), g = worldPos() / cs;
-  vec2 cell = floor(g), local = fract(g);
-  vec2 cuv = toUV((cell + 0.5) * cs);
-  vec4 s = texture2D(srcA, cuv);
-  if (glow > 0.0) s += texture2D(srcG, cuv) * glow * 1.15 * (1.0 - s.a);  // what is beneath spills out
-  s = clamp(s, 0.0, 1.0);
-  float L = clamp((max(max(s.r, s.g), s.b) * 0.5 + dot(s.rgb, vec3(0.299, 0.587, 0.114)) * 0.5) * gain, 0.0, 1.0);
-  vec3 col = s.a > 0.002 ? clamp(s.rgb / s.a, 0.0, 1.0) : vec3(1.0);
-  float idx, bright = 1.0;
-  if (mode < 0.5) {
-    idx = floor(smoothstep(0.06, 1.0, L) * (count - 1.0) + 0.5);   // near-black stays blank
-    if (idx < 0.5) { gl_FragColor = vec4(0.0); return; }
-  } else {
-    if (L < 0.06) { gl_FragColor = vec4(0.0); return; }
-    float tick = floor(time * flicker * (0.5 + h1(cell + 3.1) * 3.0) + h1(cell) * 13.0);
-    idx = floor(h1(cell + tick * 0.6131) * count);
+  vec2 dx = vec2(texel.x, 0.0), dy = vec2(0.0, texel.y);
+  vec2 g = vec2(light(texture2D(src, uv + dx)) - light(texture2D(src, uv - dx)), light(texture2D(src, uv + dy)) - light(texture2D(src, uv - dy)));
+  gl_FragColor = vec4(0.0, 0.0, 0.0, clamp(length(g) * k, 0.0, 1.0));
+}`;
+  const ASCII_TINT = COMMON + ASCII_LIGHT + `uniform sampler2D srcA;
+uniform vec2 c0, gap, box;
+void main() {
+  vec2 corner = (c0 + floor(gl_FragCoord.xy) + 0.5) * gap - 0.5 * box;
+  vec3 sum = vec3(0.0); float sa = 0.0, ma = 0.0;
+  for (int b = 0; b < 5; b++) for (int a = 0; a < 3; a++) {
+    vec4 c = clamp(texture2D(srcA, toUV(corner + vec2((float(a) + 0.5) / 3.0, (float(b) + 0.5) / 5.0) * box)), 0.0, 1.0);
+    sum += c.rgb; sa += c.a; ma = max(ma, c.a);
+  }
+  gl_FragColor = vec4(sa > 0.0 ? min(sum / sa, 1.0) : vec3(0.0), ma);   // colour, and how opaque the cell gets
+}`;
+  const ASCII_PICK = COMMON + ASCII_LIGHT + `uniform sampler2D srcA, edgeT, desc;
+uniform vec2 c0, gap, box;
+uniform float count, edges, jitter, flicker;
+float h1(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+void main() {
+  vec2 cell = c0 + floor(gl_FragCoord.xy);
+  vec2 corner = (cell + 0.5) * gap - 0.5 * box;   // top left of the character box (world, y down)
+  float c[16], e[16];
+  float mc = 0.0, lc = 1.0, me = 0.0;
+  for (int b = 0; b < 5; b++) for (int a = 0; a < 3; a++) {   // light and edge of each patch, 3x3 samples each
+    float sl = 0.0, se = 0.0;
+    for (int q = 0; q < 3; q++) for (int r = 0; r < 3; r++) {
+      vec2 l = toUV(corner + vec2((float(a) + (float(r) + 0.5) / 3.0) / 3.0, (float(b) + (float(q) + 0.5) / 3.0) / 5.0) * box);
+      sl += light(texture2D(srcA, l)); se += texture2D(edgeT, l).a;
+    }
+    c[b * 3 + a] = sl / 9.0; e[b * 3 + a] = se / 9.0;
+    mc = max(mc, sl / 9.0); lc = min(lc, sl / 9.0); me = max(me, se / 9.0);
+  }
+  c[15] = 0.0; e[15] = 0.0;
+  // an edge: light changes steeply here and within the cell, drawn by the cell on its lit side only
+  bool edge = me * edges > 0.3 && mc > 0.25 && (mc - lc) * edges > 0.3;
+  if (mc < 0.06 && !edge) { gl_FragColor = vec4(0.0); return; }   // near-black stays blank
+  float t[16];
+  for (int k = 0; k < 16; k++) t[k] = edge ? e[k] / me : c[k];
+  vec4 t0 = vec4(t[0], t[1], t[2], t[3]), t1 = vec4(t[4], t[5], t[6], t[7]), t2 = vec4(t[8], t[9], t[10], t[11]), t3 = vec4(t[12], t[13], t[14], t[15]);
+  float tn = sqrt(dot(t0, t0) + dot(t1, t1) + dot(t2, t2) + dot(t3, t3));
+  float tick = floor(time * flicker * (0.5 + h1(cell + 3.1) * 3.0) + h1(cell) * 13.0);
+  float best = 1e9, bi = 0.0;
+  for (int k = 0; k < 256; k++) {
+    if (float(k) >= count) break;
+    float y = (float(k) + 0.5) / count;
+    vec4 d0 = texture2D(desc, vec2(0.125, y)), d1 = texture2D(desc, vec2(0.375, y)), d2 = texture2D(desc, vec2(0.625, y)), d3 = texture2D(desc, vec2(0.875, y));
+    if (edge && d3.w < 0.5) continue;   // only line characters trace edges
+    d3.w = 0.0;
+    float cost;
+    if (edge) {
+      // the most alike shape, whatever its amount of ink. The upright strokes of a monospace font
+      // all stand in the middle of the box, so an edge along a side may also be matched one
+      // column over, a little less readily: an edge near the side still gets a |, not the serif
+      // of a bracket.
+      float dd[16];
+      dd[0] = d0.x; dd[1] = d0.y; dd[2] = d0.z; dd[3] = d0.w; dd[4] = d1.x; dd[5] = d1.y; dd[6] = d1.z; dd[7] = d1.w;
+      dd[8] = d2.x; dd[9] = d2.y; dd[10] = d2.z; dd[11] = d2.w; dd[12] = d3.x; dd[13] = d3.y; dd[14] = d3.z; dd[15] = 0.0;
+      float here = 0.0, fromL = 0.0, fromR = 0.0, dn = 0.0;
+      for (int r = 0; r < 5; r++) for (int a = 0; a < 3; a++) {
+        float x = dd[r * 3 + a];
+        dn += x * x; here += x * t[r * 3 + a];
+        if (a > 0) fromL += x * t[r * 3 + a - 1];
+        if (a < 2) fromR += x * t[r * 3 + a + 1];
+      }
+      cost = 1.0 - max(here, 0.85 * max(fromL, fromR)) / (sqrt(dn) * tn + 1e-4);
+    } else {      // elsewhere: the closest light, patch by patch
+      vec4 e0 = d0 - t0, e1 = d1 - t1, e2 = d2 - t2, e3 = d3 - t3;
+      cost = dot(e0, e0) + dot(e1, e1) + dot(e2, e2) + dot(e3, e3);
+    }
+    cost *= 1.0 + jitter * h1(cell * 1.13 + vec2(float(k) * 7.31, tick));
+    if (cost < best) { best = cost; bi = float(k); }
+  }
+  gl_FragColor = vec4(bi / 255.0, 1.0, edge ? 1.0 : 0.0, 1.0);
+}`;
+  const ASCII = COMMON + `uniform sampler2D srcA, atlas, pick, tint;
+uniform vec2 cellUV, inset0, insetSize, c0, grid;
+uniform float cols, cellW, cellH, pitch, mode, rain;
+float h1(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+// the character picked for a cell, or -1 for a blank cell; bright dims matrix trails, burn whitens their heads
+float charOf(vec2 cell, out float bright, out float burn) {
+  bright = 1.0; burn = 0.0;
+  vec4 p = texture2D(pick, (cell - c0 + 0.5) / grid);
+  if (p.g < 0.5) return -1.0;
+  if (mode > 0.5) {
     float speed = 5.0 + h1(vec2(cell.x, 7.7)) * 12.0, len = 5.0 + h1(vec2(cell.x, 2.3)) * 14.0;
     float d = mod(time * speed + h1(vec2(cell.x, 9.1)) * 60.0 - cell.y, 60.0);  // cells below the falling head
-    bright = L * mix(1.0, 0.3 + 0.7 * exp(-d / len), rain);
-    col = mix(col, vec3(1.0), smoothstep(1.2, 0.0, d) * rain * 0.75);          // the leading glyph burns white
+    bright = mix(1.0, 0.3 + 0.7 * exp(-d / len), rain);
+    burn = smoothstep(1.2, 0.0, d) * rain * 0.75;                               // the leading glyph burns white
   }
-  vec2 lc = inset0 + local * insetSize;   // sample inside the cell's margin, so neighbours never bleed in
-  float a = texture2D(atlas, vec2((mod(idx, cols) + lc.x) * cellUV.x, (floor(idx / cols) + lc.y) * cellUV.y)).a;
-  gl_FragColor = vec4(col, 1.0) * a * bright;
+  return floor(p.r * 255.0 + 0.5);
+}
+void main() {
+  vec2 box = vec2(cellW, cellH), gap = box * pitch, w = worldPos();
+  vec2 home = floor(w / gap);
+  float best = 0.0, burnBest = 0.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    if (pitch >= 1.0 && (i != 0 || j != 0)) continue;   // characters fit inside their own cell
+    vec2 cell = home + vec2(float(i), float(j));
+    vec2 local = (w - (cell + 0.5) * gap) / box + 0.5;
+    if (local.x < 0.0 || local.y < 0.0 || local.x > 1.0 || local.y > 1.0) continue;
+    float bright, burn, idx = charOf(cell, bright, burn);
+    if (idx < 0.0) continue;
+    vec2 lc = inset0 + local * insetSize;   // sample inside the cell's margin, so neighbours never bleed in
+    float a = texture2D(atlas, vec2((mod(idx, cols) + lc.x) * cellUV.x, (floor(idx / cols) + lc.y) * cellUV.y)).a * bright;
+    if (a > best) { best = a; burnBest = burn; }
+  }
+  // the colour of what is beneath: this very pixel, or, where a character reaches past the edge of
+  // what is beneath (an outline character), the colour of its cell
+  vec4 tc = texture2D(tint, (floor(w / gap) - c0 + 0.5) / grid);
+  vec4 o = max(clamp(texture2D(srcA, uv), 0.0, 1.0), vec4(tc.rgb * tc.a, tc.a)) * best;
+  gl_FragColor = vec4(mix(o.rgb, vec3(o.a), burnBest), o.a);
 }`;
+
+  // Glow: the light of the layer below (here, the ASCII characters) spilled out around it.
+  const BLOOM = COMMON + `uniform sampler2D src, spill;
+uniform float amount;
+void main() { gl_FragColor = min(texture2D(src, uv) + texture2D(spill, uv) * amount, 1.0); }`;
 
   // Posterize: each colour channel of what is beneath snapped to n levels; transparency is kept.
   const POSTER = COMMON + `uniform float levels;
@@ -217,7 +323,7 @@ void main() {
       return { pr, u };
     };
     const P = {};
-    for (const [k, src] of Object.entries({ down: DOWN, blur: BLUR, tex: TEX, final: FINAL, heatmap: HEAT, kamisuki: KAMI, ascii: ASCII, posterize: POSTER })) P[k] = program(src);
+    for (const [k, src] of Object.entries({ down: DOWN, blur: BLUR, tex: TEX, final: FINAL, heatmap: HEAT, kamisuki: KAMI, ascii: ASCII, asciiPick: ASCII_PICK, asciiEdge: ASCII_EDGE, asciiTint: ASCII_TINT, bloom: BLOOM, posterize: POSTER })) P[k] = program(src);
 
     const quad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quad);
@@ -242,6 +348,11 @@ void main() {
       return T;
     };
     const fixed = { acc: target(), p0: target(), p1: target(), g0: target(), g1: target() };
+    const nearest = () => { // exact texel lookups (clamped, which WebGL 1 needs for sizes that are not powers of two)
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    };
+    const pickT = target(), tintT = target(); // one texel per ASCII cell: which character it shows, in which colour
+    for (const T of [pickT, tintT]) { gl.bindTexture(gl.TEXTURE_2D, T.tex); nearest(); }
     const maskTex = texture(), colorTex = texture(), lutTex = texture(), pool = [];
     let poolUsed = 0, lutName = null;
     const mcv = document.createElement('canvas'), mctx = mcv.getContext('2d');
@@ -265,6 +376,7 @@ void main() {
     const clear = T => { gl.bindFramebuffer(gl.FRAMEBUFFER, T.fb); gl.viewport(0, 0, T.w, T.h); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); };
     const over = (srcTex, T) => { gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); use('tex', { src: srcTex }); draw(T); gl.disable(gl.BLEND); };
 
+    const scratch = (w, h) => { const T = sizeTarget(pool[poolUsed] || (pool[poolUsed] = target()), w, h); poolUsed++; return T; };
     // blur any full-resolution texture (prem: premultiply a coverage mask first)
     function blurOf(src, W, H, sigma, prem) {
       sigma = Math.max(0.75, sigma);
@@ -284,11 +396,13 @@ void main() {
       return B.tex;
     }
 
-    // Character atlases: 16 columns of cells 1.5 times taller than wide, drawn at about the size
-    // a cell has on screen (in steps), so no mipmaps are needed: mipmaps would draw a faint box
-    // around every character, because the lookup jumps across the atlas from one cell to the next.
-    // Glyphs sit inside a transparent margin that is never sampled, so neighbours cannot bleed in.
-    const INSET0 = [0.09, 0.1], INSET = [0.82, 0.8];
+    // Character atlases: 16 columns of cells, drawn at about the size a cell has on screen (in
+    // steps), so no mipmaps are needed: mipmaps would draw a faint box around every character,
+    // because the lookup jumps across the atlas from one cell to the next. A cell on screen is
+    // one character box of the set: as wide as its widest character and as tall as its tallest,
+    // like a terminal, so a | spans the whole height and an _ sits on the bottom. Around each box
+    // is a transparent margin that is never sampled, so neighbours cannot bleed in.
+    const MARGIN = 0.15;
     const orders = new Map();
     function charList(mode, chars) { // ascii: sorted by ink, emptiest first, starting with a blank
       const set = chars && chars.length ? chars : CHARSETS[mode] || CHARSETS.ascii, key = mode + '\u0000' + set;
@@ -312,27 +426,82 @@ void main() {
       orders.set(key, list);
       return list;
     }
-    const atlases = new Map();
-    function atlas(mode, chars, cellPx) {
-      const B = [8, 12, 16, 24, 32, 48, 64, 96].find(b => b * INSET[0] >= cellPx * 0.95) || 96;
-      const list = charList(mode, chars), key = mode + '\u0000' + chars + '\u0000' + B;
-      if (atlases.has(key)) return atlases.get(key);
-      const cw = B, ch = Math.round(B * 1.5), cols = 16, rows = Math.max(1, Math.ceil(list.length / cols));
+    const weightOf = mode => (mode === 'matrix' ? 500 : 600), familyOf = mode => FAMILIES[mode] || FAMILIES.ascii;
+    const metricsOf = new Map();
+    function metrics(mode, chars) { // the set's character box at a 100 px font
+      const list = charList(mode, chars), key = mode + '\u0000' + chars;
+      if (metricsOf.has(key)) return metricsOf.get(key);
+      const ctx = document.createElement('canvas').getContext('2d');
+      ctx.font = `${weightOf(mode)} 100px ${familyOf(mode)}`;
+      let adv = 1, A = 1, D = 0;
+      for (const c of list) {
+        const m = ctx.measureText(c);
+        adv = Math.max(adv, m.width); A = Math.max(A, m.actualBoundingBoxAscent || 0); D = Math.max(D, m.actualBoundingBoxDescent || 0);
+      }
+      const out = { adv, A, D };
+      metricsOf.set(key, out);
+      return out;
+    }
+    // the set drawn into a canvas, B px per character box width
+    function cellsCanvas(mode, chars, B) {
+      const list = charList(mode, chars), m = metrics(mode, chars), k = B / m.adv;
+      const ww = B, wh = Math.max(1, Math.ceil((m.A + m.D) * k)), mg = Math.ceil(B * MARGIN);
+      const cw = ww + 2 * mg, ch = wh + 2 * mg, cols = 16, rows = Math.max(1, Math.ceil(list.length / cols));
       const cv = document.createElement('canvas'); cv.width = cols * cw; cv.height = rows * ch;
-      const ctx = cv.getContext('2d');
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = `${mode === 'matrix' ? 500 : 600} ${Math.round(B * 0.72)}px ${FAMILIES[mode] || FAMILIES.ascii}`;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.font = `${weightOf(mode)} ${(100 * k).toFixed(2)}px ${familyOf(mode)}`;
       list.forEach((c, i) => {
-        ctx.save(); ctx.translate((i % cols) * cw + cw / 2, Math.floor(i / cols) * ch + ch / 2);
+        ctx.save(); ctx.translate((i % cols) * cw + cw / 2, Math.floor(i / cols) * ch + mg + m.A * k);
         if (mode === 'matrix') ctx.scale(-1, 1); // mirrored, as in the film
         ctx.fillText(c, 0, 0); ctx.restore();
+      });
+      return { cv, ctx, list, cols, cw, ch, ww, wh, mg, inset0: [mg / cw, mg / ch], insetSize: [ww / cw, wh / ch], aspect: wh / ww };
+    }
+
+    // The shape of every character: how much of each patch of a 3x5 grid over its box its ink
+    // covers, scaled so the fullest patch of the set is 1, as 4 RGBA texels per character; the
+    // last slot says whether it may trace an edge.
+    const descs = new Map();
+    function descriptors(mode, chars) {
+      const key = mode + '\u0000' + chars;
+      if (descs.has(key)) return descs.get(key);
+      const c = cellsCanvas(mode, chars, 48), d = c.ctx.getImageData(0, 0, c.cv.width, c.cv.height).data;
+      const pw = c.ww / DESC_X, ph = c.wh / DESC_Y, area = pw * ph;
+      let max = 1e-6;
+      const raw = c.list.map((_, i) => {
+        const x0 = (i % c.cols) * c.cw + c.mg, y0 = Math.floor(i / c.cols) * c.ch + c.mg, v = new Float32Array(16);
+        for (let y = 0; y < c.wh; y++) for (let x = 0; x < c.ww; x++)
+          v[Math.min(DESC_Y - 1, Math.floor((y + 0.5) / ph)) * DESC_X + Math.min(DESC_X - 1, Math.floor((x + 0.5) / pw))] += d[((y0 + y) * c.cv.width + x0 + x) * 4 + 3] / 255 / area;
+        for (let j = 0; j < 15; j++) max = Math.max(max, v[j]);
+        return v;
+      });
+      const data = new Uint8Array(c.list.length * 16), edgeSet = !chars && EDGE_CHARS[mode];
+      raw.forEach((v, k) => {
+        for (let j = 0; j < 15; j++) data[k * 16 + j] = Math.round(Math.min(1, v[j] / max) * 255);
+        data[k * 16 + 15] = c.list[k] !== ' ' && (!edgeSet || edgeSet.includes(c.list[k])) ? 255 : 0; // may trace an edge
       });
       const tex = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 4, c.list.length, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      nearest();
+      const out = { tex, count: c.list.length };
+      descs.set(key, out);
+      if (descs.size > 12) { const [k0, d0] = descs.entries().next().value; gl.deleteTexture(d0.tex); descs.delete(k0); }
+      return out;
+    }
+    const atlases = new Map();
+    function atlas(mode, chars, cellPx) {
+      const B = [8, 12, 16, 24, 32, 48, 64, 96].find(b => b >= cellPx * 0.95) || 96, key = mode + '\u0000' + chars + '\u0000' + B;
+      if (atlases.has(key)) return atlases.get(key);
+      const c = cellsCanvas(mode, chars, B);
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c.cv);
       for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
-      const at = { tex, count: list.length, cols, cellUV: [cw / cv.width, ch / cv.height], inset0: INSET0, insetSize: INSET, aspect: (1.5 * INSET[1]) / INSET[0] };
+      const at = { tex, count: c.list.length, cols: c.cols, cellUV: [c.cw / c.cv.width, c.ch / c.cv.height], inset0: c.inset0, insetSize: c.insetSize, aspect: c.aspect };
       atlases.set(key, at);
       if (atlases.size > 24) { const [k0, a0] = atlases.entries().next().value; gl.deleteTexture(a0.tex); atlases.delete(k0); }
       return at;
@@ -419,13 +588,33 @@ void main() {
               radius: r.radius, gradient: r.gradient, blend: r.blend, sharp: r.sharp, level: r.level, amount: r.amount, cx: r.cx, hw: r.hw,
             });
           } else if (r.type === 'ascii') {
-            const cellW = u.size / Math.max(0.5, r.resolution), at = atlas(r.mode, r.chars, cellW * s);
+            const cellW = Math.max(u.size / Math.max(0.5, r.resolution), 2 / s), at = atlas(r.mode, r.chars, cellW * s), ds = descriptors(r.mode, r.chars);
+            const cellH = cellW * at.aspect, gap = [cellW * r.pitch, cellH * r.pitch];
+            const c0 = [Math.floor(-ox / s / gap[0]) - 1, Math.floor(-oy / s / gap[1]) - 1];   // the cells covering the screen, plus one around
+            const grid = [Math.ceil(W / s / gap[0]) + 3, Math.ceil(H / s / gap[1]) + 3];
+            const beneath = r.blur > 0 ? blurOf(cur.tex, W, H, r.blur * 0.15 * u.size * s, false) : cur.tex;   // blur what is beneath
+            const cell = { c0, gap, box: [cellW, cellH], gain: r.gain };
+            const eSigma = Math.max(1, cellW * s / 6), soft = blurOf(beneath, W, H, eSigma, false), edgeT = scratch(W, H);
+            use('asciiEdge', Object.assign({ src: soft, texel: [1.5 / W, 1.5 / H], k: eSigma * 2.5 / 3, gain: r.gain }, common));
+            draw(edgeT);
+            sizeTarget(tintT, grid[0], grid[1]);
+            use('asciiTint', Object.assign({ srcA: beneath }, cell, common));
+            draw(tintT);
+            sizeTarget(pickT, grid[0], grid[1]);
+            use('asciiPick', Object.assign({ srcA: beneath, edgeT: edgeT.tex, desc: ds.tex, count: ds.count, edges: r.edges,
+              jitter: r.mode === 'matrix' ? 0.6 : 0, flicker: r.flicker }, cell, common));
+            draw(pickT);
             Object.assign(un, {
-              srcA: r.blur > 0 ? blurOf(cur.tex, W, H, r.blur * 0.15 * u.size * s, false) : cur.tex,
-              srcG: r.glow > 0 ? blurOf(cur.tex, W, H, (0.04 + 0.1 * r.glow) * u.size * s, false) : cur.tex,
-              atlas: at.tex, cellUV: at.cellUV, inset0: at.inset0, insetSize: at.insetSize, cols: at.cols, count: at.count, cellW, cellH: cellW * at.aspect,
-              glow: r.glow, mode: r.mode === 'matrix' ? 1 : 0, gain: r.gain, rain: r.rain, flicker: r.flicker,
+              srcA: beneath, pick: pickT.tex, tint: tintT.tex, c0, grid, atlas: at.tex, cellUV: at.cellUV, inset0: at.inset0, insetSize: at.insetSize, cols: at.cols,
+              cellW, cellH, pitch: r.pitch, mode: r.mode === 'matrix' ? 1 : 0, rain: r.rain,
             });
+            use('ascii', un);
+            draw(other);
+            if (r.glow > 0) { // the light through the characters spills out around them; the result lands back in cur
+              use('bloom', Object.assign({ src: other.tex, spill: blurOf(other.tex, W, H, (0.03 + 0.17 * r.glow) * u.size * s, false), amount: r.glow * 2.5 }, common));
+              draw(cur);
+            } else [cur, other] = [other, cur];
+            continue;
           } else if (r.type === 'posterize') {
             un.levels = r.levels;
           } else continue;
