@@ -92,14 +92,14 @@
       apply: applyTransform,
     },
     displace: {
-      label: 'Displace points',
+      label: 'Displace',
       levels: ['point'],
       params: { dx: '0', dy: '0' },
       docs: { dx: 'offset x per point (x, y = point position; ctrl = 1 for curve handles)', dy: 'offset y per point' },
       apply: applyDisplace,
     },
     resample: {
-      label: 'Resample (curves → dense points)',
+      label: 'Resample',
       levels: ['contour'],
       params: { step: '4' },
       docs: { step: 'spacing between points, px. Put this before Displace for smooth bending' },
@@ -135,19 +135,6 @@
         feather: 'soft edge width: 0 = hard cut, higher = smooth falloff', amount: '0..1 how far the script is pushed out',
       },
       apply: applyWarp,
-    },
-    nature: {
-      label: 'Nature (moss & lichen)',
-      spatial: true,
-      levels: ['space'],
-      params: { shape: 'circle', x: '0', y: '0', size: '150', rot: '0', temperament: '0.3', energy: '0.6' },
-      choice: { shape: Shapes.NAMES },
-      ui: { size: [2, 800, 1], rot: [-180, 180, 1], temperament: [0, 1, 0.01], energy: [0, 1, 0.01] },
-      docs: {
-        shape: 'shape of the area that grows', x: 'centre x (drag the gizmo)', y: 'centre y', size: 'radius', rot: 'rotation (degrees)',
-        temperament: '0 = wet (lush moss) … 1 = dry (lichen)', energy: '0..1 how much grows',
-      },
-      apply: applyNature,
     },
   };
 
@@ -390,14 +377,6 @@
       fx.hole = Shapes.levelPolygon(sh, m0, 120);
       if (fx.hole) S.holes.push(fx.hole);
     }
-  }
-
-  // Nature only records where it is; the moss and lichen simulation (nature.js)
-  // reads the final geometry after the whole stack has run.
-  function applyNature(S, level, c, m) {
-    const sh = spatial(c, m).shape;
-    const clamp01 = v => Math.min(1, Math.max(0, v));
-    S.fx.push({ type: 'nature', id: m.id, shape: sh, T: clamp01(c.num('temperament', 0.3)), E: clamp01(c.num('energy', 0.6)) });
   }
 
   function applyVisible(S, level, c) {

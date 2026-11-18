@@ -1,11 +1,22 @@
 (() => {
   'use strict';
-  const FL = window.FontLab, Shapes = FL.Shapes, Nature = window.FontLabNature;
+  const FL = window.FontLab, Shapes = FL.Shapes;
   const $ = id => document.getElementById(id);
   const SVGNS = 'http://www.w3.org/2000/svg';
   const clone = o => JSON.parse(JSON.stringify(o));
   const uid = () => Math.random().toString(36).slice(2, 9);
   const smooth = (a, b, v) => { const k = Math.min(1, Math.max(0, (v - a) / (b - a))); return k * k * (3 - 2 * k); };
+  const el = (tag, props, ...kids) => {
+    const e = document.createElement(tag);
+    if (props) for (const k in props) {
+      if (k === 'class') e.className = props[k];
+      else if (k.startsWith('on')) e[k] = props[k];
+      else if (k in e && k !== 'list') e[k] = props[k];
+      else e.setAttribute(k, props[k]);
+    }
+    for (const c of kids) if (c != null) e.append(c);
+    return e;
+  };
 
   // ---------- presets ----------
   const M = (type, level, params) => {
@@ -13,32 +24,26 @@
     return { id: uid(), type, level, on: true, params: def.spatial ? Object.assign({}, def.params, params) : params };
   };
   const PRESETS = {
-    'Warp + moss (drag them)': () => [
-      M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', feather: '25' }),
-      M('nature', 'space', { x: '200', y: '-30', size: '170', temperament: '0.3', energy: '0.65' }),
-    ],
-    'Warp sweep (circle)': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', feather: '45' })],
-    'Warp: star, rounded by intensity': () => [M('warp', 'space', { shape: 'star', x: '380', y: '40', size: '90', rot: 't*20', intensity: '20 + tri(t*0.15)*60', feather: '10' })],
-    'Moss sweep': () => [M('nature', 'space', { x: '380 + sin(t*0.4)*400', y: '40', size: '170', temperament: '0.25', energy: '0.7' })],
-    'Lichen (dry)': () => [M('nature', 'space', { x: '380', y: '40', size: '600', temperament: '0.85', energy: '0.7' })],
-    'Wet ↔ dry cycle': () => [M('nature', 'space', { x: '380', y: '40', size: '600', temperament: '0.5 - cos(t*0.25)*0.5', energy: '0.7' })],
-    'Wave (per glyph)': () => [M('transform', 'glyph', { ty: 'sin(t*3 - i*0.6) * size*0.12' })],
-    'Typewriter (per glyph)': () => [M('visible', 'glyph', { show: 'fract(t*0.15)*n*1.6 - i' })],
-    'Wobbly outlines (per point)': () => [
+    'Warp: star': () => [M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', feather: '25' })],
+    'Warp: sweeping circle': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', feather: '45' })],
+    'Warp: star rounding off': () => [M('warp', 'space', { shape: 'star', x: '380', y: '40', size: '90', rot: 't*20', intensity: '20 + tri(t*0.15)*60', feather: '10' })],
+    'Wave': () => [M('transform', 'glyph', { ty: 'sin(t*3 - i*0.6) * size*0.12' })],
+    'Typewriter': () => [M('visible', 'glyph', { show: 'fract(t*0.15)*n*1.6 - i' })],
+    'Wobbly outlines': () => [
       M('resample', 'contour', { step: '3' }),
       M('displace', 'point', { dx: 'noise(x*0.02, y*0.02 + t) * size*0.04', dy: 'noise(y*0.02 + 40, x*0.02 + t) * size*0.04' }),
     ],
-    'Explode and return (per glyph)': () => [M('transform', 'glyph', {
+    'Explode and return': () => [M('transform', 'glyph', {
       tx: '(rnd(i)-0.5) * size*4 * pow(sin(t)*0.5+0.5, 3)',
       ty: '(rnd(i,7)-0.5) * size*3 * pow(sin(t)*0.5+0.5, 3)',
       rot: '(rnd(i,3)-0.5) * 720 * pow(sin(t)*0.5+0.5, 3)',
     })],
-    'Rainbow draw-on (outline)': () => [M('style', 'glyph', {
-      fill: 'none', stroke: 'hsl(i*35 + t*60, 90, 55)', sw: 'size*0.015', draw: 'clamp(fract(t*0.25)*2.5 - u, 0, 1)',
+    'Rainbow draw-on': () => [M('style', 'glyph', {
+      fill: 'none', stroke: 'hsl(i*35 + t*60, 90, 60)', sw: 'size*0.015', draw: 'clamp(fract(t*0.25)*2.5 - u, 0, 1)',
     })],
-    'Spinning holes (per contour)': () => [M('transform', 'contour', { rot: 'sin(t*2 + ci) * 25' })],
-    'Jelly words (per word)': () => [M('transform', 'word', { sx: '1 + sin(t*5 + i)*0.08', sy: '1 - sin(t*5 + i)*0.08', py: '1' })],
-    'Melt (per point)': () => [
+    'Spinning holes': () => [M('transform', 'contour', { rot: 'sin(t*2 + ci) * 25' })],
+    'Jelly words': () => [M('transform', 'word', { sx: '1 + sin(t*5 + i)*0.08', sy: '1 - sin(t*5 + i)*0.08', py: '1' })],
+    'Melt': () => [
       M('resample', 'contour', { step: '3' }),
       M('displace', 'point', { dy: 'pow(noise(x*0.05, gi) * 0.5 + 0.5, 3) * size*0.8 * tri(t*0.2) * smoothstep(-size*0.75, size*0.1, y - li*size*1.2)' }),
     ],
@@ -48,18 +53,19 @@
     font: 'url:../fonts/segoeuib.ttf',
     text: 'Sunbright\nfont lab',
     layout: Object.assign({}, FL.LAYOUT_DEFAULTS, { size: 160 }),
-    fill: '#111111',
-    bg: '#ffffff',
-    mods: PRESETS['Warp + moss (drag them)'](),
+    fill: '#ffffff',
+    mods: PRESETS['Warp: star'](),
   };
 
-  const STORE_KEY = 'fontlab.project.v1';
+  const STORE_KEY = 'fontlab.project.v1', UI_KEY = 'fontlab.ui.v1';
   function loadProject() {
     try { const p = JSON.parse(localStorage.getItem(STORE_KEY)); if (p && p.mods) return normalize(p); } catch (e) { /* ignore */ }
     return normalize(clone(DEFAULT_PROJECT));
   }
   function normalize(p) {
     p = Object.assign(clone(DEFAULT_PROJECT), p);
+    delete p.bg; // the stage is always black
+    if (!p.fill || p.fill.toLowerCase() === '#111111') p.fill = '#ffffff';
     p.layout = Object.assign({}, FL.LAYOUT_DEFAULTS, p.layout);
     p.mods = (p.mods || []).filter(m => FL.MODIFIERS[m.type]).map(m => {
       m = Object.assign({ id: uid(), on: true, params: {} }, m);
@@ -72,22 +78,34 @@
   let saveTimer = 0;
   function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(project)); } catch (e) { /* ignore */ } }, 300);
+    saveTimer = setTimeout(() => {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(project)); localStorage.setItem(UI_KEY, JSON.stringify(prefs)); } catch (e) { /* ignore */ }
+    }, 300);
   }
 
   let project = loadProject();
-  let font = null, base = null, S = null, field = null;
+  let prefs = { gizmos: true, mask: false, stats: false, overlay: '', speed: 1 };
+  try { Object.assign(prefs, JSON.parse(localStorage.getItem(UI_KEY)) || {}); } catch (e) { /* ignore */ }
+
+  let font = null, base = null, S = null;
   let playing = true, t = 0, last = performance.now(), dirty = true;
   let view = { x: 0, y: 0, w: 1000, h: 500 };
-  let selected = null, drag = null, fxDrawn = false, clipPath = null, glyphD = [];
+  let selected = null, drag = null, glyphD = [];
+  let fontOptions = [];
 
-  function status(msg, isErr) { const s = $('status'); s.textContent = msg; s.classList.toggle('err', !!isErr); }
+  let toastTimer = 0;
+  function toast(msg, isErr) {
+    const e = $('toast');
+    e.textContent = msg; e.classList.toggle('err', !!isErr); e.style.opacity = 1;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { e.style.opacity = 0; }, isErr ? 8000 : 3500);
+  }
 
-  // ---------- font storage (IndexedDB, local to this browser) ----------
+  // ---------- fonts (stored in this browser only, never uploaded) ----------
   const BUILTIN = [
-    { name: 'Segoe UI Bold (site)', url: '../fonts/segoeuib.ttf' },
-    { name: 'Segoe UI (site)', url: '../fonts/segoeui.ttf' },
-    { name: 'Segoe UI Light (site)', url: '../fonts/segoeuil.ttf' },
+    { name: 'Segoe UI Bold', url: '../fonts/segoeuib.ttf' },
+    { name: 'Segoe UI', url: '../fonts/segoeui.ttf' },
+    { name: 'Segoe UI Light', url: '../fonts/segoeuil.ttf' },
   ];
   const db = {
     _p: null,
@@ -115,20 +133,14 @@
   };
 
   async function refreshFonts() {
-    const sel = $('fontSel');
     let names = [];
-    try { names = await db.names(); } catch (e) { status('Browser storage unavailable: fonts will not be remembered.', true); }
-    sel.innerHTML = '';
-    if (names.length) {
-      const g = document.createElement('optgroup'); g.label = 'On this device';
-      for (const n of names) g.append(new Option(n, 'idb:' + n));
-      sel.append(g);
-    }
-    const g2 = document.createElement('optgroup'); g2.label = 'Site';
-    for (const b of BUILTIN) g2.append(new Option(b.name, 'url:' + b.url));
-    sel.append(g2);
-    sel.value = project.font;
-    if (sel.value !== project.font) sel.selectedIndex = 0;
+    try { names = await db.names(); } catch (e) { toast('Browser storage unavailable: added fonts will not be remembered.', true); }
+    fontOptions = [
+      ...names.map(n => ({ value: 'idb:' + n, label: n, device: true })),
+      ...BUILTIN.map(b => ({ value: 'url:' + b.url, label: b.name, device: false })),
+    ];
+    if (!fontOptions.some(o => o.value === project.font)) project.font = fontOptions[0].value;
+    if (selected === 'text') renderInspector();
   }
 
   async function useFont(val) {
@@ -138,18 +150,17 @@
       else { const r = await fetch(val.slice(4)); if (!r.ok) throw new Error('HTTP ' + r.status); buf = await r.arrayBuffer(); }
       font = opentype.parse(buf);
       project.font = val; save();
-      $('fontSel').value = val;
-      status(`${fontLabel(font)} · ${font.glyphs.length} glyphs · ${font.unitsPerEm} units/em`);
       rebuild(true);
+      renderList();
+      if (selected === 'text') renderInspector();
     } catch (e) {
-      status('Could not load font: ' + e.message, true);
+      toast('Could not load font: ' + e.message, true);
     }
   }
   function fontLabel(f) {
     const n = f.names || {}, pick = k => n[k] && (n[k].en || Object.values(n[k])[0]);
     return [pick('fontFamily'), pick('fontSubfamily')].filter(Boolean).join(' ') || 'font';
   }
-
   async function addFontFiles(files) {
     let lastName = null;
     for (const file of files) {
@@ -159,29 +170,27 @@
         await db.put(file.name, buf);
         lastName = file.name;
       } catch (e) {
-        status(`${file.name}: ${/woff2/i.test(file.name) ? 'WOFF2 is not supported, use TTF/OTF/WOFF' : e.message}`, true);
+        toast(`${file.name}: ${/woff2/i.test(file.name) ? 'WOFF2 is not supported, use TTF, OTF or WOFF' : e.message}`, true);
       }
     }
-    if (lastName) { project.font = 'idb:' + lastName; await refreshFonts(); await useFont(project.font); }
+    if (lastName) { project.font = 'idb:' + lastName; await refreshFonts(); await useFont(project.font); toast(`Added ${lastName}`); }
+  }
+  async function removeFont() {
+    const v = project.font;
+    if (!v.startsWith('idb:') || !confirm(`Remove ${v.slice(4)} from this browser?`)) return;
+    await db.del(v.slice(4));
+    project.font = DEFAULT_PROJECT.font;
+    await refreshFonts(); useFont(project.font);
   }
 
-  // ---------- geometry ----------
-  const needsNature = () => project.mods.some(m => m.type === 'nature');
-  function ensureNature() {
-    if (base && needsNature() && !base.nature) {
-      try { field = Nature.prepare(base); Nature.sprites(); } catch (e) { status('Nature analysis failed: ' + e.message, true); }
-    }
-  }
+  // ---------- geometry and view ----------
   function rebuild(refit) {
     if (!font) return;
     try { base = FL.layout(font, project.text, project.layout); }
-    catch (e) { status('Layout failed: ' + e.message, true); return; }
-    field = null;
-    ensureNature();
+    catch (e) { toast('Layout failed: ' + e.message, true); return; }
     if (refit) fit();
     dirty = true;
   }
-
   function fit() {
     if (!base) return;
     const b = FL.bounds(FL.evaluate(base, [], 0), false);
@@ -191,19 +200,13 @@
   }
   function applyView() {
     for (const id of ['svg', 'ui']) $(id).setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
-    for (const id of ['bgRect', 'holesRect']) {
-      const r = $(id);
-      r.setAttribute('x', view.x - view.w * 50); r.setAttribute('y', view.y - view.h * 50);
-      r.setAttribute('width', view.w * 101); r.setAttribute('height', view.h * 101);
-    }
-    const m = $('holesMask');
-    m.setAttribute('x', view.x - view.w * 50); m.setAttribute('y', view.y - view.h * 50);
-    m.setAttribute('width', view.w * 101); m.setAttribute('height', view.h * 101);
+    const big = { x: view.x - view.w * 50, y: view.y - view.h * 50, width: view.w * 101, height: view.h * 101 };
+    for (const id of ['bgRect', 'holesRect', 'holesMask']) for (const k in big) $(id).setAttribute(k, big[k]);
     dirty = true;
   }
   // Same mapping as the SVG viewBox with preserveAspectRatio="xMidYMid meet".
   function metrics() {
-    const el = $('stageWrap'), W = el.clientWidth || 1, H = el.clientHeight || 1;
+    const e = $('stageWrap'), W = e.clientWidth || 1, H = e.clientHeight || 1;
     const s = Math.min(W / view.w, H / view.h);
     return { W, H, s, ox: (W - view.w * s) / 2 - view.x * s, oy: (H - view.h * s) / 2 - view.y * s };
   }
@@ -211,21 +214,13 @@
     const r = $('stageWrap').getBoundingClientRect(), m = metrics();
     return { x: (cx - r.left - m.ox) / m.s, y: (cy - r.top - m.oy) / m.s };
   }
-  function sizeCanvas(cv) {
-    const m = metrics(), dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = Math.round(m.W * dpr), h = Math.round(m.H * dpr);
-    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
-    return { m, dpr };
-  }
 
   // ---------- rendering ----------
   const paths = [];
   function render() {
-    const content = $('content');
-    const n = S.nodes.glyph.length;
+    const content = $('content'), n = S.nodes.glyph.length;
     while (paths.length < n) { const p = document.createElementNS(SVGNS, 'path'); content.append(p); paths.push(p); }
     while (paths.length > n) paths.pop().remove();
-    $('bgRect').setAttribute('fill', project.bg);
     glyphD = [];
     for (let gi = 0; gi < n; gi++) {
       const p = paths[gi], st = S.style[gi], d = FL.glyphPathData(S, gi);
@@ -241,88 +236,79 @@
       if (st.draw != null) { p.setAttribute('pathLength', '1'); p.setAttribute('stroke-dasharray', `${Math.max(0, Math.min(1, st.draw))} 1.0001`); }
       else { p.removeAttribute('pathLength'); p.removeAttribute('stroke-dasharray'); }
     }
-    clipPath = null;
     if (S.holes.length) {
       $('holesPath').setAttribute('d', S.holes.map(Shapes.polyD).join(''));
       content.setAttribute('mask', 'url(#holesMask)');
     } else content.removeAttribute('mask');
     renderOverlay();
+    renderGizmos();
+    renderMask();
   }
 
   function renderOverlay() {
-    const g = $('overlayG'), lvl = $('overlay').value;
+    const g = $('overlayG'), lvl = prefs.overlay;
     if (!lvl) { if (g.firstChild) g.innerHTML = ''; return; }
-    const sw = 1 / metrics().s;
+    const k = 1 / metrics().s;
     let h = '';
     if (lvl === 'point') {
       let c = 0;
       outer: for (let ci = 0; ci < S.contours.length; ci++) {
         if (S.hidden[ci] || S.contours[ci].attach) continue;
-        for (const k of S.contours[ci].cmds) for (let j = 0; j < k.p.length; j++) {
+        for (const cm of S.contours[ci].cmds) for (let j = 0; j < cm.p.length; j++) {
           if (++c > 6000) break outer;
-          const p = k.p[j], ctrl = j < k.p.length - 1;
-          h += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${(sw * (ctrl ? 1.5 : 2.2)).toFixed(2)}" fill="${ctrl ? '#e0a000' : '#0a62d0'}"/>`;
+          const p = cm.p[j], ctrl = j < cm.p.length - 1;
+          h += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${(k * (ctrl ? 1.5 : 2.2)).toFixed(2)}" fill="${ctrl ? '#ffb000' : '#4da3ff'}"/>`;
         }
       }
     } else {
       S.nodes[lvl].slice(0, 3000).forEach((nd, j) => {
         const b = FL.bbox(S, nd.cs.filter(ci => !S.hidden[ci]));
         if (!b.w && !b.h) return;
-        h += `<rect x="${b.x.toFixed(1)}" y="${b.y.toFixed(1)}" width="${b.w.toFixed(1)}" height="${b.h.toFixed(1)}" fill="none" stroke="#e0007a" stroke-width="${sw.toFixed(2)}"/>`
-          + `<text x="${b.x.toFixed(1)}" y="${(b.y - sw * 3).toFixed(1)}" font-size="${(sw * 11).toFixed(1)}" fill="#e0007a" font-family="monospace">${j}</text>`;
+        h += `<rect x="${b.x.toFixed(1)}" y="${b.y.toFixed(1)}" width="${b.w.toFixed(1)}" height="${b.h.toFixed(1)}" fill="none" stroke="#ff3d9a" stroke-width="${k.toFixed(2)}"/>`
+          + `<text x="${b.x.toFixed(1)}" y="${(b.y - k * 3).toFixed(1)}" font-size="${(k * 11).toFixed(1)}" fill="#ff3d9a" font-family="monospace">${j}</text>`;
       });
     }
     g.innerHTML = h;
   }
 
-  const GIZMO_COLOR = { warp: '#0a84ff', nature: '#2e9d3a' };
+  // Unselected spatial modifiers are a faint outline; the selected one gets its full gizmo.
   function renderGizmos() {
     const g = $('gizmoG');
-    if (!$('gizmos').checked || !S) { if (g.firstChild) g.innerHTML = ''; return; }
-    const k = 1 / metrics().s; // world units per screen pixel
+    if (!prefs.gizmos || !S) { if (g.firstChild) g.innerHTML = ''; return; }
+    const k = 1 / metrics().s, col = 'var(--gizmo)';
     let h = '';
     for (const f of S.fx) {
-      const sh = f.shape, col = GIZMO_COLOR[f.type] || '#888', sel = f.id === selected;
+      const sh = f.shape, sel = f.id === selected;
       const ring = Shapes.polyD(Shapes.levelPolygon(sh, 0, 96));
-      const infl = f.type === 'warp' && f.R > 0 ? Shapes.polyD(Shapes.levelPolygon(sh, f.R, 96)) : '';
-      const outer = f.type === 'warp' && f.F > 0 ? Shapes.polyD(Shapes.levelPolygon(sh, f.R + f.F, 96)) : '';
-      const sw = (sel ? 2 : 1.25) * k;
+      const infl = f.R > 0 ? Shapes.polyD(Shapes.levelPolygon(sh, f.R, 96)) : '';
+      if (!sel) {
+        h += `<path data-gizmo="${f.id}" data-part="body" d="${infl || ring}" fill="#fff" fill-opacity="0.001" stroke="${col}" stroke-opacity="0.45" stroke-width="${k}" style="cursor:move"/>`;
+        continue;
+      }
+      const outer = f.F > 0 ? Shapes.polyD(Shapes.levelPolygon(sh, f.R + f.F, 96)) : '';
       h += `<g data-gizmo="${f.id}" data-part="body" style="cursor:move">`
-        + `<path d="${infl || ring}" fill="${col}" fill-opacity="${sel ? 0.12 : 0.06}" stroke="${col}" stroke-width="${sw}"/>`
+        + `<path d="${infl || ring}" fill="${col}" fill-opacity="0.1" stroke="${col}" stroke-width="${1.5 * k}"/>`
         + (infl ? `<path d="${ring}" fill="none" stroke="${col}" stroke-width="${k}" stroke-dasharray="${4 * k} ${3 * k}" pointer-events="none"/>` : '')
-        + (outer ? `<path d="${outer}" fill="none" stroke="${col}" stroke-opacity="0.55" stroke-width="${k}" stroke-dasharray="${1.5 * k} ${3 * k}" pointer-events="none"/>` : '')
-        + `<circle cx="${sh.cx}" cy="${sh.cy}" r="${2.5 * k}" fill="${col}"/>`
-        + `</g>`
+        + (outer ? `<path d="${outer}" fill="none" stroke="${col}" stroke-opacity="0.5" stroke-width="${k}" stroke-dasharray="${1.5 * k} ${3 * k}" pointer-events="none"/>` : '')
+        + `<circle cx="${sh.cx}" cy="${sh.cy}" r="${2.5 * k}" fill="${col}"/></g>`
         + `<line x1="${sh.cx}" y1="${sh.cy}" x2="${sh.handle[0]}" y2="${sh.handle[1]}" stroke="${col}" stroke-width="${k}" pointer-events="none"/>`
-        + `<circle data-gizmo="${f.id}" data-part="handle" cx="${sh.handle[0]}" cy="${sh.handle[1]}" r="${6 * k}" fill="#fff" stroke="${col}" stroke-width="${2 * k}" style="cursor:crosshair"/>`
-        + `<text x="${sh.handle[0] + 9 * k}" y="${sh.handle[1] - 7 * k}" font-size="${11 * k}" fill="${col}" font-family="system-ui,sans-serif" pointer-events="none">${f.type}</text>`;
+        + `<circle data-gizmo="${f.id}" data-part="handle" cx="${sh.handle[0]}" cy="${sh.handle[1]}" r="${6 * k}" fill="#000" stroke="${col}" stroke-width="${2 * k}" style="cursor:crosshair"/>`;
     }
     g.innerHTML = h;
   }
 
-  function drawFx() {
-    const cv = $('fx'), ctx = cv.getContext('2d');
-    const { m, dpr } = sizeCanvas(cv);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, cv.width, cv.height);
-    fxDrawn = false;
-    if (!field || !field.any) return;
-    if (!clipPath) clipPath = new Path2D(glyphD.join(''));
-    Nature.draw(ctx, field, S, clipPath, { s: dpr * m.s, ox: dpr * m.ox, oy: dpr * m.oy });
-    fxDrawn = true;
-  }
-
-  // White-on-black view of every spatial modifier's influence, evaluated per pixel.
+  // White-on-black view of where spatial modifiers act, evaluated per pixel.
   const maskSmall = document.createElement('canvas');
   function renderMask() {
     const cv = $('maskCv');
-    if (!$('maskView').checked || !S) { cv.style.display = 'none'; return; }
+    if (!prefs.mask || !S) { cv.style.display = 'none'; return; }
     cv.style.display = 'block';
-    const { m, dpr } = sizeCanvas(cv);
+    const m = metrics(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.round(m.W * dpr); cv.height = Math.round(m.H * dpr);
     const step = 3, w = Math.ceil(m.W / step), h = Math.ceil(m.H / step);
     maskSmall.width = w; maskSmall.height = h;
     const sctx = maskSmall.getContext('2d'), img = sctx.createImageData(w, h), px = img.data;
-    const fxs = S.fx.map(f => ({ f, b: f.shape.bound + (f.type === 'warp' ? f.R + f.F : f.shape.size * 0.2) }));
+    const fxs = S.fx.map(f => ({ f, b: f.shape.bound + f.R + f.F }));
     for (let j = 0; j < h; j++) {
       const y = ((j + 0.5) * step - m.oy) / m.s;
       for (let i = 0; i < w; i++) {
@@ -332,9 +318,7 @@
           const sh = f.shape, dx = x - sh.cx, dy = y - sh.cy;
           if (dx * dx + dy * dy > b * b) continue;
           const d = sh.sdf(x, y);
-          let wv;
-          if (f.type === 'warp') wv = (f.F > 0 ? 1 - smooth(f.R - f.F, f.R + f.F, d) : d < f.R ? 1 : 0) * f.A;
-          else { const soft = sh.size * 0.18; wv = 1 - smooth(-soft, soft * 0.4, d); }
+          const wv = (f.F > 0 ? 1 - smooth(f.R - f.F, f.R + f.F, d) : d < f.R ? 1 : 0) * f.A;
           if (wv > v) v = wv;
         }
         const o = (j * w + i) * 4, c = Math.round(v * 255);
@@ -347,7 +331,7 @@
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(maskSmall, 0, 0, w * step * dpr, h * step * dpr);
     ctx.setTransform(dpr * m.s, 0, 0, dpr * m.s, dpr * m.ox, dpr * m.oy);
-    ctx.strokeStyle = '#ff3b6b';
+    ctx.strokeStyle = '#ff3d6b';
     ctx.lineWidth = 1.2 / m.s;
     ctx.stroke(new Path2D(glyphD.join('')));
   }
@@ -357,162 +341,228 @@
   function frame(now) {
     requestAnimationFrame(frame);
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
-    if (playing) { t += dt * (+$('speed').value || 0); dirty = true; }
+    if (playing) { t += dt * (+prefs.speed || 0); dirty = true; }
     fpsN++;
     if (now - fpsT > 500) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; updateStats(); }
-    if (!base) return;
-    let changedGeom = false;
-    if (dirty) {
-      dirty = false;
-      const t0 = performance.now();
-      S = FL.evaluate(base, project.mods, t);
-      render();
-      evalMs = performance.now() - t0;
-      changedGeom = true;
-      if (document.activeElement !== $('time')) $('time').value = t % 20;
-      $('tLabel').textContent = t.toFixed(2) + 's';
-      if (now - lastErrUI > 250) { lastErrUI = now; showErrors(); }
-      renderGizmos();
-      renderMask();
-    }
-    if (!S) return;
-    const growing = field ? Nature.step(field, S, dt) : false;
-    if (growing || changedGeom || (fxDrawn && !(field && field.any))) drawFx();
+    if (!dirty || !base) return;
+    dirty = false;
+    const t0 = performance.now();
+    S = FL.evaluate(base, project.mods, t);
+    render();
+    evalMs = performance.now() - t0;
+    if (document.activeElement !== $('time')) $('time').value = t % 20;
+    $('tLabel').textContent = t.toFixed(2) + 's';
+    if (now - lastErrUI > 250) { lastErrUI = now; showErrors(); }
   }
   function updateStats() {
-    if (!S) return;
-    const live = field ? field.sites.reduce((a, s) => a + (s.g > 0 ? 1 : 0), 0) : 0;
-    $('stats').textContent = `${S.nodes.glyph.length} glyphs · ${S.contours.filter(c => !c.attach).length} contours · ${S.points} pts`
-      + (field ? ` · ${live}/${field.sites.length} growing` : '') + ` · ${evalMs.toFixed(1)} ms · ${fps} fps`;
+    const e = $('stats');
+    e.hidden = !prefs.stats;
+    if (!prefs.stats || !S) return;
+    e.textContent = `${S.nodes.glyph.length} glyphs · ${S.contours.filter(c => !c.attach).length} contours · ${S.points} pts · ${evalMs.toFixed(1)} ms · ${fps} fps`;
   }
 
-  // ---------- modifier stack UI ----------
-  const modInputs = new Map(); // id -> {key: {inp, range, msg}}
-  function renderMods() {
-    const box = $('mods');
+  // ---------- stack list ----------
+  const subLabel = m => {
+    const def = FL.MODIFIERS[m.type];
+    return def.spatial ? (m.params.shape || def.params.shape) : (def.levels.includes(m.level) ? m.level : def.levels[0]);
+  };
+  function renderList() {
+    const box = $('list');
     box.innerHTML = '';
-    modInputs.clear();
-    project.mods.forEach((m, idx) => {
+    const textName = font ? fontLabel(font) : 'Text';
+    box.append(el('div', { class: 'item' + (selected === 'text' ? ' sel' : ''), onclick: () => select(selected === 'text' ? null : 'text') },
+      el('span', { class: 'glyph' }, 'T'), el('span', { class: 'name' }, 'Text ', el('span', { class: 'sub' }, textName))));
+    for (const m of project.mods) {
       const def = FL.MODIFIERS[m.type];
-      const card = document.createElement('div');
-      card.className = 'mod' + (m.on === false ? ' off' : '') + (m.id === selected ? ' sel' : '');
-      card.dataset.id = m.id;
-      card.addEventListener('pointerdown', () => select(m.id, false));
-      const hd = document.createElement('div'); hd.className = 'hd';
-      const on = document.createElement('input'); on.type = 'checkbox'; on.checked = m.on !== false; on.title = 'enabled';
-      on.onchange = () => { m.on = on.checked; card.classList.toggle('off', !on.checked); changed(); };
-      const title = document.createElement('b'); title.textContent = def.label;
-      hd.append(on, title);
-      if (def.spatial) {
-        const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = 'spatial';
-        hd.append(tag, btn('⌖', 'move to the middle of the view', () => {
-          setParam(m, 'x', view.x + view.w / 2); setParam(m, 'y', view.y + view.h / 2); changed();
-        }));
+      const dot = el('button', { class: 'dot', title: m.on === false ? 'Turn on' : 'Turn off', onclick: e => { e.stopPropagation(); m.on = m.on === false; renderList(); changed(); } });
+      const bad = S && S.errors[m.id] && Object.keys(S.errors[m.id]).length ? el('span', { class: 'bad', title: 'This modifier has an error' }) : null;
+      box.append(el('div', { class: 'item' + (m.id === selected ? ' sel' : '') + (m.on === false ? ' off' : ''), onclick: () => select(m.id === selected ? null : m.id) },
+        dot, el('span', { class: 'name' }, def.label + ' ', el('span', { class: 'sub' }, subLabel(m))), bad));
+    }
+  }
+
+  function select(id) {
+    selected = id;
+    renderList();
+    renderInspector();
+    dirty = true;
+  }
+
+  // ---------- inspector (only the selected item) ----------
+  let refs = {};
+  const field = (label, control, doc) => el('div', { class: 'f' }, el('label', { title: doc || label }, label), control);
+
+  function sliderInput(value, [lo, hi, st], onInput, mono) {
+    const txt = el('input', { type: 'text', value: String(value), spellcheck: false, class: mono ? 'mono' : '' });
+    const rng = el('input', { type: 'range', min: lo, max: hi, step: st });
+    const v = parseFloat(value); rng.value = isFinite(v) ? v : lo;
+    rng.oninput = () => { txt.value = rng.value; onInput(rng.value); };
+    txt.oninput = () => { if (/^\s*-?[\d.]+\s*$/.test(txt.value)) rng.value = parseFloat(txt.value); onInput(txt.value); };
+    return { row: el('div', { class: 'row' }, rng, txt), txt, rng };
+  }
+
+  function renderInspector() {
+    const box = $('insp');
+    box.innerHTML = '';
+    refs = {};
+    if (selected === 'text') inspectText(box);
+    else {
+      const m = project.mods.find(x => x.id === selected);
+      if (m) inspectMod(box, m); else selected = null;
+    }
+  }
+
+  function inspectText(box) {
+    box.append(el('div', { class: 'ih' }, el('b', null, 'Text')));
+    const sel = el('select', { onchange: () => useFont(sel.value) });
+    const dev = fontOptions.filter(o => o.device), site = fontOptions.filter(o => !o.device);
+    if (dev.length) sel.append(el('optgroup', { label: 'On this device' }, ...dev.map(o => new Option(o.label, o.value))));
+    sel.append(el('optgroup', { label: 'Site' }, ...site.map(o => new Option(o.label, o.value))));
+    sel.value = project.font;
+    const isDev = project.font.startsWith('idb:');
+    box.append(field('font', el('div', { class: 'row' }, sel,
+      el('button', { title: 'Add font files (kept in this browser only)', onclick: () => $('fontFile').click() }, '+'),
+      isDev ? el('button', { title: 'Remove this font from this browser', onclick: removeFont }, '×') : null)));
+
+    box.append(el('textarea', { class: 'mono', value: project.text, spellcheck: false, oninput: e => { project.text = e.target.value; save(); rebuild(true); } }));
+    box.append(field('size', sliderInput(project.layout.size, [8, 400, 1], v => { const n = parseFloat(v); if (n > 0) { project.layout.size = n; save(); rebuild(true); } }).row));
+    box.append(field('colour', el('input', { type: 'color', value: project.fill, oninput: e => { project.fill = e.target.value; changed(); } })));
+
+    const num = (key, label, step) => field(label, el('input', { type: 'number', step, value: project.layout[key],
+      oninput: e => { const v = parseFloat(e.target.value); if (isFinite(v)) { project.layout[key] = v; save(); rebuild(); } } }));
+    const align = el('select', { onchange: e => { project.layout.align = e.target.value; save(); rebuild(true); } }, ...['left', 'center', 'right'].map(a => new Option(a, a)));
+    align.value = project.layout.align;
+    const check = (key, label) => el('label', { class: 'row' }, el('input', { type: 'checkbox', checked: !!project.layout[key], onchange: e => { project.layout[key] = e.target.checked; save(); rebuild(); } }), label);
+    box.append(el('details', null, el('summary', null, 'Spacing and features'),
+      num('lineHeight', 'line height', 0.05), num('letterSpacing', 'letters', 1), num('wordSpacing', 'words', 1),
+      field('align', align), field('', el('div', { class: 'row' }, check('kerning', 'kerning'), check('liga', 'ligatures')))));
+  }
+
+  function inspectMod(box, m) {
+    const def = FL.MODIFIERS[m.type], idx = project.mods.indexOf(m);
+    const head = el('div', { class: 'ih' }, el('b', null, def.label),
+      el('button', { class: 'ghost', title: 'Move up', onclick: () => moveMod(idx, -1) }, '↑'),
+      el('button', { class: 'ghost', title: 'Move down', onclick: () => moveMod(idx, 1) }, '↓'),
+      el('button', { class: 'ghost', title: 'Duplicate', onclick: () => { const c = Object.assign(clone(m), { id: uid() }); project.mods.splice(idx + 1, 0, c); select(c.id); changed(); } }, '⧉'),
+      el('button', { class: 'ghost', title: 'Delete', onclick: () => { project.mods.splice(idx, 1); select(null); changed(); } }, '✕'));
+    box.append(head);
+    if (!def.spatial) {
+      const lvl = el('select', { onchange: () => { m.level = lvl.value; renderList(); changed(); } }, ...def.levels.map(l => new Option('per ' + l, l)));
+      lvl.value = def.levels.includes(m.level) ? m.level : def.levels[0];
+      box.append(field('acts on', lvl));
+    }
+    for (const key in def.params) {
+      if (def.spatial && (key === 'x' || key === 'y')) {
+        if (key === 'y') continue;
+        // x and y share one row, plus a button that brings the modifier into view
+        const xy = ['x', 'y'].map(k => el('input', { type: 'text', class: 'mono', spellcheck: false, title: `${k} (drag the gizmo, or type an expression)`,
+          value: m.params[k], oninput: e => { m.params[k] = e.target.value; changed(); } }));
+        const msgs = xy.map(() => { const d = el('div', { class: 'msg' }); d.hidden = true; return d; });
+        const f = field('position', el('div', { class: 'row xy' }, xy[0], xy[1],
+          el('button', { class: 'ghost', title: 'Move to the middle of the view', onclick: () => { setParam(m, 'x', view.x + view.w / 2); setParam(m, 'y', view.y + view.h / 2); changed(); } }, '⌖')));
+        f.append(...msgs);
+        box.append(f);
+        refs.x = { inp: xy[0], rng: null, msg: msgs[0] };
+        refs.y = { inp: xy[1], rng: null, msg: msgs[1] };
+        continue;
+      }
+      const doc = (def.docs && def.docs[key]) || '';
+      const msg = el('div', { class: 'msg' }); msg.hidden = true;
+      let control, inp, rng = null;
+      if (def.choice && def.choice[key]) {
+        inp = el('select', { title: doc, onchange: () => { m.params[key] = inp.value; renderList(); changed(); } }, ...def.choice[key].map(o => new Option(o, o)));
+        inp.value = m.params[key] || def.params[key];
+        control = inp;
+      } else if (def.ui && def.ui[key]) {
+        const s = sliderInput(m.params[key] != null ? m.params[key] : def.params[key], def.ui[key], v => { m.params[key] = v; changed(); }, true);
+        control = s.row; inp = s.txt; rng = s.rng;
       } else {
-        const lvl = document.createElement('select');
-        for (const l of def.levels) lvl.append(new Option('per ' + l, l));
-        lvl.value = def.levels.includes(m.level) ? m.level : def.levels[0];
-        lvl.onchange = () => { m.level = lvl.value; changed(); };
-        hd.append(lvl);
+        inp = el('input', { type: 'text', class: 'mono', spellcheck: false, title: doc, value: m.params[key] != null ? m.params[key] : '',
+          placeholder: def.params[key] === '' ? 'unchanged' : def.params[key], oninput: () => { m.params[key] = inp.value; changed(); } });
+        control = inp;
       }
-      hd.append(btn('↑', 'move up', () => move(idx, -1)), btn('↓', 'move down', () => move(idx, 1)),
-        btn('⧉', 'duplicate', () => { project.mods.splice(idx + 1, 0, Object.assign(clone(m), { id: uid() })); renderMods(); changed(); }),
-        btn('✕', 'delete', () => { project.mods.splice(idx, 1); renderMods(); changed(); }));
-      card.append(hd);
-      const grid = document.createElement('div'); grid.className = 'p';
-      const refs = {};
-      for (const key in def.params) {
-        const doc = (def.docs && def.docs[key]) || '';
-        const lab = document.createElement('label'); lab.textContent = key; lab.title = doc;
-        const msg = document.createElement('div'); msg.className = 'msg'; msg.hidden = true;
-        let cell, inp, range = null;
-        if (def.choice && def.choice[key]) {
-          inp = document.createElement('select'); inp.title = doc;
-          for (const o of def.choice[key]) inp.append(new Option(o, o));
-          inp.value = m.params[key] || def.params[key];
-          inp.onchange = () => { m.params[key] = inp.value; changed(); };
-          cell = inp;
-        } else {
-          inp = document.createElement('input'); inp.type = 'text'; inp.spellcheck = false; inp.title = doc;
-          inp.value = m.params[key] != null ? m.params[key] : '';
-          inp.placeholder = def.params[key] === '' ? '(unchanged)' : def.params[key];
-          cell = inp;
-          if (def.ui && def.ui[key]) {
-            const [lo, hi, st] = def.ui[key];
-            range = document.createElement('input'); range.type = 'range'; range.min = lo; range.max = hi; range.step = st; range.title = doc;
-            const v = parseFloat(inp.value);
-            range.value = isFinite(v) ? v : lo;
-            range.oninput = () => { inp.value = range.value; m.params[key] = range.value; changed(); };
-            cell = document.createElement('div'); cell.className = 'num';
-            cell.append(range, inp);
-          }
-          inp.oninput = () => {
-            m.params[key] = inp.value;
-            if (range && /^\s*-?[\d.]+\s*$/.test(inp.value)) range.value = parseFloat(inp.value);
-            changed();
-          };
-        }
-        grid.append(lab, cell, msg);
-        refs[key] = { inp, range, msg };
-      }
-      card.append(grid);
-      box.append(card);
-      modInputs.set(m.id, refs);
-    });
-    if (!project.mods.length) box.innerHTML = '<div style="color:var(--mute)">Empty. Add a modifier or load a preset.</div>';
+      const f = field(key, control, doc);
+      f.append(msg);
+      box.append(f);
+      refs[key] = { inp, rng, msg };
+    }
+    box.append(el('details', null, el('summary', null, 'Expression help'), $('helpTpl').content.cloneNode(true)));
+    showErrors();
   }
-  function btn(txt, title, fn) { const b = document.createElement('button'); b.textContent = txt; b.title = title; b.onclick = fn; return b; }
-  function move(idx, d) {
-    const j = idx + d;
-    if (j < 0 || j >= project.mods.length) return;
-    const [m] = project.mods.splice(idx, 1); project.mods.splice(j, 0, m);
-    renderMods(); changed();
-  }
+
   function setParam(m, key, v) {
     const s = String(Math.round(v * 10) / 10);
     m.params[key] = s;
-    const r = modInputs.get(m.id);
-    if (r && r[key]) { r[key].inp.value = s; if (r[key].range) r[key].range.value = s; }
+    if (m.id === selected && refs[key]) { refs[key].inp.value = s; if (refs[key].rng) refs[key].rng.value = s; }
   }
-  function select(id, scroll) {
-    if (selected === id) return;
-    selected = id;
-    for (const c of $('mods').children) c.classList && c.classList.toggle('sel', c.dataset.id === id);
-    if (scroll) { const c = [...$('mods').children].find(c => c.dataset.id === id); if (c) c.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
-    dirty = true;
+  function moveMod(idx, d) {
+    const j = idx + d;
+    if (j < 0 || j >= project.mods.length) return;
+    const [m] = project.mods.splice(idx, 1); project.mods.splice(j, 0, m);
+    renderList(); renderInspector(); changed();
   }
+
+  let errSig = '';
   function showErrors() {
     if (!S) return;
-    for (const [id, refs] of modInputs) {
-      const e = S.errors[id] || {};
-      for (const key in refs) {
-        const msg = e[key] || '';
-        refs[key].inp.classList.toggle('err', !!msg);
-        refs[key].msg.hidden = !msg;
-        refs[key].msg.textContent = msg;
-      }
+    const e = (selected && S.errors[selected]) || {};
+    for (const key in refs) {
+      const msg = e[key] || '';
+      refs[key].inp.classList.toggle('err', !!msg);
+      refs[key].msg.hidden = !msg;
+      refs[key].msg.textContent = msg;
     }
+    const sig = Object.keys(S.errors).join(',');
+    if (sig !== errSig) { errSig = sig; renderList(); }
   }
-  function changed() { ensureNature(); dirty = true; save(); }
+  function changed() { dirty = true; save(); }
 
-  function fillAddLevels() {
-    const def = FL.MODIFIERS[$('addType').value], sel = $('addLevel');
-    sel.innerHTML = '';
-    for (const l of def.levels) sel.append(new Option(def.spatial ? 'spatial' : 'per ' + l, l));
+  function addModifier(type) {
+    const def = FL.MODIFIERS[type];
+    const m = { id: uid(), type, level: def.levels[0], on: true, params: Object.assign({}, def.params) };
+    if (def.spatial) { m.params.x = String(Math.round(view.x + view.w / 2)); m.params.y = String(Math.round(view.y + view.h / 2)); }
+    project.mods.push(m);
+    select(m.id);
+    changed();
+  }
+  function addPreset(name) {
+    const mods = PRESETS[name]();
+    project.mods.push(...mods);
+    t = 0;
+    select(mods[mods.length - 1].id);
+    changed();
   }
 
-  // ---------- project form ----------
-  const LAYOUT_FIELDS = ['size', 'lineHeight', 'letterSpacing', 'wordSpacing'];
-  function syncForm() {
-    $('text').value = project.text;
-    for (const k of LAYOUT_FIELDS) $(k).value = project.layout[k];
-    $('align').value = project.layout.align;
-    $('kerning').checked = !!project.layout.kerning;
-    $('liga').checked = !!project.layout.liga;
-    $('fill').value = project.fill;
-    $('bg').value = project.bg;
+  // ---------- menus ----------
+  function closeMenus() { for (const m of document.querySelectorAll('.menu')) m.hidden = true; }
+  function setupMenus() {
+    for (const b of document.querySelectorAll('[data-menu]')) {
+      b.onclick = e => {
+        e.stopPropagation();
+        const menu = $(b.dataset.menu), open = menu.hidden;
+        closeMenus();
+        if (!open) return;
+        // fixed position under the button, kept on screen (the side panel would clip it otherwise)
+        const r = b.getBoundingClientRect();
+        menu.hidden = false;
+        menu.style.top = r.bottom + 4 + 'px';
+        menu.style.maxHeight = Math.max(120, innerHeight - r.bottom - 12) + 'px';
+        menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + 'px';
+      };
+    }
+    document.addEventListener('pointerdown', e => { if (!e.target.closest('.dd')) closeMenus(); });
+    window.addEventListener('resize', closeMenus);
+    $('side').addEventListener('scroll', closeMenus);
+    for (const m of document.querySelectorAll('.menu')) m.addEventListener('click', e => { if (e.target.closest('button')) closeMenus(); });
+
+    const add = $('addMenu');
+    add.append(el('div', { class: 'mh' }, 'Modifier'));
+    for (const k in FL.MODIFIERS) add.append(el('button', { onclick: () => addModifier(k) }, FL.MODIFIERS[k].label));
+    add.append(el('hr'), el('div', { class: 'mh' }, 'Preset'));
+    for (const name in PRESETS) add.append(el('button', { onclick: () => addPreset(name) }, name));
   }
 
+  // ---------- files ----------
   function download(name, data, type) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type }));
@@ -520,107 +570,69 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
-
   async function exportPNG() {
     if (!S) return;
     const m = metrics(), dpr = 2, W = Math.round(m.W * dpr), H = Math.round(m.H * dpr);
-    const vb = [-m.ox / m.s, -m.oy / m.s, m.W / m.s, m.H / m.s];
-    const svg = FL.toSVG(S, { fill: project.fill, background: project.bg, viewBox: vb, width: W, height: H });
+    const svg = FL.toSVG(S, { fill: project.fill, background: '#000', viewBox: [-m.ox / m.s, -m.oy / m.s, m.W / m.s, m.H / m.s], width: W, height: H });
     const img = new Image();
     img.src = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-    try { await img.decode(); } catch (e) { status('PNG export failed: ' + e.message, true); return; }
-    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-    const ctx = cv.getContext('2d');
-    ctx.drawImage(img, 0, 0, W, H);
+    try { await img.decode(); } catch (e) { toast('PNG export failed: ' + e.message, true); return; }
+    const cv = el('canvas', { width: W, height: H });
+    cv.getContext('2d').drawImage(img, 0, 0, W, H);
     URL.revokeObjectURL(img.src);
-    if (fxDrawn) ctx.drawImage($('fx'), 0, 0, W, H);
     cv.toBlob(b => download('fontlab-frame.png', b), 'image/png');
+  }
+  async function openProject(file) {
+    try {
+      project = normalize(JSON.parse(await file.text()));
+      selected = null; save(); renderList(); renderInspector();
+      await refreshFonts(); useFont(project.font);
+    } catch (err) { toast('Could not open project: ' + err.message, true); }
   }
 
   // ---------- wiring ----------
   function wire() {
-    $('fontSel').onchange = e => useFont(e.target.value);
+    setupMenus();
     $('fontFile').onchange = e => { addFontFiles([...e.target.files]); e.target.value = ''; };
-    $('fontDel').onclick = async () => {
-      const v = $('fontSel').value;
-      if (!v.startsWith('idb:')) { status('Site fonts cannot be removed here.', true); return; }
-      if (!confirm(`Remove ${v.slice(4)} from this browser?`)) return;
-      await db.del(v.slice(4));
-      project.font = DEFAULT_PROJECT.font;
-      await refreshFonts(); useFont(project.font);
-    };
-    $('exportGlyphs').onclick = () => {
-      if (!font) return;
-      const name = (fontLabel(font) || 'font').replace(/[^\w.-]+/g, '_');
-      download(name + '.glyphs.json', JSON.stringify(FL.fontToJSON(font)), 'application/json');
-    };
-
-    $('text').oninput = e => { project.text = e.target.value; save(); rebuild(true); };
-    for (const k of LAYOUT_FIELDS) $(k).oninput = e => { const v = parseFloat(e.target.value); if (isFinite(v)) { project.layout[k] = v; save(); rebuild(k === 'size'); } };
-    $('align').onchange = e => { project.layout.align = e.target.value; save(); rebuild(true); };
-    $('kerning').onchange = e => { project.layout.kerning = e.target.checked; save(); rebuild(); };
-    $('liga').onchange = e => { project.layout.liga = e.target.checked; save(); rebuild(); };
-    $('fill').oninput = e => { project.fill = e.target.value; changed(); };
-    $('bg').oninput = e => { project.bg = e.target.value; changed(); };
-
-    for (const name in PRESETS) $('preset').append(new Option(name, name));
-    $('presetLoad').onclick = () => { project.mods = PRESETS[$('preset').value](); t = 0; renderMods(); changed(); };
-    $('presetAdd').onclick = () => { project.mods.push(...PRESETS[$('preset').value]()); renderMods(); changed(); };
-
-    for (const k in FL.MODIFIERS) $('addType').append(new Option(FL.MODIFIERS[k].label, k));
-    $('addType').onchange = fillAddLevels;
-    fillAddLevels();
-    $('addMod').onclick = () => {
-      const type = $('addType').value, def = FL.MODIFIERS[type];
-      const m = { id: uid(), type, level: $('addLevel').value, on: true, params: Object.assign({}, def.params) };
-      project.mods.push(m);
-      renderMods();
-      if (def.spatial) { setParam(m, 'x', view.x + view.w / 2); setParam(m, 'y', view.y + view.h / 2); select(m.id, true); }
-      changed();
-    };
-
-    for (const l of FL.LEVELS) $('overlay').append(new Option('per ' + l, l));
-    $('overlay').onchange = () => { dirty = true; };
-    $('gizmos').onchange = () => { dirty = true; };
-    $('maskView').onchange = () => { dirty = true; };
+    $('projFile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) openProject(f); };
 
     $('play').onclick = togglePlay;
     $('time').oninput = e => { t = parseFloat(e.target.value); dirty = true; };
     $('fit').onclick = fit;
+    const pref = (id, key, prop) => { const e = $(id); e[prop] = prefs[key]; e.onchange = e.oninput = () => { prefs[key] = prop === 'checked' ? e.checked : e.value; save(); dirty = true; updateStats(); }; };
+    for (const l of FL.LEVELS) $('overlay').append(new Option(l, l));
+    pref('gizmos', 'gizmos', 'checked'); pref('maskView', 'mask', 'checked'); pref('statsOn', 'stats', 'checked');
+    pref('overlay', 'overlay', 'value'); pref('speed', 'speed', 'value');
+
+    $('exportSvg').onclick = () => { if (S) download('fontlab-frame.svg', FL.toSVG(S, { fill: project.fill, background: '#000' }), 'image/svg+xml'); };
+    $('exportPng').onclick = exportPNG;
+    $('exportGlyphs').onclick = () => { if (font) download(fontLabel(font).replace(/[^\w.-]+/g, '_') + '.glyphs.json', JSON.stringify(FL.fontToJSON(font)), 'application/json'); };
+    $('saveProj').onclick = () => download('fontlab-project.json', JSON.stringify(project, null, 2), 'application/json');
+    $('openProj').onclick = () => $('projFile').click();
+    $('reset').onclick = () => {
+      if (!confirm('Reset text, layout and modifiers to defaults? Added fonts are kept.')) return;
+      project = normalize(clone(DEFAULT_PROJECT)); selected = null; save(); renderList(); renderInspector(); useFont(project.font);
+    };
+
     document.addEventListener('keydown', e => {
-      if (e.code === 'Space' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); togglePlay(); }
+      const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+      if (e.code === 'Space' && !typing) { e.preventDefault(); togglePlay(); }
+      if (e.key === 'Escape') { closeMenus(); if (!typing) select(null); }
     });
 
-    $('exportSvg').onclick = () => { if (S) download('fontlab-frame.svg', FL.toSVG(S, { fill: project.fill, background: project.bg }), 'image/svg+xml'); };
-    $('exportPng').onclick = exportPNG;
-    $('exportProj').onclick = () => download('fontlab-project.json', JSON.stringify(project, null, 2), 'application/json');
-    $('importProjBtn').onclick = () => $('importProj').click();
-    $('importProj').onchange = async e => {
-      const f = e.target.files[0]; e.target.value = '';
-      if (!f) return;
-      try { project = normalize(JSON.parse(await f.text())); syncForm(); renderMods(); save(); await refreshFonts(); useFont($('fontSel').value); }
-      catch (err) { status('Could not open project: ' + err.message, true); }
-    };
-    $('reset').onclick = () => {
-      if (!confirm('Reset text, layout and modifiers to defaults? Stored fonts are kept.')) return;
-      project = normalize(clone(DEFAULT_PROJECT)); syncForm(); renderMods(); save(); useFont(project.font);
-    };
-
-    // drag and drop fonts anywhere
-    let dragDepth = 0;
-    window.addEventListener('dragenter', e => { if (e.dataTransfer.types.includes('Files')) { dragDepth++; document.body.classList.add('dragging'); } });
-    window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+    // drag and drop fonts or a project anywhere
+    let depth = 0;
+    window.addEventListener('dragenter', e => { if (e.dataTransfer.types.includes('Files')) { depth++; document.body.classList.add('dragging'); } });
+    window.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; document.body.classList.remove('dragging'); } });
     window.addEventListener('dragover', e => e.preventDefault());
     window.addEventListener('drop', e => {
-      e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
+      e.preventDefault(); depth = 0; document.body.classList.remove('dragging');
       const files = [...e.dataTransfer.files];
-      const proj = files.find(f => /\.json$/i.test(f.name));
-      const fonts = files.filter(f => /\.(ttf|otf|woff2?)$/i.test(f.name));
-      if (fonts.length) addFontFiles(fonts);
-      else if (proj) { const dt = new DataTransfer(); dt.items.add(proj); $('importProj').files = dt.files; $('importProj').onchange({ target: $('importProj') }); }
+      const fonts = files.filter(f => /\.(ttf|otf|woff2?)$/i.test(f.name)), proj = files.find(f => /\.json$/i.test(f.name));
+      if (fonts.length) addFontFiles(fonts); else if (proj) openProject(proj);
     });
 
-    // stage: drag gizmos, otherwise pan (one pointer) and pinch-zoom (two)
+    // stage: drag gizmos; otherwise pan (one pointer) and pinch-zoom (two); a plain click deselects
     const ui = $('ui');
     ui.addEventListener('wheel', e => {
       e.preventDefault();
@@ -629,19 +641,22 @@
       applyView();
     }, { passive: false });
     const ptrs = new Map();
+    let downAt = null;
     ui.addEventListener('pointerdown', e => {
       ui.setPointerCapture(e.pointerId);
+      closeMenus();
       const gz = e.target.closest && e.target.closest('[data-gizmo]');
       if (gz && !ptrs.size && S) {
         const m = project.mods.find(x => x.id === gz.dataset.gizmo), f = S.fx.find(x => x.id === gz.dataset.gizmo);
         if (m && f) {
           const w = toWorld(e.clientX, e.clientY);
           drag = { pid: e.pointerId, m, part: gz.dataset.part, dx: w.x - f.shape.cx, dy: w.y - f.shape.cy, cx: f.shape.cx, cy: f.shape.cy };
-          select(m.id, true);
+          if (selected !== m.id) select(m.id);
           return;
         }
       }
       ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+      downAt = ptrs.size === 1 ? [e.clientX, e.clientY] : null;
     });
     ui.addEventListener('pointermove', e => {
       if (drag && e.pointerId === drag.pid) {
@@ -672,19 +687,23 @@
       ptrs.set(e.pointerId, [e.clientX, e.clientY]);
       applyView();
     });
-    const up = e => { ptrs.delete(e.pointerId); if (drag && drag.pid === e.pointerId) drag = null; };
+    const up = e => {
+      if (drag && drag.pid === e.pointerId) { drag = null; return; }
+      if (downAt && ptrs.size === 1 && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 4 && selected) select(null);
+      ptrs.delete(e.pointerId);
+      downAt = null;
+    };
     ui.addEventListener('pointerup', up);
-    ui.addEventListener('pointercancel', up);
+    ui.addEventListener('pointercancel', e => { ptrs.delete(e.pointerId); downAt = null; if (drag && drag.pid === e.pointerId) drag = null; });
     window.addEventListener('resize', () => { dirty = true; });
   }
-  function togglePlay() { playing = !playing; $('play').textContent = playing ? 'Pause' : 'Play'; last = performance.now(); }
+  function togglePlay() { playing = !playing; $('play').textContent = playing ? '❚❚' : '▶'; last = performance.now(); }
 
   // ---------- start ----------
   wire();
-  syncForm();
-  renderMods();
-  refreshFonts().then(() => useFont($('fontSel').value));
+  renderList();
+  refreshFonts().then(() => useFont(project.font));
   requestAnimationFrame(frame);
 
-  window.fontlab = { get project() { return project; }, get frame() { return S; }, get font() { return font; }, get field() { return field; } }; // for console tinkering
+  window.fontlab = { get project() { return project; }, get frame() { return S; }, get font() { return font; } }; // for console tinkering
 })();
