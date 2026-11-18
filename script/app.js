@@ -24,10 +24,9 @@
     return { id: uid(), type, level, on: true, params: def.spatial ? Object.assign({}, def.params, params) : params };
   };
   const PRESETS = {
-    'Warp: star': () => [M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', falloff: '25', feather: '0.7' })],
-    'Warp: full feather': () => [M('warp', 'space', { x: '330', y: '-40', size: '45', intensity: '6', falloff: '60', feather: '1' })],
-    'Warp: sweeping circle': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', falloff: '45', feather: '0.8' })],
-    'Warp: star rounding off': () => [M('warp', 'space', { shape: 'star', x: '380', y: '40', size: '90', rot: 't*20', intensity: '20 + tri(t*0.15)*60', falloff: '10', feather: '0' })],
+    'Warp: star': () => [M('warp', 'space', { shape: 'star', x: '470', y: '-45', size: '55', intensity: '10', falloff: '25' })],
+    'Warp: sweeping circle': () => [M('warp', 'space', { x: '380 + sin(t*0.7)*420', y: '-40', size: '40', intensity: '8', falloff: '45' })],
+    'Warp: star rounding off': () => [M('warp', 'space', { shape: 'star', x: '380', y: '40', size: '90', rot: 't*20', intensity: '20 + tri(t*0.15)*60', falloff: '10' })],
     'Wave': () => [M('transform', 'glyph', { ty: 'sin(t*3 - i*0.6) * size*0.12' })],
     'Typewriter': () => [M('visible', 'glyph', { show: 'fract(t*0.15)*n*1.6 - i' })],
     'Wobbly outlines': () => [
@@ -71,7 +70,11 @@
     p.mods = (p.mods || []).filter(m => FL.MODIFIERS[m.type]).map(m => {
       m = Object.assign({ id: uid(), on: true, params: {} }, m);
       const def = FL.MODIFIERS[m.type];
-      if (def.spatial) m.params = Object.assign({}, def.params, m.params);
+      if (def.spatial) { // keep only settings the modifier still has
+        const p = Object.assign({}, def.params);
+        for (const k in p) if (m.params[k] != null) p[k] = m.params[k];
+        m.params = p;
+      }
       return m;
     });
     return p;
@@ -220,107 +223,9 @@
     for (let gi = 0; gi < S.nodes.glyph.length; gi++) glyphD.push(FL.glyphPathData(S, gi));
     const big = [view.x - view.w * 50, view.y - view.h * 50, view.w * 101, view.h * 101];
     $('scene').innerHTML = FL.frameMarkup(S, { fill: project.fill, region: big, id: 'live' });
-    renderUnder();
     renderOverlay();
     renderGizmos();
     renderMask();
-  }
-
-  // ---------- feather ----------
-  // When a warp pushes an edge of the script, the strip between where the edge was and where
-  // it is now used to be script and is now background. Feather turns that strip into a
-  // gradient: the script colour at the edge's new position, fading to black at its old one.
-  // Edges the warp barely moved get a thin soft edge, edges it moved far get a long one, and
-  // edges it did not move stay crisp.
-  //
-  // Per warp, on a grid around it: every pixel that used to be script is visited in order of
-  // its distance to the shape, and inherits from the pixel just behind it (against the
-  // warp's push) the distance level where its run of old script began, i.e. the old edge.
-  // The warp maps that level to the new edge's level, and the pixel's own level gives its
-  // place between the two.
-  const hexRGB = h => { const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || ''); return m ? [1, 2, 3].map(i => parseInt(m[i], 16)) : [255, 255, 255]; };
-  let featherCache = { S: null, layers: [] };
-  function featherLayers() {
-    if (featherCache.S === S) return featherCache.layers;
-    const layers = [], warps = S.fx.filter(f => f.type === 'warp' && f.B > 0 && f.before);
-    if (warps.length) {
-      const [r, g, b] = hexRGB(project.fill);
-      for (const w of warps) {
-        const sh = w.shape, ext = sh.bound + w.R + w.F + 4, x0 = sh.cx - ext, y0 = sh.cy - ext, size = ext * 2;
-        const n = 220, cell = size / n;
-        const before = new Path2D(w.before), O = new Uint8Array(n * n);
-        {
-          const ctx = el('canvas', { width: n, height: n }).getContext('2d', { willReadFrequently: true });
-          ctx.setTransform(1 / cell, 0, 0, 1 / cell, -x0 / cell, -y0 / cell);
-          ctx.fill(before);
-          const d = ctx.getImageData(0, 0, n, n).data;
-          for (let i = 0; i < n * n; i++) O[i] = d[i * 4 + 3] > 127 ? 1 : 0;
-        }
-        const target = d => d + w.A * (FL.smax(d, w.R, w.F) - d);
-        const d0 = sh.sdf(sh.cx, sh.cy);
-        const lvl = new Float32Array(n * n), idx = [];
-        for (let i = 0; i < n * n; i++) if (O[i]) { lvl[i] = sh.sdf(x0 + (i % n + 0.5) * cell, y0 + ((i / n | 0) + 0.5) * cell); idx.push(i); }
-        idx.sort((a, c) => lvl[a] - lvl[c]);
-        const edge = new Float32Array(n * n).fill(NaN);
-        for (const i of idx) {
-          const ix = i % n, iy = i / n | 0, px = x0 + (ix + 0.5) * cell, py = y0 + (iy + 0.5) * cell;
-          let a = lvl[i];
-          if (lvl[i] > d0 + cell) {
-            const f = sh.flow(px, py);
-            for (let k = 1; k <= 3; k++) { // step back against the push until a decided pixel or the old edge
-              const qx = Math.floor((px - f[0] * cell * k - x0) / cell), qy = Math.floor((py - f[1] * cell * k - y0) / cell);
-              if (qx < 0 || qy < 0 || qx >= n || qy >= n) break;
-              const j = qy * n + qx;
-              if (!O[j]) break;
-              if (!isNaN(edge[j])) { a = edge[j]; break; }
-            }
-          }
-          edge[i] = a;
-        }
-        const cv = el('canvas', { width: n, height: n }), ctx = cv.getContext('2d'), img = ctx.createImageData(n, n), px = img.data;
-        const lo = 1 - w.B;
-        for (const i of idx) {
-          // 0 at the old edge, 1 at the new edge and beyond (under the script, which covers it)
-          const a = edge[i], e = target(a);
-          let v = e > a + 1e-6 ? Math.min(1, Math.max(0, (lvl[i] - a) / (e - a))) : 1;
-          v = v <= lo ? 0 : smooth(lo, 1, v);
-          const o = i * 4;
-          px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = Math.round(v * 255);
-        }
-        ctx.putImageData(img, 0, 0);
-        layers.push({ cv, x: x0, y: y0, size, clip: before, clipD: w.before });
-      }
-    }
-    featherCache = { S, layers };
-    return layers;
-  }
-  // M maps world to device pixels: { s, ox, oy }
-  function drawFeather(ctx, M) {
-    const layers = featherLayers();
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighten'; // overlapping warps: the brighter gradient wins
-    for (const L of layers) {
-      ctx.save();
-      ctx.setTransform(M.s, 0, 0, M.s, M.ox, M.oy);
-      ctx.clip(L.clip);
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(L.cv, L.x, L.y, L.size, L.size);
-      ctx.restore();
-    }
-    ctx.restore();
-  }
-  function renderUnder() {
-    const cv = $('under'), m = metrics(), dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = Math.round(m.W * dpr), h = Math.round(m.H * dpr);
-    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
-    const ctx = cv.getContext('2d');
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    drawFeather(ctx, { s: dpr * m.s, ox: dpr * m.ox, oy: dpr * m.oy });
-  }
-  function featherSVG() {
-    return featherLayers().map((L, k) => `<clipPath id="fc${k}"><path d="${L.clipD}"/></clipPath>`
-      + `<image href="${L.cv.toDataURL()}" x="${L.x}" y="${L.y}" width="${L.size}" height="${L.size}" preserveAspectRatio="none" clip-path="url(#fc${k})"/>`).join('');
   }
 
   function renderOverlay() {
@@ -659,8 +564,6 @@
     const cv = el('canvas', { width: W, height: H }), ctx = cv.getContext('2d');
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
-    drawFeather(ctx, { s: dpr * m.s, ox: dpr * m.ox, oy: dpr * m.oy });
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(img, 0, 0, W, H);
     URL.revokeObjectURL(img.src);
     cv.toBlob(b => download('fontlab-frame.png', b), 'image/png');
@@ -687,7 +590,7 @@
     pref('gizmos', 'gizmos', 'checked'); pref('maskView', 'mask', 'checked'); pref('statsOn', 'stats', 'checked');
     pref('overlay', 'overlay', 'value'); pref('speed', 'speed', 'value');
 
-    $('exportSvg').onclick = () => { if (S) download('fontlab-frame.svg', FL.toSVG(S, { fill: project.fill, background: '#000', under: featherSVG() }), 'image/svg+xml'); };
+    $('exportSvg').onclick = () => { if (S) download('fontlab-frame.svg', FL.toSVG(S, { fill: project.fill, background: '#000' }), 'image/svg+xml'); };
     $('exportPng').onclick = exportPNG;
     $('exportGlyphs').onclick = () => { if (font) download(fontLabel(font).replace(/[^\w.-]+/g, '_') + '.glyphs.json', JSON.stringify(FL.fontToJSON(font)), 'application/json'); };
     $('saveProj').onclick = () => download('fontlab-project.json', JSON.stringify(project, null, 2), 'application/json');
@@ -788,5 +691,5 @@
   refreshFonts().then(() => useFont(project.font));
   requestAnimationFrame(frame);
 
-  window.fontlab = { get project() { return project; }, get frame() { return S; }, get font() { return font; }, featherLayers }; // for console tinkering
+  window.fontlab = { get project() { return project; }, get frame() { return S; }, get font() { return font; } }; // for console tinkering
 })();
