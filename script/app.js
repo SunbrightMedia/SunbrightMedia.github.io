@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const FL = window.FontLab, Shapes = FL.Shapes, TR = window.FontLabTransitions, ST = window.FontLabStrokes;
+  const FL = window.FontLab, Shapes = FL.Shapes, TR = window.FontLabTransitions, ST = window.FontLabStrokes, SCH = window.FontLabSchemes;
   const $ = id => document.getElementById(id);
   const clone = o => JSON.parse(JSON.stringify(o));
   const uid = () => Math.random().toString(36).slice(2, 9);
@@ -61,6 +61,8 @@
     'Posterized heat': () => [E('heatmap', {}, 'glyph'), E('posterize', { levels: '4' })],
     'Kamisuki noise (shader demo)': () => [E('kamisuki', { scale: '5', radius: '0', gradient: '0.45' })],
     'Kamisuki erode': () => [E('kamisuki', { mode: 'erode', scale: '8', radius: '0.45', blend: '0.1', amount: '0.9' })],
+    'Satin': () => [E('satin', {})],
+    'Satin in colour (the shader)': () => [E('satin', {}), E('gradmap', { map: 'satin' })],
   };
 
   // Transitions are latched to a script.
@@ -78,6 +80,12 @@
     fill: '#ffffff', x: 0, y: 0, group: null, effects: [], transitions: [],
   }, o);
   const defaultProject = () => ({ scripts: [newScript({ id: 's1', text: 'Sunbright\nfont lab' })], groups: [], mods: MOD_PRESETS['Warp: star']() });
+  // schemes: the settings of each gradient map
+  function normSchemes(sc) {
+    const old = (sc && sc.gradientMaps) || {}, maps = {};
+    for (const k in SCH.GRADIENT_MAPS) { const it = { params: (old[k] && old[k].params) || {} }; keepParams(it, SCH.GRADIENT_MAPS[k]); maps[k] = it; }
+    return { gradientMaps: maps };
+  }
 
   const STORE_KEY = 'fontlab.project.v1', UI_KEY = 'fontlab.ui.v1';
   function loadProject() {
@@ -138,7 +146,7 @@
       if (FL.MODIFIERS[m.type].spatial) keepParams(m, FL.MODIFIERS[m.type]);
       return m;
     });
-    return { scripts: p.scripts, groups: p.groups, mods: p.mods };
+    return { scripts: p.scripts, groups: p.groups, mods: p.mods, schemes: normSchemes(p.schemes) };
   }
   let saveTimer = 0;
   function save() {
@@ -355,6 +363,25 @@
   let reveal = null; // what transitions show of each glyph this frame (null: everything)
   const needsGL = () => hasEffects() || !!reveal;
 
+  // ---------- schemes ----------
+  const gradientLUT = name => SCH.lut(name, project.schemes.gradientMaps[name] ? project.schemes.gradientMaps[name].params : {}, t);
+  function paintSwatch(cv, name) {
+    if (!cv.isConnected) return;
+    if (cv.width !== 256 || cv.height !== 1) { cv.width = 256; cv.height = 1; }
+    const c = cv.getContext('2d'), img = c.createImageData(256, 1);
+    img.data.set(gradientLUT(name));
+    c.putImageData(img, 0, 0);
+  }
+  const swatches = [];
+  const swatch = (name, big) => { const cv = el('canvas', { class: 'swatch' + (big ? ' big' : '') }); cv.dataset.map = name; swatches.push(cv); paintSwatch(cv, name); return cv; };
+  function updateSwatches() {
+    for (let i = swatches.length - 1; i >= 0; i--) {
+      const cv = swatches[i];
+      if (!cv.isConnected) { swatches.splice(i, 1); continue; }
+      paintSwatch(cv, cv.dataset.map);
+    }
+  }
+
   // ---------- transitions ----------
   function glyphBox(gi) { return FL.bbox(S, S.nodes.glyph[gi].cs.filter(ci => !S.hidden[ci] && !S.contours[ci].attach)); }
   function strokeAnalysis(gi) {
@@ -392,6 +419,7 @@
     const big = [view.x - view.w * 50, view.y - view.h * 50, view.w * 101, view.h * 101];
     $('scene').innerHTML = needsGL() ? '' : FL.frameMarkup(S, { fill: '#ffffff', fills, region: big, id: 'live' });
     renderEffects();
+    updateSwatches();
     renderOverlay();
     renderGizmos();
     renderMask();
@@ -408,7 +436,7 @@
     }
     if (!GLR) return null;
     const holes = S.holes.length ? S.holes.map(Shapes.polyD).join('') : null;
-    try { return GLR.render({ W, H, s, ox, oy, glyphD, style: S.style, fills, holes, reveal, units: units(), time: S.t }); }
+    try { return GLR.render({ W, H, s, ox, oy, glyphD, style: S.style, fills, holes, reveal, gradient: gradientLUT, units: units(), time: S.t }); }
     catch (e) { toast('Drawing failed: ' + e.message, true); return null; }
   }
   function renderEffects() {
@@ -607,6 +635,11 @@
       }
     }
     if (!tb.firstChild) tb.append(el('div', { class: 'empty' }, 'none · + Transition adds one to the selected script'));
+    // schemes
+    const sb = $('schemeList');
+    sb.innerHTML = '';
+    sb.append(el('div', { class: 'owner nohover' }, 'gradient maps'));
+    for (const k in SCH.GRADIENT_MAPS) sb.append(row('c:' + k, 1, swatch(k), SCH.GRADIENT_MAPS[k].label, '', false, false));
     const mb = $('modList');
     mb.innerHTML = '';
     for (const m of project.mods) {
@@ -648,6 +681,7 @@
     else if (k === 'g' && groupById(id)) inspectGroup(box, groupById(id));
     else if (k === 'e' && effectById(id)) inspectEffect(box, effectById(id));
     else if (k === 't' && transitionById(id)) inspectTransition(box, transitionById(id));
+    else if (k === 'c' && SCH.GRADIENT_MAPS[id]) inspectScheme(box, id);
     else if (k === 'm' && modById(id)) inspectMod(box, modById(id));
     else selected = null;
   }
@@ -745,6 +779,14 @@
     params(box, tr, def);
   }
 
+  function inspectScheme(box, name) {
+    const def = SCH.GRADIENT_MAPS[name], it = project.schemes.gradientMaps[name], o = currentScript();
+    box.append(head(def.label, 'gradient map',
+      ghost('+ use', 'Add a Gradient map effect with this map to ' + scriptName(o), () => { select('s:' + o.id); addEffects([E('gradmap', { map: name })]); })));
+    box.append(swatch(name, true));
+    params(box, it, def);
+  }
+
   function inspectMod(box, m) {
     const def = FL.MODIFIERS[m.type];
     box.append(head(def.label, '',
@@ -816,7 +858,7 @@
       box.append(f);
       refs[key] = { inp, rng, msg };
     }
-    if (!def.roles) box.append(el('details', null, el('summary', null, 'Expression help'), $('helpTpl').content.cloneNode(true)));
+    if (!def.roles && !def.scheme) box.append(el('details', null, el('summary', null, 'Expression help'), $('helpTpl').content.cloneNode(true)));
     showErrors();
   }
   // a small graph of an animation curve: progress across, eased progress up

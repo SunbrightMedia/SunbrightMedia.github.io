@@ -16,6 +16,8 @@
  *             traced in characters shaped like them (| / \ _ ( ) ...), the rest by brightness;
  *             blur blurs what is beneath first, glow spills the characters' light around them
  *   posterize what is beneath, reduced to a number of levels per colour channel
+ *   satin     a satin-like play of light (after a satin-noise shader), in black and white
+ *   gradmap   what is beneath, recoloured by brightness through a gradient map (schemes.js)
  *
  * Blurs (of the script's coverage, or of what is beneath) are made on demand: halved with a
  * 4x4 box filter until the radius is a few texels, then two separable Gaussian passes.
@@ -309,6 +311,62 @@ void main() {
 uniform float amount;
 void main() { gl_FragColor = min(texture2D(src, uv) + texture2D(spill, uv) * amount, 1.0); }`;
 
+  // Satin (after a satin-noise shader): two noise fields drifting through 3D noise are a light
+  // and a surface normal; their dot product is the light of the cloth. Drawn in black and white,
+  // stretched by lo..hi to run from pure black to pure white. With probe set it writes the raw
+  // value (16 bits in red and green) over a box instead, so the stretch can be measured.
+  const SATIN = COMMON + `uniform vec2 offset, centre, box0, box1;
+uniform vec4 seeds;
+uniform float unit, psize, strength, grainAmt, shimmer, pw, lo, hi, amount, probe;
+vec3 hash33(vec3 p3) { p3 = fract(p3 * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yxz + 33.33); return fract((p3.xxy + p3.yxx) * p3.zyx); }
+float hash13(vec3 p3) { p3 = fract(p3 * 0.1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }
+float gnoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p), u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  float a = dot(hash33(i) * 2.0 - 1.0, f);
+  float b = dot(hash33(i + vec3(1.0, 0.0, 0.0)) * 2.0 - 1.0, f - vec3(1.0, 0.0, 0.0));
+  float c = dot(hash33(i + vec3(0.0, 1.0, 0.0)) * 2.0 - 1.0, f - vec3(0.0, 1.0, 0.0));
+  float d = dot(hash33(i + vec3(1.0, 1.0, 0.0)) * 2.0 - 1.0, f - vec3(1.0, 1.0, 0.0));
+  float e = dot(hash33(i + vec3(0.0, 0.0, 1.0)) * 2.0 - 1.0, f - vec3(0.0, 0.0, 1.0));
+  float g = dot(hash33(i + vec3(1.0, 0.0, 1.0)) * 2.0 - 1.0, f - vec3(1.0, 0.0, 1.0));
+  float h = dot(hash33(i + vec3(0.0, 1.0, 1.0)) * 2.0 - 1.0, f - vec3(0.0, 1.0, 1.0));
+  float k = dot(hash33(i + 1.0) * 2.0 - 1.0, f - 1.0);
+  return mix(mix(mix(a, b, u.x), mix(c, d, u.x), u.y), mix(mix(e, g, u.x), mix(h, k, u.x), u.y), u.z);
+}
+vec2 perlin23(vec3 p) { return vec2(gnoise(p), gnoise(p + vec3(31.7, 11.3, 5.9))) * 0.5 + 0.5; }
+vec3 perlin33(vec3 p) { return vec3(gnoise(p), gnoise(p + vec3(31.7, 11.3, 5.9)), gnoise(p + vec3(-17.1, 43.7, 23.3))) * 0.5 + 0.5; }
+float satin(vec2 w, vec2 px) {
+  vec2 q = (w - centre) / unit;
+  q.y = -q.y;
+  vec2 distortion = perlin23(vec3(offset - q * psize, seeds.x)) * strength;
+  vec3 at = vec3(offset + q * psize + distortion, 0.0);
+  vec3 light = normalize(2.0 * perlin33(at + vec3(0.0, 0.0, seeds.y)) - 1.0 + 1e-5);
+  vec3 normal = normalize(2.0 * perlin33(at + vec3(0.0, 0.0, seeds.z)) - 1.0 + 1e-5);
+  float n = (1.0 + dot(normal, light)) / 2.0;
+  n += hash13(vec3(px, shimmer > 0.5 ? seeds.w : 0.0)) * grainAmt;
+  return pow(max(n, 0.0), pw);
+}
+void main() {
+  if (probe > 0.5) {
+    float v = clamp(satin(box0 + gl_FragCoord.xy / res * box1, gl_FragCoord.xy), 0.0, 1.0) * 255.0;
+    gl_FragColor = vec4(floor(v) / 255.0, fract(v), 0.0, 1.0);
+    return;
+  }
+  float v = clamp((satin(worldPos(), gl_FragCoord.xy) - lo) / max(hi - lo, 1e-4), 0.0, 1.0);
+  vec4 pv = texture2D(prev, uv);
+  gl_FragColor = vec4(mix(pv.rgb, vec3(v) * pv.a, amount), pv.a);
+}`;
+
+  // Gradient map: what is beneath, recoloured by its brightness through a 256-step map.
+  const GRADMAP = COMMON + `uniform sampler2D gmap;
+uniform float amount;
+void main() {
+  vec4 pv = texture2D(prev, uv);
+  if (pv.a < 0.002) { gl_FragColor = pv; return; }
+  float L = clamp(dot(pv.rgb / pv.a, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
+  vec3 c = texture2D(gmap, vec2((L * 255.0 + 0.5) / 256.0, 0.5)).rgb;
+  gl_FragColor = vec4(mix(pv.rgb, c * pv.a, amount), pv.a);
+}`;
+
   // Posterize: each colour channel of what is beneath snapped to n levels; transparency is kept.
   const POSTER = COMMON + `uniform float levels;
 void main() {
@@ -340,7 +398,7 @@ void main() {
       return { pr, u };
     };
     const P = {};
-    for (const [k, src] of Object.entries({ down: DOWN, blur: BLUR, tex: TEX, final: FINAL, heatmap: HEAT, kamisuki: KAMI, ascii: ASCII, asciiPick: ASCII_PICK, asciiEdge: ASCII_EDGE, asciiTint: ASCII_TINT, bloom: BLOOM, posterize: POSTER })) P[k] = program(src);
+    for (const [k, src] of Object.entries({ down: DOWN, blur: BLUR, tex: TEX, final: FINAL, heatmap: HEAT, kamisuki: KAMI, ascii: ASCII, asciiPick: ASCII_PICK, asciiEdge: ASCII_EDGE, asciiTint: ASCII_TINT, bloom: BLOOM, posterize: POSTER, satin: SATIN, gradmap: GRADMAP })) P[k] = program(src);
 
     const quad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quad);
@@ -369,13 +427,14 @@ void main() {
       for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
     };
     const pickT = target(), tintT = target(); // one texel per ASCII cell: which character it shows, in which colour
+    const probeT = target(), probeBuf = new Uint8Array(48 * 48 * 4), gmapTex = texture(); // satin's stretch; gradient maps
     for (const T of [pickT, tintT]) { gl.bindTexture(gl.TEXTURE_2D, T.tex); nearest(); }
     const maskTex = texture(), colorTex = texture(), lutTex = texture(), pool = [];
     let poolUsed = 0, lutName = null;
     const mcv = document.createElement('canvas'), mctx = mcv.getContext('2d');
     const gcv = document.createElement('canvas'), gctx = gcv.getContext('2d'); // one glyph at a time, for transitions
 
-    // bind a program and set uniforms by name: numbers, [x, y], [r, g, b] or textures
+    // bind a program and set uniforms by name: numbers, [x, y], [r, g, b], [x, y, z, w] or textures
     function use(prog, uniforms) {
       const p = P[prog];
       gl.useProgram(p.pr);
@@ -388,6 +447,7 @@ void main() {
         else if (typeof v === 'number') gl.uniform1f(loc, v);
         else if (v.length === 2) gl.uniform2f(loc, v[0], v[1]);
         else if (v.length === 3) gl.uniform3f(loc, v[0], v[1], v[2]);
+        else if (v.length === 4) gl.uniform4f(loc, v[0], v[1], v[2], v[3]);
       }
     }
     const draw = (T, w, h) => { gl.bindFramebuffer(gl.FRAMEBUFFER, T ? T.fb : null); gl.viewport(0, 0, T ? T.w : w, T ? T.h : h); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); };
@@ -660,6 +720,29 @@ void main() {
             continue;
           } else if (r.type === 'posterize') {
             un.levels = r.levels;
+          } else if (r.type === 'satin') {
+            const P = r.P, b = r.box, pad = Math.max(b.w, b.h) * 0.02;
+            Object.assign(un, {
+              offset: P.offset, centre: [b.cx, b.cy], seeds: P.seeds, unit: r.unit, psize: P.size, strength: P.strength,
+              grainAmt: P.grain * r.grain, shimmer: r.shimmer ? 1 : 0, pw: P.p, amount: r.amount,
+            });
+            // measure the spread of its light over the script (48 x 48 samples), for the stretch to black and white
+            sizeTarget(probeT, 48, 48);
+            use('satin', Object.assign({}, un, { probe: 1, res: [48, 48], box0: [b.x - pad, b.y - pad], box1: [b.w + 2 * pad, b.h + 2 * pad] }));
+            draw(probeT);
+            gl.readPixels(0, 0, 48, 48, gl.RGBA, gl.UNSIGNED_BYTE, probeBuf);
+            const vals = new Float32Array(48 * 48);
+            for (let i = 0; i < vals.length; i++) vals[i] = (probeBuf[i * 4] + probeBuf[i * 4 + 1] / 255) / 255;
+            vals.sort();
+            un.lo = vals[Math.floor(vals.length * 0.01)]; un.hi = vals[Math.floor(vals.length * 0.99)];
+            un.probe = 0;
+          } else if (r.type === 'gradmap') {
+            const data = o.gradient ? o.gradient(r.map) : null;
+            if (!data) continue;
+            gl.bindTexture(gl.TEXTURE_2D, gmapTex);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+            Object.assign(un, { gmap: gmapTex, amount: r.amount });
           } else continue;
           use(r.type, un);
           draw(other);

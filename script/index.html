@@ -41,6 +41,10 @@
   .item .dot.fx { width: 8px; height: 8px; border-radius: 1px; transform: rotate(45deg); margin: 0 1px; }
   .item .dot.tr { border-radius: 2px; width: 9px; height: 9px; }
   .curve { margin-top: 6px; }
+  .swatch { width: 26px; height: 10px; border-radius: 2px; flex: none; image-rendering: auto; }
+  .swatch.big { display: block; width: 100%; height: 22px; margin: 0 0 10px; }
+  .owner.nohover { cursor: default; }
+  .owner.nohover:hover { color: var(--mute); }
   .sh.sect { margin-top: 16px; }
   .owner { color: var(--mute); font-size: 11px; padding: 6px 8px 2px; cursor: pointer; user-select: none; }
   .owner:hover { color: var(--fg); }
@@ -124,6 +128,8 @@
     <div class="dd"><button class="ghost" data-menu="modMenu" title="Modifiers act on whatever script they touch">+ Modifier</button></div>
   </div>
   <div id="modList"></div>
+  <div class="sh sect"><span>Schemes</span></div>
+  <div id="schemeList"></div>
   <div id="insp"></div>
 </aside>
 <div class="menu" id="modMenu" hidden></div>
@@ -188,12 +194,13 @@
 
 <!-- Bump ?v= whenever a script changes: GitHub Pages lets browsers cache files for 10 minutes,
      and the version keeps a new page from running next to old cached scripts. -->
-<script src="lib/opentype.min.js?v=2026-11-18.9"></script>
-<script src="shapes.js?v=2026-11-18.9"></script>
-<script src="engine.js?v=2026-11-18.9"></script>
-<script src="strokes.js?v=2026-11-18.9"></script>
-<script src="transitions.js?v=2026-11-18.9"></script>
-<script src="gl.js?v=2026-11-18.9"></script>
-<script src="app.js?v=2026-11-18.9"></script>
+<script src="lib/opentype.min.js?v=2026-11-18.10"></script>
+<script src="shapes.js?v=2026-11-18.10"></script>
+<script src="schemes.js?v=2026-11-18.10"></script>
+<script src="engine.js?v=2026-11-18.10"></script>
+<script src="strokes.js?v=2026-11-18.10"></script>
+<script src="transitions.js?v=2026-11-18.10"></script>
+<script src="gl.js?v=2026-11-18.10"></script>
+<script src="app.js?v=2026-11-18.10"></script>
 </body>
 </html>

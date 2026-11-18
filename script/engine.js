@@ -20,7 +20,7 @@
 
   const LEVELS = ['text', 'line', 'word', 'glyph', 'contour', 'point'];
   const D2R = Math.PI / 180;
-  const Shapes = root.FontLabShapes;
+  const Shapes = root.FontLabShapes, Schemes = root.FontLabSchemes;
 
   // ---------- helpers usable inside expressions ----------
   function hash2(a, b) {
@@ -211,6 +211,34 @@
       ui: { levels: [2, 32, 1] },
       docs: { levels: 'colour levels per channel: what is beneath is reduced to this many steps of red, green and blue' },
       apply: fxPosterize,
+    },
+    // After a satin-noise shader: the lighting of two drifting noise fields, in black and white,
+    // its contrast stretched so it runs from pure black to pure white over the script.
+    satin: {
+      label: 'Satin',
+      global: true,
+      levels: ['text'],
+      params: { scale: '1', speed: '1', seed: '0', grain: '1', shimmer: 'on', amount: '1' },
+      choice: { shimmer: ['on', 'off'] },
+      ui: { scale: [0.1, 4, 0.01], speed: [0, 8, 0.01], seed: [0, 100, 1], grain: [0, 3, 0.01], amount: [0, 1, 0.01] },
+      docs: {
+        scale: 'size of the folds of light, relative to the font size', speed: 'how fast it drifts (1 = the shader\'s pace, 0 = still)',
+        seed: 'which satin: another seed, another pattern (the Satin gradient map with the same seed gives the shader\'s colours)',
+        grain: 'fine noise over it', shimmer: 'on: the grain changes every frame', amount: 'how much it replaces the colour beneath',
+      },
+      apply: fxSatin,
+    },
+    // Recolours what is beneath by its brightness, through a gradient map from Schemes.
+    gradmap: {
+      label: 'Gradient map',
+      global: true,
+      subKey: 'map',
+      levels: ['text'],
+      params: { map: 'satin', amount: '1' },
+      choice: { map: Object.keys((Schemes && Schemes.GRADIENT_MAPS) || { satin: 1 }) },
+      ui: { amount: [0, 1, 0.01] },
+      docs: { map: 'the gradient map (see Schemes): black takes its left end, white its right', amount: 'how much it replaces the colour beneath' },
+      apply: fxGradmap,
     },
   };
 
@@ -526,6 +554,21 @@
       resolution: Math.max(0.5, c.num('resolution', 18)), pitch: Math.min(3, Math.max(0.34, c.num('pitch', 1))), edges: Math.max(0, c.num('edges', 1)), gain: Math.max(0, c.num('gain', 1.2)),
       blur: k('blur', 0), glow: k('glow', 0), rain: k('rain', 0.75), flicker: Math.max(0, c.num('flicker', 1)),
     };
+  }
+
+  function fxSatin(S, owner, c, e) {
+    const cs = [];
+    for (const g of owner.glyphs) for (const ci of S.nodes.glyph[g].cs) if (!S.hidden[ci]) cs.push(ci);
+    const b = bbox(S, cs), p = e.params || {};
+    return {
+      P: Schemes.satinParams(c.num('seed', 0) + c.env.t * c.num('speed', 1) / 16), box: b,
+      unit: owner.size * 4 * Math.max(0.01, c.num('scale', 1)), grain: Math.max(0, c.num('grain', 1)), shimmer: p.shimmer !== 'off',
+      amount: Math.min(1, Math.max(0, c.num('amount', 1))),
+    };
+  }
+  function fxGradmap(S, owner, c, e) {
+    const p = e.params || {}, maps = EFFECTS.gradmap.choice.map;
+    return { map: maps.includes(p.map) ? p.map : maps[0], amount: Math.min(1, Math.max(0, c.num('amount', 1))) };
   }
 
   function fxPosterize(S, owner, c) {
