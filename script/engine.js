@@ -137,6 +137,26 @@
       },
       apply: applyWarp,
     },
+
+    // ---- surface modifiers: shade the final shape per pixel (drawn by gl.js) ----
+    heatmap: {
+      label: 'Heatmap',
+      surface: true,
+      levels: ['glyph', 'word', 'line', 'text'],
+      params: {
+        temp: '0.68 + 0.26*noise(i*0.9 + 3, t*0.2)', palette: 'thermal', core: '0.6', spread: '0.12', mottle: '0.35',
+        glow: '0.6', grain: '0.4', ghosts: '0.35', hud: 'word', bars: 'on',
+      },
+      choice: { palette: ['thermal', 'iron', 'arctic', 'white hot'], hud: ['off', 'glyph', 'word', 'line'], bars: ['on', 'off'] },
+      ui: { core: [0, 1, 0.01], spread: [0, 0.5, 0.01], mottle: [0, 1, 0.01], glow: [0, 1, 0.01], grain: [0, 1, 0.01], ghosts: [0, 1, 0.01] },
+      docs: {
+        temp: 'temperature of each element, 0 = coldest colour, 1 = hottest (an expression per element)',
+        palette: 'colour scale', core: 'how much hotter the thick middle of strokes runs', spread: 'how far heat diffuses and glows, relative to the font size',
+        mottle: 'drifting blotches of warmer and cooler heat', glow: 'heat halo around the script', grain: 'halftone and sensor grain',
+        ghosts: 'grey silhouettes of the script drifting behind it', hud: 'scan boxes with labels and temperature readouts', bars: 'temperature scale bars at the sides',
+      },
+      apply: applyHeatmap,
+    },
   };
 
   function makeCtx(S, m, def, t) {
@@ -406,6 +426,26 @@
     }
   }
 
+  // Heatmap: per-element temperatures (0..1) for the glyphs; the per-pixel work happens in gl.js.
+  function applyHeatmap(S, level, c, m) {
+    const list = S.nodes[level], n = list.length, temps = new Float32Array(S.nodes.glyph.length).fill(NaN);
+    for (let j = 0; j < n; j++) {
+      const nd = list[j];
+      setNode(c.env, nd, j, n, bbox(S, nd.cs));
+      const v = Math.min(1, Math.max(0, c.num('temp', 0.5)));
+      for (const g of nd.gl) temps[g] = v;
+    }
+    setNode(c.env, list[0] || S.nodes.text[0], 0, 1, { x: 0, y: 0, w: 0, h: 0, cx: 0, cy: 0 });
+    const k = (key, d) => Math.min(1, Math.max(0, c.num(key, d)));
+    const p = m.params || {}, def = MODIFIERS.heatmap;
+    const pick = key => (def.choice[key].includes(p[key]) ? p[key] : def.params[key]);
+    S.surface.push({
+      type: 'heatmap', id: m.id, temps, palette: pick('palette'), hud: pick('hud'), bars: pick('bars'),
+      core: k('core', 0.55), spread: Math.min(0.5, Math.max(0, c.num('spread', 0.12))), mottle: k('mottle', 0.35),
+      glow: k('glow', 0.55), grain: k('grain', 0.4), ghosts: k('ghosts', 0.35),
+    });
+  }
+
   function applyVisible(S, level, c) {
     const list = S.nodes[level], n = list.length;
     for (let j = 0; j < n; j++) {
@@ -460,7 +500,7 @@
     const rootNode = base.nodes.text[0];
 
     String(text).split('\n').forEach((lt, li) => {
-      const line = nd('line', li, { li });
+      const line = nd('line', li, { li, text: lt });
       base.nodes.line.push(line);
       const y = li * size * o.lineHeight;
       let x = 0;
@@ -508,7 +548,8 @@
       hidden: new Uint8Array(base.contours.length),
       style: base.nodes.glyph.map(() => ({})),
       errors: {},
-      fx: [],       // spatial modifiers that ran, for gizmos, masks and surface effects
+      fx: [],       // spatial modifiers that ran, for gizmos and masks
+      surface: [],  // surface modifiers (per-pixel shading), drawn by gl.js
       holes: [],    // polygons the warp emptied
       points: 0,
       t,

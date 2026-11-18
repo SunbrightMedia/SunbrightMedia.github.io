@@ -80,7 +80,7 @@
   /* stage */
   #stageWrap { flex: 1; position: relative; min-height: 0; background: #000; overflow: hidden; }
   #stageWrap > svg, #stageWrap > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-  #svg, #maskCv { pointer-events: none; }
+  #svg, #maskCv, #gl { pointer-events: none; }
   #maskCv { display: none; }
   #ui { touch-action: none; cursor: grab; }
   #toast { position: absolute; left: 12px; bottom: 10px; color: var(--mute); font-size: 12px; pointer-events: none; transition: opacity .4s; }
@@ -141,7 +141,7 @@
   <div id="stageWrap">
     <svg id="svg" xmlns="http://www.w3.org/2000/svg"><g id="scene"></g></svg>
     <canvas id="maskCv"></canvas>
-    <svg id="ui" xmlns="http://www.w3.org/2000/svg"><g id="overlayG"></g><g id="gizmoG"></g></svg>
+    <svg id="ui" xmlns="http://www.w3.org/2000/svg"><g id="hudG" pointer-events="none"></g><g id="overlayG"></g><g id="gizmoG"></g></svg>
     <div id="toast"></div>
     <div id="stats" hidden></div>
   </div>
@@ -165,6 +165,7 @@
 <script src="lib/opentype.min.js"></script>
 <script src="shapes.js"></script>
 <script src="engine.js"></script>
+<script src="gl.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
