@@ -3,16 +3,16 @@
  *   intro / outro  completely new text appearing, or text disappearing
  *   inter          one text changing into a completely different one (none yet)
  *
- * A transition is latched to a script and placed on the timeline: it starts at `start` seconds
- * (the time slider runs from 0 to 20 and the timeline loops there) and lasts `duration`. Its
- * progress runs through an animation curve.
+ * A transition is latched to a script and plays when it is triggered (its play button, or when
+ * it is added), on the timeline's clock, so pausing or scrubbing pauses or scrubs it too; a
+ * script can also loop its intro and outro for previewing. Its progress runs through an
+ * animation curve.
  *
  *   stroke  (intro, outro) the letters are drawn in the way they are probably written, stroke
  *           by stroke (see strokes.js); the outro undraws them
  */
 (function (root) {
   'use strict';
-  const LOOP = 20;
 
   // ---------- animation curves: progress 0..1 in, eased progress out ----------
   // cubic-bezier(x1, y1, x2, y2), as in CSS
@@ -51,28 +51,30 @@
   };
   const CURVES = {
     linear: x => x,
-    ease: bezier(0.25, 0.1, 0.25, 1),
-    'ease in': bezier(0.42, 0, 1, 1),
-    'ease out': bezier(0, 0, 0.58, 1),
-    'ease in-out': bezier(0.42, 0, 0.58, 1),
+    'ease in': IN.cubic,
+    'ease out': outOf(IN.cubic),
+    'ease in-out': inOutOf(IN.cubic),
+    overshoot: outOf(IN.back),
+    bounce: bounceOut,
+    custom: null, // cubic-bezier from the bezier field
   };
-  for (const k in IN) {
-    CURVES[k + ' in'] = IN[k];
-    CURVES[k + ' out'] = k === 'bounce' ? bounceOut : outOf(IN[k]);
-    CURVES[k + ' in-out'] = inOutOf(IN[k]);
+  const CURVE_LIST = Object.keys(CURVES);
+  // a curve name from before the list was cut down, as the nearest one still in it
+  function curveName(name) {
+    name = String(name || '');
+    if (CURVES[name] !== undefined) return name;
+    if (/back|elastic/.test(name)) return 'overshoot';
+    if (/bounce/.test(name)) return 'bounce';
+    if (/in-out/.test(name) || name === 'ease') return 'ease in-out';
+    if (/ out$/.test(name)) return 'ease out';
+    if (/ in$/.test(name)) return 'ease in';
+    if (name === 'steps') return 'linear';
+    return 'ease in-out';
   }
-  CURVES['steps'] = null; // steps(n), from the bezier field: its first number
-  CURVES.custom = null;   // cubic-bezier from the bezier field
-  const CURVE_GROUPS = {
-    basic: ['linear', 'ease', 'ease in', 'ease out', 'ease in-out'],
-    in: Object.keys(IN).map(k => k + ' in'),
-    out: Object.keys(IN).map(k => k + ' out'),
-    'in-out': Object.keys(IN).map(k => k + ' in-out'),
-    other: ['steps', 'custom'],
-  };
   const bezCache = new Map();
-  // the curve function for a name; custom and steps read their numbers from `numbers` ("x1, y1, x2, y2" / "n")
+  // the curve function for a name; custom reads its cubic-bezier from `numbers` ("x1, y1, x2, y2")
   function curve(name, numbers) {
+    name = curveName(name);
     if (name === 'custom') {
       const key = String(numbers);
       if (!bezCache.has(key)) {
@@ -82,11 +84,7 @@
       }
       return bezCache.get(key);
     }
-    if (name === 'steps') {
-      const n = Math.max(1, Math.round(parseFloat(numbers) || 5));
-      return x => (x >= 1 ? 1 : Math.floor(Math.max(0, x) * n) / n);
-    }
-    return CURVES[name] || CURVES.linear;
+    return CURVES[name];
   }
 
   // ---------- transitions ----------
@@ -94,19 +92,20 @@
     stroke: {
       label: 'Stroke',
       roles: ['intro', 'outro'],
-      params: { role: 'intro', start: '0.3', duration: '3', curve: 'ease in-out', bezier: '0.42, 0, 0.58, 1', stagger: '0.2', order: 'reading', erase: 'reverse', softness: '0.05' },
+      params: { role: 'intro', duration: '3', curve: 'ease in-out', bezier: '0.42, 0, 0.58, 1', stagger: '0.2', order: 'reading', erase: 'reverse', softness: '0.05' },
       choice: { role: ['intro', 'outro'], order: ['reading', 'reverse', 'centre out', 'random'], erase: ['reverse', 'forward'] },
       curve: ['curve'],
       text: ['bezier'],
-      only: { erase: { role: 'outro' }, bezier: { curve: ['custom', 'steps'] } },
-      ui: { start: [0, LOOP, 0.05], duration: [0.1, 10, 0.05], stagger: [0, 1, 0.01], softness: [0, 1, 0.01] },
+      only: { erase: { role: 'outro' }, bezier: { curve: 'custom' } },
+      ends: { stagger: ['all at once', 'one by one'] },
+      dims: { order: p => (num(p.stagger, 0.2) > 0 ? '' : 'stagger is 0: every letter goes at once, so the order makes no difference') },
+      ui: { duration: [0.1, 10, 0.05], stagger: [0, 1, 0.01], softness: [0, 1, 0.01] },
       docs: {
         role: 'intro: the text is drawn in; outro: it is undrawn',
-        start: 'when it begins, in seconds on the timeline (0 to 20; the timeline loops)',
         duration: 'how long it takes, in seconds, for the whole script',
         curve: 'the pace of each letter: how its pen speeds up and slows down',
-        bezier: 'custom: cubic-bezier x1, y1, x2, y2 (as in CSS); steps: the number of steps',
-        stagger: '0 = every letter at once, 1 = each letter after the one before',
+        bezier: 'cubic-bezier x1, y1, x2, y2, as in CSS',
+        stagger: 'how the letters follow each other: 0 = all at once, 1 = each one starts when the one before has finished',
         order: 'which letters go first',
         erase: 'reverse: the pen runs back over its strokes, last first; forward: the strokes vanish in the order they were drawn',
         softness: 'how soft the front of the pen is',
@@ -128,42 +127,53 @@
   // What each glyph shows at a time: undefined (all of it), 0 (nothing), or { lo, hi, soft }: the
   // part the pen reaches between moments lo and hi (0..1, see strokes.js), with a soft front of
   // `soft` pixels. scripts: the project's scripts; glyphsOf(si): the glyph indices of script si
-  // that have a shape.
-  function evaluate(scripts, glyphsOf, time) {
-    const tl = ((time % LOOP) + LOOP) % LOOP, out = [];
+  // that have a shape; runs: script id -> { id, t0 } (a transition playing since t0) or
+  // { loop: true, t0 } (its intro, a hold, its outro and a pause, over and over).
+  const HOLD = 1.2, GAP = 0.8;
+  function evaluate(scripts, glyphsOf, time, runs) {
+    const out = [];
     let any = false;
     scripts.forEach((sc, si) => {
+      const run = runs && runs.get(sc.id);
+      if (!run) return;
       const list = (sc.transitions || []).filter(tr => tr && tr.on !== false && TRANSITIONS[tr.type]);
       if (!list.length) return;
       const glyphs = glyphsOf(si), n = glyphs.length;
       if (!n) return;
-      const lo = new Float32Array(n), hi = new Float32Array(n).fill(1), soft = new Float32Array(n).fill(1.5);
-      for (const tr of list) {
-        const def = TRANSITIONS[tr.type], p = Object.assign({}, def.params, tr.params);
-        const start = num(p.start, 0), dur = Math.max(0.01, num(p.duration, 1)), P = (tl - start) / dur;
-        const intro = p.role !== 'outro';
-        if (intro ? P >= 1 : P <= 0) continue;     // done, or not begun: the text as it is
-        const stagger = Math.min(1, Math.max(0, num(p.stagger, 0.2))), rk = ranks(n, p.order);
-        const steps = Math.max(...rk) || 0, D = 1 / (1 + steps * stagger), ease = curve(p.curve, p.bezier);
-        const sw = 1.5 + Math.min(1, Math.max(0, num(p.softness, 0.05))) * 58;
-        for (let j = 0; j < n; j++) {
-          const g = Math.min(1, Math.max(0, (P - rk[j] * stagger * D) / D));
-          const e = g <= 0 ? 0 : g >= 1 ? 1 : ease(g);
-          let a = 0, b = 1;
-          if (intro) b = g <= 0 ? -1 : e;
-          else if (p.erase === 'forward') a = g >= 1 ? 2 : e;
-          else b = g >= 1 ? -1 : 1 - e;
-          lo[j] = Math.max(lo[j], a); hi[j] = Math.min(hi[j], b); soft[j] = Math.max(soft[j], sw);
-        }
+      const P = tr => Object.assign({}, TRANSITIONS[tr.type].params, tr.params), dur = tr => Math.max(0.05, num(P(tr).duration, 1));
+      // which transition, and how far through it (P < 0: not begun; P >= 1: over)
+      let tr = null, prog = 0;
+      if (run.loop) {
+        const intro = list.find(x => P(x).role !== 'outro'), outro = list.find(x => P(x).role === 'outro');
+        const dIn = intro ? dur(intro) : 0, dOut = outro ? dur(outro) : 0, period = dIn + HOLD + dOut + GAP;
+        const ph = (((time - run.t0) % period) + period) % period;
+        if (intro && ph < dIn) { tr = intro; prog = ph / dIn; }
+        else if (outro && ph >= dIn + HOLD) { tr = outro; prog = (ph - dIn - HOLD) / dOut; }
+        else return;
+      } else {
+        tr = list.find(x => x.id === run.id);
+        if (!tr) return;
+        prog = (time - run.t0) / dur(tr);
       }
+      const p = P(tr), intro = p.role !== 'outro';
+      if (intro ? prog >= 1 : prog <= 0) return;   // done, or not begun: the text as it is
+      const stagger = Math.min(1, Math.max(0, num(p.stagger, 0.2))), rk = ranks(n, p.order);
+      const steps = Math.max(...rk) || 0, D = 1 / (1 + steps * stagger), ease = curve(p.curve, p.bezier);
+      const sw = 1.5 + Math.min(1, Math.max(0, num(p.softness, 0.05))) * 58;
       for (let j = 0; j < n; j++) {
-        if (lo[j] <= 0 && hi[j] >= 1) continue;
+        const g = Math.min(1, Math.max(0, (prog - rk[j] * stagger * D) / D));
+        const e = g <= 0 ? 0 : g >= 1 ? 1 : ease(g);
+        let lo = 0, hi = 1;
+        if (intro) hi = g <= 0 ? -1 : e;
+        else if (p.erase === 'forward') lo = g >= 1 ? 2 : e;
+        else hi = g >= 1 ? -1 : 1 - e;
+        if (lo <= 0 && hi >= 1) continue;
         any = true;
-        out[glyphs[j]] = hi[j] <= 0 || lo[j] >= 1 || hi[j] <= lo[j] ? 0 : { lo: lo[j], hi: hi[j], soft: soft[j] };
+        out[glyphs[j]] = hi <= 0 || lo >= 1 || hi <= lo ? 0 : { lo, hi, soft: sw };
       }
     });
     return any ? out : null;
   }
 
-  root.FontLabTransitions = { LOOP, CURVES, CURVE_GROUPS, curve, TRANSITIONS, evaluate };
+  root.FontLabTransitions = { CURVES, CURVE_LIST, curve, curveName, TRANSITIONS, evaluate };
 })(typeof window !== 'undefined' ? window : globalThis);

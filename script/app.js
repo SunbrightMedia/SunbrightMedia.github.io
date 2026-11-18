@@ -69,7 +69,7 @@
   const T = (type, params) => ({ id: uid(), type, on: true, params: Object.assign({}, TR.TRANSITIONS[type].params, params) });
   const TR_PRESETS = {
     'Stroke in': () => T('stroke', { role: 'intro' }),
-    'Stroke out': () => T('stroke', { role: 'outro', start: '8' }),
+    'Stroke out': () => T('stroke', { role: 'outro' }),
     'Stroke in, letter by letter': () => T('stroke', { role: 'intro', duration: '4', stagger: '1', curve: 'sine in-out' }),
     'Stroke in, all at once': () => T('stroke', { role: 'intro', duration: '2', stagger: '0', curve: 'cubic out' }),
   };
@@ -115,6 +115,7 @@
     return (list || []).filter(tr => tr && TR.TRANSITIONS[tr.type]).map(tr => {
       tr = Object.assign({ id: uid(), on: true, params: {} }, tr);
       keepParams(tr, TR.TRANSITIONS[tr.type]);
+      if (tr.params.curve != null) tr.params.curve = TR.curveName(tr.params.curve); // curves since cut down to the essentials
       return tr;
     });
   }
@@ -392,11 +393,25 @@
     return ST.analyze(d, b, (S.sizes && S.sizes[g.si]) || S.size);
   }
   const maskCanvases = new Map();
+  // transitions playing: script id -> { id: transition, t0 } or { loop: true, t0 } (not saved)
+  const runs = new Map();
+  function playTransition(tr, owner) {
+    runs.set(owner.id, { id: tr.id, t0: t });
+    if (!playing) togglePlay();
+    dirty = true;
+  }
+  function toggleLoop(owner) {
+    const r = runs.get(owner.id);
+    if (r && r.loop) runs.delete(owner.id); else runs.set(owner.id, { loop: true, t0: t });
+    if (!playing) togglePlay();
+    dirty = true;
+    renderInspector();
+  }
   function transitionReveal() {
     if (!project.scripts.some(sc => sc.transitions.some(tr => tr.on !== false))) return null;
     const lists = project.scripts.map(() => []);
     S.nodes.glyph.forEach((g, gi) => { if (glyphD[gi] && lists[g.si]) lists[g.si].push(gi); });
-    const r = TR.evaluate(project.scripts, si => lists[si], t);
+    const r = TR.evaluate(project.scripts, si => lists[si], t, runs);
     if (!r) return null;
     const out = [], px = metrics().s * Math.min(window.devicePixelRatio || 1, 1.5); // device pixels per world unit
     r.forEach((v, gi) => {
@@ -631,7 +646,7 @@
       tb.append(el('div', { class: 'owner', title: 'Select', onclick: () => select('s:' + sc.id) }, 'on ' + scriptName(sc)));
       for (const tr of sc.transitions) {
         const def = TR.TRANSITIONS[tr.type], p = Object.assign({}, def.params, tr.params);
-        tb.append(row('t:' + tr.id, 1, toggle(tr, 'tr'), def.label, `${p.role} · ${p.start}s`, tr.on === false, false));
+        tb.append(row('t:' + tr.id, 1, toggle(tr, 'tr'), def.label, `${p.role} · ${p.duration}s`, tr.on === false, false));
       }
     }
     if (!tb.firstChild) tb.append(el('div', { class: 'empty' }, 'none · + Transition adds one to the selected script'));
@@ -763,17 +778,12 @@
     params(box, e, def);
   }
 
-  // play a transition from its start: the timeline jumps to just before it
-  function playFrom(sec) {
-    const L = TR.LOOP;
-    t = Math.floor(t / L) * L + Math.max(0, Math.min(L - 0.01, sec));
-    if (!playing) togglePlay();
-    dirty = true;
-  }
   function inspectTransition(box, { tr, owner }) {
-    const def = TR.TRANSITIONS[tr.type], p = () => Object.assign({}, def.params, tr.params);
+    const def = TR.TRANSITIONS[tr.type], looping = (runs.get(owner.id) || {}).loop;
+    const loop = ghost('⟳', looping ? 'Stop looping' : 'Loop this script\'s intro and outro (intro, a hold, outro, a pause, over and over)', () => toggleLoop(owner));
+    if (looping) loop.classList.add('on');
     box.append(head(def.label, 'on ' + scriptName(owner),
-      ghost('▶', 'Play it (the timeline jumps to just before it starts)', () => playFrom(parseFloat(p().start) - 0.3)),
+      ghost('▶', 'Play it', () => playTransition(tr, owner)), loop,
       ghost('⧉', 'Duplicate', () => { const c = Object.assign(clone(tr), { id: uid() }); owner.transitions.splice(owner.transitions.indexOf(tr) + 1, 0, c); select('t:' + c.id); changed(); }),
       ghost('✕', 'Delete', () => { owner.transitions.splice(owner.transitions.indexOf(tr), 1); select('s:' + owner.id); changed(); })));
     params(box, tr, def);
@@ -784,6 +794,7 @@
     box.append(head(def.label, 'gradient map',
       ghost('+ use', 'Add a Gradient map effect with this map to ' + scriptName(o), () => { select('s:' + o.id); addEffects([E('gradmap', { map: name })]); })));
     box.append(swatch(name, true));
+    if (def.about) box.append(el('div', { class: 'help' }, def.about));
     params(box, it, def);
   }
 
@@ -824,16 +835,21 @@
       const doc = (def.docs && def.docs[key]) || '';
       const msg = el('div', { class: 'msg' }); msg.hidden = true;
       let control, inp, rng = null;
-      if (def.curve && def.curve.includes(key)) { // animation curve: grouped presets, and a graph of the one chosen
-        inp = el('select', { title: doc });
-        for (const grp in TR.CURVE_GROUPS) inp.append(el('optgroup', { label: grp }, ...TR.CURVE_GROUPS[grp].map(o => new Option(o, o))));
-        inp.value = m.params[key] || def.params[key];
+      if (def.curve && def.curve.includes(key)) { // animation curve: a tile per curve; hovering one previews it in the graph
+        const cur = () => TR.curveName(m.params[key] || def.params[key]), bez = () => m.params.bezier || def.params.bezier;
         const graph = el('div', { class: 'curve' });
-        const draw = () => { graph.innerHTML = curveGraph(TR.curve(inp.value, m.params.bezier || def.params.bezier)); };
-        inp.onchange = () => { m.params[key] = inp.value; renderList(); renderInspector(); changed(); };
-        draw();
-        control = el('div', null, inp, graph);
-        refs._curveGraph = draw;
+        const show = nm => { graph.innerHTML = curveGraph(TR.curve(nm, bez()), nm); };
+        const tiles = el('div', { class: 'tiles' });
+        for (const nm of TR.CURVE_LIST) {
+          const b = el('button', { class: 'tile' + (nm === cur() ? ' sel' : ''), title: nm, onclick: () => { m.params[key] = nm; renderList(); renderInspector(); changed(); } });
+          b.innerHTML = curveGraph(TR.curve(nm, bez()), null, true);
+          b.firstChild.setAttribute('height', '20');
+          b.onmouseenter = () => show(nm); b.onmouseleave = () => show(cur());
+          tiles.append(b);
+        }
+        show(cur());
+        control = el('div', null, tiles, graph);
+        refs._curveGraph = () => show(cur());
       } else if (def.choice && def.choice[key]) {
         inp = el('select', { title: doc, onchange: () => { m.params[key] = inp.value; renderList(); if (def.only) renderInspector(); changed(); } }, ...def.choice[key].map(o => new Option(o, o)));
         inp.value = m.params[key] || def.params[key];
@@ -846,28 +862,45 @@
           oninput: () => { m.params[key] = inp.value; if (refs._curveGraph) refs._curveGraph(); changed(); } });
         control = inp;
       } else if (def.ui && def.ui[key]) {
-        const s = sliderInput(m.params[key] != null ? m.params[key] : def.params[key], def.ui[key], v => { m.params[key] = v; if (def.roles) renderList(); changed(); }, true);
+        const s = sliderInput(m.params[key] != null ? m.params[key] : def.params[key], def.ui[key], v => { m.params[key] = v; if (def.roles) renderList(); applyDims(); changed(); }, true);
         control = s.row; inp = s.txt; rng = s.rng;
+        if (def.ends && def.ends[key]) control = el('div', null, s.row, el('div', { class: 'ends' }, el('span', null, def.ends[key][0]), el('span', null, def.ends[key][1])));
       } else {
         inp = el('input', { type: 'text', class: 'mono', spellcheck: false, title: doc, value: m.params[key] != null ? m.params[key] : '',
           placeholder: def.params[key] === '' ? 'unchanged' : def.params[key], oninput: () => { m.params[key] = inp.value; changed(); } });
         control = inp;
       }
       const f = field(key, control, doc);
-      f.append(msg);
+      if ((def.curve && def.curve.includes(key)) || (def.ends && def.ends[key])) f.classList.add('top');
+      const note = el('div', { class: 'note' }); note.hidden = true;
+      f.append(msg, note);
       box.append(f);
-      refs[key] = { inp, rng, msg };
+      refs[key] = { inp, rng, msg, f, note };
     }
+    // settings that make no difference just now are dimmed, with the reason
+    function applyDims() {
+      if (!def.dims) return;
+      const p = Object.assign({}, def.params, m.params);
+      for (const key in def.dims) {
+        const r = refs[key];
+        if (!r || !r.f) continue;
+        const why = def.dims[key](p);
+        r.f.classList.toggle('dim', !!why);
+        r.note.hidden = !why; r.note.textContent = why || '';
+      }
+    }
+    applyDims();
     if (!def.roles && !def.scheme) box.append(el('details', null, el('summary', null, 'Expression help'), $('helpTpl').content.cloneNode(true)));
     showErrors();
   }
   // a small graph of an animation curve: progress across, eased progress up
-  function curveGraph(f) {
-    const W = 200, H = 90, pad = 14, y = v => (H - pad - v * (H - 2 * pad)).toFixed(1);
+  function curveGraph(f, label, icon) {
+    const W = icon ? 30 : 200, H = icon ? 22 : 90, pad = icon ? 5 : 14, y = v => (H - pad - v * (H - 2 * pad)).toFixed(1);
     let d = '';
     for (let i = 0; i <= 80; i++) { const x = i / 80; d += (i ? 'L' : 'M') + (pad / 2 + x * (W - pad)).toFixed(1) + ' ' + y(f(x)); }
     return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none">`
-      + `<rect x="${pad / 2}" y="${pad}" width="${W - pad}" height="${H - 2 * pad}" fill="none" stroke="#2e2e2e"/>`
+      + (icon ? '' : `<rect x="${pad / 2}" y="${pad}" width="${W - pad}" height="${H - 2 * pad}" fill="none" stroke="#2e2e2e"/>`)
+      + (label ? `<text x="${W - pad / 2 - 2}" y="${H - pad - 4}" text-anchor="end" font-size="10" fill="#8c8c8c" font-family="system-ui, sans-serif">${label}</text>` : '')
       + `<path d="${d}" fill="none" stroke="#fff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
   }
 
@@ -883,7 +916,7 @@
     const e = (selected && S.errors[selId()]) || {};
     for (const key in refs) {
       const r = refs[key];
-      if (!r || !r.msg) continue;
+      if (!r || !r.msg || !r.inp) continue;
       const msg = e[key] || '';
       r.inp.classList.toggle('err', !!msg);
       r.msg.hidden = !msg;
@@ -914,7 +947,7 @@
     sc.transitions.push(tr);
     select('t:' + tr.id);
     changed();
-    playFrom(parseFloat(tr.params.start) - 0.3);
+    playTransition(tr, sc);
   }
   async function addScript() {
     let y = 0, x = 0;
@@ -976,7 +1009,7 @@
     tm.append(el('div', { class: 'mh', id: 'trTarget' }, 'Transition'));
     for (const k in TR.TRANSITIONS) {
       const def = TR.TRANSITIONS[k];
-      for (const role of def.roles) tm.append(el('button', { onclick: () => addTransition(T(k, Object.assign({ role }, role === 'outro' ? { start: '8' } : {}))) }, `${def.label} (${role})`));
+      for (const role of def.roles) tm.append(el('button', { onclick: () => addTransition(T(k, { role })) }, `${def.label} (${role})`));
     }
     tm.append(el('hr'), el('div', { class: 'mh' }, 'Preset'));
     for (const name in TR_PRESETS) tm.append(el('button', { onclick: () => addTransition(TR_PRESETS[name]()) }, name));

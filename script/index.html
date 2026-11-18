@@ -41,6 +41,16 @@
   .item .dot.fx { width: 8px; height: 8px; border-radius: 1px; transform: rotate(45deg); margin: 0 1px; }
   .item .dot.tr { border-radius: 2px; width: 9px; height: 9px; }
   .curve { margin-top: 6px; }
+  .tiles { display: flex; gap: 3px; }
+  .tile { flex: 1 1 0; min-width: 0; height: 24px; padding: 1px; border-radius: 4px; color: var(--mute); }
+  .tile svg path { stroke: #9a9a9a; }
+  .tile:hover svg path, .tile.sel svg path { stroke: #fff; }
+  .tile.sel { border-color: #fff; }
+  .ends { display: flex; justify-content: space-between; color: var(--mute); font-size: 11px; margin-top: 2px; }
+  .f.top > label { align-self: start; padding-top: 5px; }
+  .f .note { grid-column: 2; color: var(--mute); font-size: 11px; }
+  .f.dim > label, .f.dim select { opacity: 0.4; }
+  .ghost.on { color: var(--fg); }
   .swatch { width: 26px; height: 10px; border-radius: 2px; flex: none; image-rendering: auto; }
   .swatch.big { display: block; width: 100%; height: 22px; margin: 0 0 10px; }
   .owner.nohover { cursor: default; }
@@ -194,13 +204,13 @@
 
 <!-- Bump ?v= whenever a script changes: GitHub Pages lets browsers cache files for 10 minutes,
      and the version keeps a new page from running next to old cached scripts. -->
-<script src="lib/opentype.min.js?v=2026-11-18.10"></script>
-<script src="shapes.js?v=2026-11-18.10"></script>
-<script src="schemes.js?v=2026-11-18.10"></script>
-<script src="engine.js?v=2026-11-18.10"></script>
-<script src="strokes.js?v=2026-11-18.10"></script>
-<script src="transitions.js?v=2026-11-18.10"></script>
-<script src="gl.js?v=2026-11-18.10"></script>
-<script src="app.js?v=2026-11-18.10"></script>
+<script src="lib/opentype.min.js?v=2026-11-18.11"></script>
+<script src="shapes.js?v=2026-11-18.11"></script>
+<script src="schemes.js?v=2026-11-18.11"></script>
+<script src="engine.js?v=2026-11-18.11"></script>
+<script src="strokes.js?v=2026-11-18.11"></script>
+<script src="transitions.js?v=2026-11-18.11"></script>
+<script src="gl.js?v=2026-11-18.11"></script>
+<script src="app.js?v=2026-11-18.11"></script>
 </body>
 </html>

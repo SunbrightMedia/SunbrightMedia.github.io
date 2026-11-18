@@ -46,6 +46,21 @@
   }
 
   const num = (v, d) => { const n = parseFloat(v); return isFinite(n) ? n : d; };
+
+  // Twilight, by Bastian Bechtold (github.com/bastibe/twilight, MIT; also in Matplotlib): a
+  // perceptually uniform, cyclic map from off-white through blue to off-black, then through red
+  // back to off-white. 64 even steps of its 510.
+  const TWILIGHT = (
+    'f4ebf4 e7e3ea dbdce2 cfd5db c3ced4 b6c8cf a9c1cb 9dbac8 92b3c6 88acc4 7fa5c3 779dc2 7195c0 6b8dbf 6784be 647cbc' +
+    '6173ba 606ab7 5f61b4 5f57b0 5e4dab 5e44a5 5d3a9e 5b3095 58278b 541f7f 4f1971 481463 411155 380e47 2f0b3b 26072f' +
+    '27072c 310b33 3c0f3a 46123f 511445 5c1749 661a4c 711d4f 7b2150 852650 8e2c50 963350 9e3b4f a54350 ab4b50 b15452' +
+    'b65e54 ba6757 be715c c27b61 c58569 c78f72 c9997c cca288 ceac94 d1b5a2 d5bfb0 d9c7bf ded0cd e4d9db ebe2e7 f4ebf4'
+  ).split(' ').map(h => [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255]);
+  // colour at x along evenly spaced stops
+  const along = stops => x => {
+    const f = Math.min(1, Math.max(0, x)) * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(f)), u = f - i, a = stops[i], b = stops[i + 1];
+    return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
+  };
   const GRADIENT_MAPS = {
     satin: {
       label: 'Satin',
@@ -62,6 +77,22 @@
         const P = satinParams(num(params.seed, 0) + (params.drift === 'off' ? 0 : t * num(params.speed, 1) / 16));
         return x => satinColor(P, x);
       },
+    },
+    twilight: {
+      label: 'Twilight',
+      scheme: true,
+      params: {},
+      docs: {},
+      about: 'off-white, blue, off-black, red, off-white (Bastian Bechtold\'s Twilight)',
+      colorAt: () => along(TWILIGHT),
+    },
+    sunlight: {
+      label: 'Sunlight',
+      scheme: true,
+      params: {},
+      docs: {},
+      about: 'Twilight shifted by half: off-black, red, off-white, blue, off-black',
+      colorAt: () => along(TWILIGHT.slice(32).concat(TWILIGHT.slice(0, 32))),
     },
   };
 
