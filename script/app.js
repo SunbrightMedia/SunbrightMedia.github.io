@@ -326,9 +326,10 @@
     for (const id of ['svg', 'ui']) $(id).setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
     dirty = true;
   }
-  // Same mapping as the SVG viewBox with preserveAspectRatio="xMidYMid meet".
+  // Same mapping as the SVG viewBox with preserveAspectRatio="xMidYMid meet" (the stage's exact,
+  // fractional size, as the SVG uses, so what gl.js draws lines up with it to the pixel)
   function metrics() {
-    const e = $('stageWrap'), W = e.clientWidth || 1, H = e.clientHeight || 1;
+    const r = $('stageWrap').getBoundingClientRect(), W = r.width || 1, H = r.height || 1;
     const s = Math.min(W / view.w, H / view.h);
     return { W, H, s, ox: (W - view.w * s) / 2 - view.x * s, oy: (H - view.h * s) / 2 - view.y * s };
   }
@@ -392,6 +393,28 @@
     if (!(b.w > 0 && b.h > 0)) return null;
     return ST.analyze(d, b, (S.sizes && S.sizes[g.si]) || S.size);
   }
+  // Work out the strokes of every glyph a transition may draw in idle moments, ahead of time, so the
+  // first frame of a transition does not wait for them.
+  let warmQueued = false;
+  const warmed = new Set();
+  function warmStrokes() {
+    if (warmQueued || !S) return;
+    const want = new Set(project.scripts.map((sc, si) => (sc.transitions.some(tr => tr.on !== false) ? si : -1)).filter(si => si >= 0));
+    if (!want.size) return;
+    const todo = S.nodes.glyph.map((g, gi) => (want.has(g.si) && glyphD[gi] && !warmed.has(glyphD[gi]) ? gi : -1)).filter(gi => gi >= 0);
+    if (!todo.length) return;
+    warmQueued = true;
+    const idle = window.requestIdleCallback || (fn => setTimeout(() => fn({ timeRemaining: () => 12 }), 30));
+    const step = deadline => {
+      while (todo.length && deadline.timeRemaining() > 6) {
+        const gi = todo.shift(), d = glyphD[gi];
+        try { strokeAnalysis(gi); } catch (e) { /* drawn whole */ }
+        if (d) { warmed.add(d); if (warmed.size > 2000) warmed.delete(warmed.values().next().value); }
+      }
+      if (todo.length) idle(step); else warmQueued = false;
+    };
+    idle(step);
+  }
   // transitions playing: script id -> { id: transition, t0 } or { loop: true, t0 } (not saved)
   const runs = new Map();
   function playTransition(tr, owner) {
@@ -412,7 +435,7 @@
     S.nodes.glyph.forEach((g, gi) => { if (glyphD[gi] && lists[g.si]) lists[g.si].push(gi); });
     const r = TR.evaluate(project.scripts, si => lists[si], t, runs);
     if (!r) return null;
-    const out = [], px = metrics().s * Math.min(window.devicePixelRatio || 1, 1.5); // device pixels per world unit
+    const out = [], px = metrics().s * Math.min(window.devicePixelRatio || 1, 2); // device pixels per world unit
     r.forEach((v, gi) => {
       if (v === 0) { out[gi] = 0; return; }
       let a = null;
@@ -430,6 +453,7 @@
     fills = S.nodes.glyph.map(g => (project.scripts[g.si] || {}).fill || '#ffffff');
     fxOut = FL.evaluateEffects(S, owners(), S.t);
     reveal = transitionReveal();
+    warmStrokes();
     const big = [view.x - view.w * 50, view.y - view.h * 50, view.w * 101, view.h * 101];
     $('scene').innerHTML = needsGL() ? '' : FL.frameMarkup(S, { fill: '#ffffff', fills, region: big, id: 'live' });
     renderEffects();
@@ -454,9 +478,12 @@
     catch (e) { toast('Drawing failed: ' + e.message, true); return null; }
   }
   function renderEffects() {
-    const m = metrics(), q = Math.min(window.devicePixelRatio || 1, 1.5);
-    const cv = effectFrame(Math.round(m.W * q), Math.round(m.H * q), m.s * q, m.ox * q, m.oy * q);
+    const m = metrics(), q = Math.min(window.devicePixelRatio || 1, 2);
+    const W = Math.round(m.W * q), H = Math.round(m.H * q);
+    const cv = effectFrame(W, H, m.s * q, m.ox * q, m.oy * q);
     if (cv && !cv.isConnected) { cv.id = 'gl'; $('svg').after(cv); }
+    // shown at exactly its pixels' size (not stretched to the stage's fractional size), so it is not scaled
+    if (cv) { cv.style.width = W / q + 'px'; cv.style.height = H / q + 'px'; }
     if (GLR) GLR.canvas.style.display = cv ? 'block' : 'none';
   }
 
@@ -1215,5 +1242,5 @@
   requestAnimationFrame(frame);
 
   // for console tinkering
-  window.fontlab = { get project() { return project; }, get frame() { return S; }, get effects() { return fxOut; }, select: k => select(k), strokes: gi => strokeAnalysis(gi) };
+  window.fontlab = { get project() { return project; }, get frame() { return S; }, get effects() { return fxOut; }, select: k => select(k), strokes: gi => strokeAnalysis(gi), glyphD: gi => glyphD[gi] };
 })();
