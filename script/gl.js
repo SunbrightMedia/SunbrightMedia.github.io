@@ -373,6 +373,7 @@ void main() {
     const maskTex = texture(), colorTex = texture(), lutTex = texture(), pool = [];
     let poolUsed = 0, lutName = null;
     const mcv = document.createElement('canvas'), mctx = mcv.getContext('2d');
+    const gcv = document.createElement('canvas'), gctx = gcv.getContext('2d'); // one glyph at a time, for transitions
 
     // bind a program and set uniforms by name: numbers, [x, y], [r, g, b] or textures
     function use(prog, uniforms) {
@@ -525,7 +526,8 @@ void main() {
     }
 
     // o: { W, H, s, ox, oy } device pixels and world->device mapping; glyphD and style per glyph;
-    // fills: default colour per glyph; holes: warp holes; units: what to draw, in order:
+    // fills: default colour per glyph; holes: warp holes; reveal: what transitions show of each glyph;
+    // units: what to draw, in order:
     //   { kind: 'script', glyphs, records, size } or { kind: 'group', members: [scripts], glyphs, records, size }
     function render(o) {
       const { W, H, s, ox, oy } = o;
@@ -548,6 +550,29 @@ void main() {
         mctx.clearRect(0, 0, W, H); mctx.setTransform(s, 0, 0, s, ox, oy);
       };
       const cutHoles = () => { if (holes) { mctx.globalAlpha = 1; mctx.globalCompositeOperation = 'destination-out'; mctx.fill(holes); } };
+      // Draw one glyph with fn(ctx). A transition may show only part of it: o.reveal[gi] is 0
+      // (nothing) or { cv, x, y, w, h }, a mask in world units; then the glyph is drawn on its own
+      // and masked before it joins the rest.
+      function drawGlyph(gi, fn) {
+        const rv = o.reveal && o.reveal[gi];
+        if (rv === 0) return;
+        if (!rv) { fn(mctx); return; }
+        const x0 = Math.floor(rv.x * s + ox) - 2, y0 = Math.floor(rv.y * s + oy) - 2;
+        const gw = Math.max(1, Math.ceil(rv.w * s) + 4), gh = Math.max(1, Math.ceil(rv.h * s) + 4);
+        if (x0 > W || y0 > H || x0 + gw < 0 || y0 + gh < 0) return;
+        if (gcv.width < gw || gcv.height < gh) { gcv.width = Math.max(gcv.width, gw); gcv.height = Math.max(gcv.height, gh); }
+        gctx.setTransform(1, 0, 0, 1, 0, 0); gctx.globalCompositeOperation = 'source-over'; gctx.globalAlpha = 1;
+        gctx.clearRect(0, 0, gw, gh);
+        gctx.setTransform(s, 0, 0, s, ox - x0, oy - y0);
+        fn(gctx);
+        gctx.setTransform(1, 0, 0, 1, 0, 0); gctx.globalAlpha = 1; gctx.globalCompositeOperation = 'destination-in'; gctx.imageSmoothingEnabled = true;
+        gctx.drawImage(rv.cv, rv.x * s + ox - x0, rv.y * s + oy - y0, rv.w * s, rv.h * s);
+        gctx.clearRect(gw, 0, gcv.width - gw, gcv.height); gctx.clearRect(0, gh, gw, gcv.height - gh);
+        gctx.globalCompositeOperation = 'source-over';
+        mctx.save(); mctx.setTransform(1, 0, 0, 1, 0, 0); mctx.globalAlpha = 1; mctx.globalCompositeOperation = 'source-over';
+        mctx.drawImage(gcv, 0, 0, gw, gh, x0, y0, gw, gh);
+        mctx.restore();
+      }
 
       // the glyphs in their own colours (fill, outline, opacity from the Style modifier)
       function colorOf(glyphs) {
@@ -556,9 +581,11 @@ void main() {
           const p = paths[gi];
           if (!p) continue;
           const st = o.style[gi] || {}, fill = st.fill != null ? st.fill : o.fills[gi];
-          mctx.globalAlpha = st.opacity != null ? Math.max(0, Math.min(1, st.opacity)) : 1;
-          if (fill && fill !== 'none') { mctx.fillStyle = fill; mctx.fill(p); }
-          if (st.stroke != null && st.stroke !== 'none') { mctx.strokeStyle = st.stroke; mctx.lineWidth = st.sw != null ? st.sw : 1; mctx.lineJoin = 'round'; mctx.stroke(p); }
+          drawGlyph(gi, c => {
+            c.globalAlpha = st.opacity != null ? Math.max(0, Math.min(1, st.opacity)) : 1;
+            if (fill && fill !== 'none') { c.fillStyle = fill; c.fill(p); }
+            if (st.stroke != null && st.stroke !== 'none') { c.strokeStyle = st.stroke; c.lineWidth = st.sw != null ? st.sw : 1; c.lineJoin = 'round'; c.stroke(p); }
+          });
         }
         cutHoles();
         upload(colorTex, true);
@@ -573,8 +600,7 @@ void main() {
           if (!p) continue;
           const T = heat && !isNaN(heat.temps[gi]) ? heat.temps[gi] : 0.5;
           const id = Math.abs((Math.sin(gi * 12.9898 + 4.1) * 43758.5453) % 1);
-          mctx.fillStyle = `rgb(${Math.round(T * 255)},${Math.round(id * 255)},0)`;
-          mctx.fill(p);
+          drawGlyph(gi, c => { c.fillStyle = `rgb(${Math.round(T * 255)},${Math.round(id * 255)},0)`; c.fill(p); });
         }
         cutHoles();
         upload(maskTex, false);
@@ -588,7 +614,7 @@ void main() {
         const maskBlur = sigma => { const k = Math.round(sigma * 2); if (!maskBlurs.has(k)) maskBlurs.set(k, blurOf(maskTex, W, H, sigma, true)); return maskBlurs.get(k); };
         let cur = A, other = B;
         for (const r of u.records) {
-          const un = Object.assign({ prev: cur.tex, mask: maskTex, size: u.size }, common);
+          const un = Object.assign({ prev: cur.tex, mask: maskTex, size: u.size }, common, r.time != null ? { time: r.time } : null);
           if (r.type === 'heatmap') {
             if (lutName !== r.palette) {
               lutName = r.palette;

@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const FL = window.FontLab, Shapes = FL.Shapes;
+  const FL = window.FontLab, Shapes = FL.Shapes, TR = window.FontLabTransitions, ST = window.FontLabStrokes;
   const $ = id => document.getElementById(id);
   const clone = o => JSON.parse(JSON.stringify(o));
   const uid = () => Math.random().toString(36).slice(2, 9);
@@ -63,10 +63,19 @@
     'Kamisuki erode': () => [E('kamisuki', { mode: 'erode', scale: '8', radius: '0.45', blend: '0.1', amount: '0.9' })],
   };
 
+  // Transitions are latched to a script.
+  const T = (type, params) => ({ id: uid(), type, on: true, params: Object.assign({}, TR.TRANSITIONS[type].params, params) });
+  const TR_PRESETS = {
+    'Stroke in': () => T('stroke', { role: 'intro' }),
+    'Stroke out': () => T('stroke', { role: 'outro', start: '8' }),
+    'Stroke in, letter by letter': () => T('stroke', { role: 'intro', duration: '4', stagger: '1', curve: 'sine in-out' }),
+    'Stroke in, all at once': () => T('stroke', { role: 'intro', duration: '2', stagger: '0', curve: 'cubic out' }),
+  };
+
   const DEFAULT_FONT = 'url:../fonts/segoeuib.ttf';
   const newScript = o => Object.assign({
     id: uid(), text: 'Text', font: DEFAULT_FONT, layout: Object.assign({}, FL.LAYOUT_DEFAULTS, { size: 160 }),
-    fill: '#ffffff', x: 0, y: 0, group: null, effects: [],
+    fill: '#ffffff', x: 0, y: 0, group: null, effects: [], transitions: [],
   }, o);
   const defaultProject = () => ({ scripts: [newScript({ id: 's1', text: 'Sunbright\nfont lab' })], groups: [], mods: MOD_PRESETS['Warp: star']() });
 
@@ -94,6 +103,13 @@
       return e;
     });
   }
+  function normTransitions(list) {
+    return (list || []).filter(tr => tr && TR.TRANSITIONS[tr.type]).map(tr => {
+      tr = Object.assign({ id: uid(), on: true, params: {} }, tr);
+      keepParams(tr, TR.TRANSITIONS[tr.type]);
+      return tr;
+    });
+  }
   function normalize(p) {
     p = p || {};
     if (!Array.isArray(p.scripts)) { // one-text projects from before scripts: its heatmap and kamisuki become its effects
@@ -112,6 +128,7 @@
       s.x = +s.x || 0; s.y = +s.y || 0;
       if (!p.groups.some(g => g.id === s.group)) s.group = null;
       s.effects = normEffects(s.effects);
+      s.transitions = normTransitions(s.transitions);
       return s;
     });
     if (!p.scripts.length) p.scripts = [newScript({ text: 'Sunbright' })];
@@ -157,6 +174,10 @@
     for (const o of [...project.scripts, ...project.groups]) { const e = o.effects.find(x => x.id === id); if (e) return { e, owner: o }; }
     return null;
   }
+  function transitionById(id) {
+    for (const sc of project.scripts) { const tr = sc.transitions.find(x => x.id === id); if (tr) return { tr, owner: sc }; }
+    return null;
+  }
   const selKind = () => (selected ? selected[0] : null), selId = () => (selected ? selected.slice(2) : null);
   // the script or group new effects go to
   function currentOwner() {
@@ -164,7 +185,13 @@
     if (k === 's' && scriptById(id)) return scriptById(id);
     if (k === 'g' && groupById(id)) return groupById(id);
     if (k === 'e' && effectById(id)) return effectById(id).owner;
+    if (k === 't' && transitionById(id)) return transitionById(id).owner;
     return project.scripts[0];
+  }
+  // the script new transitions go to (a selected group gives its first script)
+  function currentScript() {
+    const o = currentOwner();
+    return isGroup(o) ? project.scripts.find(x => x.group === o.id) || project.scripts[0] : o;
   }
   const scriptName = s => (String(s.text).split('\n')[0].trim() || 'Script').slice(0, 28);
   const isGroup = o => !('text' in o);
@@ -325,14 +352,45 @@
     return out;
   }
   const hasEffects = () => fxOut.some(o => o.records.length);
+  let reveal = null; // what transitions show of each glyph this frame (null: everything)
+  const needsGL = () => hasEffects() || !!reveal;
+
+  // ---------- transitions ----------
+  function glyphBox(gi) { return FL.bbox(S, S.nodes.glyph[gi].cs.filter(ci => !S.hidden[ci] && !S.contours[ci].attach)); }
+  function strokeAnalysis(gi) {
+    const d = glyphD[gi];
+    if (!d) return null;
+    const g = S.nodes.glyph[gi], b = glyphBox(gi);
+    if (!(b.w > 0 && b.h > 0)) return null;
+    return ST.analyze(d, b, (S.sizes && S.sizes[g.si]) || S.size);
+  }
+  const maskCanvases = new Map();
+  function transitionReveal() {
+    if (!project.scripts.some(sc => sc.transitions.some(tr => tr.on !== false))) return null;
+    const lists = project.scripts.map(() => []);
+    S.nodes.glyph.forEach((g, gi) => { if (glyphD[gi] && lists[g.si]) lists[g.si].push(gi); });
+    const r = TR.evaluate(project.scripts, si => lists[si], t);
+    if (!r) return null;
+    const out = [], px = metrics().s * Math.min(window.devicePixelRatio || 1, 1.5); // device pixels per world unit
+    r.forEach((v, gi) => {
+      if (v === 0) { out[gi] = 0; return; }
+      let a = null;
+      try { a = strokeAnalysis(gi); } catch (e) { console.error(e); }
+      if (!a) return;
+      if (!maskCanvases.has(gi)) maskCanvases.set(gi, document.createElement('canvas'));
+      out[gi] = { cv: ST.mask(a, v.lo, v.hi, v.soft, maskCanvases.get(gi), px / a.k), x: a.x, y: a.y, w: a.w / a.k, h: a.h / a.k };
+    });
+    return out;
+  }
 
   // ---------- rendering ----------
   function render() {
     glyphD = S.nodes.glyph.map((g, gi) => FL.glyphPathData(S, gi));
     fills = S.nodes.glyph.map(g => (project.scripts[g.si] || {}).fill || '#ffffff');
     fxOut = FL.evaluateEffects(S, owners(), S.t);
+    reveal = transitionReveal();
     const big = [view.x - view.w * 50, view.y - view.h * 50, view.w * 101, view.h * 101];
-    $('scene').innerHTML = hasEffects() ? '' : FL.frameMarkup(S, { fill: '#ffffff', fills, region: big, id: 'live' });
+    $('scene').innerHTML = needsGL() ? '' : FL.frameMarkup(S, { fill: '#ffffff', fills, region: big, id: 'live' });
     renderEffects();
     renderOverlay();
     renderGizmos();
@@ -340,16 +398,17 @@
   }
 
   let GLR = null, glFailed = false;
-  // Draws the frame through gl.js at W x H device pixels; null when no script has effects.
+  // Draws the frame through gl.js at W x H device pixels; null when no script has effects and
+  // no transition is under way.
   function effectFrame(W, H, s, ox, oy) {
-    if (!S || !hasEffects()) return null;
+    if (!S || !needsGL()) return null;
     if (!GLR && !glFailed) {
       try { GLR = FontLabGL.create(); } catch (e) { toast('WebGL failed: ' + e.message, true); }
       if (!GLR) { glFailed = true; toast('This browser has no WebGL, so effects cannot be drawn.', true); }
     }
     if (!GLR) return null;
     const holes = S.holes.length ? S.holes.map(Shapes.polyD).join('') : null;
-    try { return GLR.render({ W, H, s, ox, oy, glyphD, style: S.style, fills, holes, units: units(), time: S.t }); }
+    try { return GLR.render({ W, H, s, ox, oy, glyphD, style: S.style, fills, holes, reveal, units: units(), time: S.t }); }
     catch (e) { toast('Drawing failed: ' + e.message, true); return null; }
   }
   function renderEffects() {
@@ -363,7 +422,24 @@
     const g = $('overlayG'), lvl = prefs.overlay;
     let h = '';
     const k = 1 / metrics().s;
-    if (lvl === 'point') {
+    if (lvl === 'strokes') { // how each glyph is probably drawn: its strokes in order, from the dot, numbered
+      let n = 0;
+      for (let gi = 0; gi < S.nodes.glyph.length && n < 400; gi++) {
+        let a = null;
+        try { a = strokeAnalysis(gi); } catch (e) { console.error(e); }
+        if (!a) continue;
+        a.strokes.forEach((st, j) => {
+          n++;
+          const col = `hsl(${(j * 67 + 190) % 360},90%,62%)`, p = st.pts;
+          const d = 'M' + p.map(q => q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join('L');
+          h += `<path d="${d}" fill="none" stroke="${col}" stroke-width="${(1.6 * k).toFixed(2)}" stroke-linejoin="round" stroke-linecap="round"/>`;
+          const e = p[p.length - 1], f = p[Math.max(0, p.length - 4)], ang = Math.atan2(e[1] - f[1], e[0] - f[0]), L = 7 * k;
+          if (!st.dot) h += `<path d="M${(e[0] - Math.cos(ang - 0.45) * L).toFixed(1)} ${(e[1] - Math.sin(ang - 0.45) * L).toFixed(1)}L${e[0].toFixed(1)} ${e[1].toFixed(1)}L${(e[0] - Math.cos(ang + 0.45) * L).toFixed(1)} ${(e[1] - Math.sin(ang + 0.45) * L).toFixed(1)}" fill="none" stroke="${col}" stroke-width="${(1.6 * k).toFixed(2)}"/>`;
+          h += `<circle cx="${p[0][0].toFixed(1)}" cy="${p[0][1].toFixed(1)}" r="${(3 * k).toFixed(2)}" fill="${col}"/>`
+            + `<text x="${(p[0][0] + 4 * k).toFixed(1)}" y="${(p[0][1] - 4 * k).toFixed(1)}" font-size="${(k * 11).toFixed(1)}" fill="${col}" font-family="monospace">${j + 1}</text>`;
+        });
+      }
+    } else if (lvl === 'point') {
       let c = 0;
       outer: for (let ci = 0; ci < S.contours.length; ci++) {
         if (S.hidden[ci] || S.contours[ci].attach) continue;
@@ -491,7 +567,7 @@
     r.style.paddingLeft = 8 + depth * 18 + 'px';
     return r;
   }
-  const toggle = (item, fx) => el('button', { class: 'dot' + (fx ? ' fx' : ''), title: item.on === false ? 'Turn on' : 'Turn off', onclick: e => { e.stopPropagation(); item.on = item.on === false; renderList(); changed(); } });
+  const toggle = (item, fx) => el('button', { class: 'dot' + (fx === 'tr' ? ' tr' : fx ? ' fx' : ''), title: item.on === false ? 'Turn on' : 'Turn off', onclick: e => { e.stopPropagation(); item.on = item.on === false; renderList(); changed(); } });
   const effectRow = (e, depth) => row('e:' + e.id, depth, toggle(e, true), FL.EFFECTS[e.type].label, subOf(e, FL.EFFECTS[e.type]), e.on === false, hasErr(e.id));
   const scriptRow = (sc, depth) => {
     const f = loadedFont(sc.font);
@@ -519,6 +595,18 @@
       for (const e of o.effects) fb.append(effectRow(e, 1));
     }
     if (!fb.firstChild) fb.append(el('div', { class: 'empty' }, 'none · + Effect adds one to the selected script'));
+    // transitions, under the script each is latched to
+    const tb = $('trList');
+    tb.innerHTML = '';
+    for (const sc of project.scripts) {
+      if (!sc.transitions.length) continue;
+      tb.append(el('div', { class: 'owner', title: 'Select', onclick: () => select('s:' + sc.id) }, 'on ' + scriptName(sc)));
+      for (const tr of sc.transitions) {
+        const def = TR.TRANSITIONS[tr.type], p = Object.assign({}, def.params, tr.params);
+        tb.append(row('t:' + tr.id, 1, toggle(tr, 'tr'), def.label, `${p.role} · ${p.start}s`, tr.on === false, false));
+      }
+    }
+    if (!tb.firstChild) tb.append(el('div', { class: 'empty' }, 'none · + Transition adds one to the selected script'));
     const mb = $('modList');
     mb.innerHTML = '';
     for (const m of project.mods) {
@@ -559,6 +647,7 @@
     if (k === 's' && scriptById(id)) inspectScript(box, scriptById(id));
     else if (k === 'g' && groupById(id)) inspectGroup(box, groupById(id));
     else if (k === 'e' && effectById(id)) inspectEffect(box, effectById(id));
+    else if (k === 't' && transitionById(id)) inspectTransition(box, transitionById(id));
     else if (k === 'm' && modById(id)) inspectMod(box, modById(id));
     else selected = null;
   }
@@ -579,6 +668,7 @@
       ghost('⧉', 'Duplicate', () => {
         const c = Object.assign(clone(sc), { id: uid(), y: sc.y + sc.layout.size * 1.4 });
         c.effects.forEach(e => { e.id = uid(); });
+        c.transitions.forEach(x => { x.id = uid(); });
         project.scripts.splice(project.scripts.indexOf(sc) + 1, 0, c);
         select('s:' + c.id); changed(); rebuild(true);
       }),
@@ -639,6 +729,22 @@
     params(box, e, def);
   }
 
+  // play a transition from its start: the timeline jumps to just before it
+  function playFrom(sec) {
+    const L = TR.LOOP;
+    t = Math.floor(t / L) * L + Math.max(0, Math.min(L - 0.01, sec));
+    if (!playing) togglePlay();
+    dirty = true;
+  }
+  function inspectTransition(box, { tr, owner }) {
+    const def = TR.TRANSITIONS[tr.type], p = () => Object.assign({}, def.params, tr.params);
+    box.append(head(def.label, 'on ' + scriptName(owner),
+      ghost('▶', 'Play it (the timeline jumps to just before it starts)', () => playFrom(parseFloat(p().start) - 0.3)),
+      ghost('⧉', 'Duplicate', () => { const c = Object.assign(clone(tr), { id: uid() }); owner.transitions.splice(owner.transitions.indexOf(tr) + 1, 0, c); select('t:' + c.id); changed(); }),
+      ghost('✕', 'Delete', () => { owner.transitions.splice(owner.transitions.indexOf(tr), 1); select('s:' + owner.id); changed(); })));
+    params(box, tr, def);
+  }
+
   function inspectMod(box, m) {
     const def = FL.MODIFIERS[m.type];
     box.append(head(def.label, '',
@@ -651,14 +757,14 @@
 
   // settings of a modifier or an effect
   function params(box, m, def) {
-    if (!def.spatial && !def.global) {
+    if (def.levels && !def.spatial && !def.global) {
       const lvl = el('select', { onchange: () => { m.level = lvl.value; renderList(); changed(); } }, ...def.levels.map(l => new Option('per ' + l, l)));
       lvl.value = def.levels.includes(m.level) ? m.level : def.levels[0];
       box.append(field('acts on', lvl));
     }
     for (const key in def.params) {
       const only = def.only && def.only[key];
-      if (only && !Object.keys(only).every(k => (m.params[k] || def.params[k]) === only[k])) continue;
+      if (only && !Object.keys(only).every(k => [].concat(only[k]).includes(m.params[k] || def.params[k]))) continue;
       if (def.spatial && (key === 'x' || key === 'y')) {
         if (key === 'y') continue;
         // x and y share one row, plus a button that brings the modifier into view
@@ -676,7 +782,17 @@
       const doc = (def.docs && def.docs[key]) || '';
       const msg = el('div', { class: 'msg' }); msg.hidden = true;
       let control, inp, rng = null;
-      if (def.choice && def.choice[key]) {
+      if (def.curve && def.curve.includes(key)) { // animation curve: grouped presets, and a graph of the one chosen
+        inp = el('select', { title: doc });
+        for (const grp in TR.CURVE_GROUPS) inp.append(el('optgroup', { label: grp }, ...TR.CURVE_GROUPS[grp].map(o => new Option(o, o))));
+        inp.value = m.params[key] || def.params[key];
+        const graph = el('div', { class: 'curve' });
+        const draw = () => { graph.innerHTML = curveGraph(TR.curve(inp.value, m.params.bezier || def.params.bezier)); };
+        inp.onchange = () => { m.params[key] = inp.value; renderList(); renderInspector(); changed(); };
+        draw();
+        control = el('div', null, inp, graph);
+        refs._curveGraph = draw;
+      } else if (def.choice && def.choice[key]) {
         inp = el('select', { title: doc, onchange: () => { m.params[key] = inp.value; renderList(); if (def.only) renderInspector(); changed(); } }, ...def.choice[key].map(o => new Option(o, o)));
         inp.value = m.params[key] || def.params[key];
         control = inp;
@@ -684,10 +800,11 @@
         inp = el('input', { type: 'color', title: doc, value: /^#[0-9a-f]{6}$/i.test(m.params[key] || '') ? m.params[key] : def.params[key], oninput: () => { m.params[key] = inp.value; changed(); } });
         control = inp;
       } else if (def.text && def.text.includes(key)) {
-        inp = el('input', { type: 'text', spellcheck: false, title: doc, value: m.params[key] || '', placeholder: 'default set', oninput: () => { m.params[key] = inp.value; changed(); } });
+        inp = el('input', { type: 'text', spellcheck: false, title: doc, value: m.params[key] || '', placeholder: def.params[key] || 'default set',
+          oninput: () => { m.params[key] = inp.value; if (refs._curveGraph) refs._curveGraph(); changed(); } });
         control = inp;
       } else if (def.ui && def.ui[key]) {
-        const s = sliderInput(m.params[key] != null ? m.params[key] : def.params[key], def.ui[key], v => { m.params[key] = v; changed(); }, true);
+        const s = sliderInput(m.params[key] != null ? m.params[key] : def.params[key], def.ui[key], v => { m.params[key] = v; if (def.roles) renderList(); changed(); }, true);
         control = s.row; inp = s.txt; rng = s.rng;
       } else {
         inp = el('input', { type: 'text', class: 'mono', spellcheck: false, title: doc, value: m.params[key] != null ? m.params[key] : '',
@@ -699,8 +816,17 @@
       box.append(f);
       refs[key] = { inp, rng, msg };
     }
-    box.append(el('details', null, el('summary', null, 'Expression help'), $('helpTpl').content.cloneNode(true)));
+    if (!def.roles) box.append(el('details', null, el('summary', null, 'Expression help'), $('helpTpl').content.cloneNode(true)));
     showErrors();
+  }
+  // a small graph of an animation curve: progress across, eased progress up
+  function curveGraph(f) {
+    const W = 200, H = 90, pad = 14, y = v => (H - pad - v * (H - 2 * pad)).toFixed(1);
+    let d = '';
+    for (let i = 0; i <= 80; i++) { const x = i / 80; d += (i ? 'L' : 'M') + (pad / 2 + x * (W - pad)).toFixed(1) + ' ' + y(f(x)); }
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none">`
+      + `<rect x="${pad / 2}" y="${pad}" width="${W - pad}" height="${H - 2 * pad}" fill="none" stroke="#2e2e2e"/>`
+      + `<path d="${d}" fill="none" stroke="#fff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
   }
 
   function setParam(m, key, v) {
@@ -741,6 +867,13 @@
     select('e:' + list[list.length - 1].id);
     changed();
   }
+  function addTransition(tr) {
+    const sc = currentScript();
+    sc.transitions.push(tr);
+    select('t:' + tr.id);
+    changed();
+    playFrom(parseFloat(tr.params.start) - 0.3);
+  }
   async function addScript() {
     let y = 0, x = 0;
     if (S && S.nodes.text.length) {
@@ -761,6 +894,7 @@
     closeMenus();
     if (!open) return;
     if (menu.id === 'fxMenu') { const o = currentOwner(); $('fxTarget').textContent = 'Add to ' + (isGroup(o) ? o.name : scriptName(o)); }
+    if (menu.id === 'trMenu') $('trTarget').textContent = 'Add to ' + scriptName(currentScript());
     // fixed position next to the button, kept on screen (the side panel would clip it otherwise)
     const r = b.getBoundingClientRect();
     menu.hidden = false;
@@ -795,6 +929,15 @@
     for (const k in FL.EFFECTS) fm.append(el('button', { onclick: () => addEffects([E(k, {})]) }, FL.EFFECTS[k].label));
     fm.append(el('hr'), el('div', { class: 'mh' }, 'Preset'));
     for (const name in FX_PRESETS) fm.append(el('button', { onclick: () => addEffects(FX_PRESETS[name]()) }, name));
+
+    const tm = $('trMenu');
+    tm.append(el('div', { class: 'mh', id: 'trTarget' }, 'Transition'));
+    for (const k in TR.TRANSITIONS) {
+      const def = TR.TRANSITIONS[k];
+      for (const role of def.roles) tm.append(el('button', { onclick: () => addTransition(T(k, Object.assign({ role }, role === 'outro' ? { start: '8' } : {}))) }, `${def.label} (${role})`));
+    }
+    tm.append(el('hr'), el('div', { class: 'mh' }, 'Preset'));
+    for (const name in TR_PRESETS) tm.append(el('button', { onclick: () => addTransition(TR_PRESETS[name]()) }, name));
   }
 
   // ---------- files ----------
@@ -827,7 +970,7 @@
   }
   function exportSVG() {
     if (!S) return;
-    if (!hasEffects()) { download('fontlab-frame.svg', FL.toSVG(S, { fill: '#ffffff', fills, background: '#000' }), 'image/svg+xml'); return; }
+    if (!needsGL()) { download('fontlab-frame.svg', FL.toSVG(S, { fill: '#ffffff', fills, background: '#000' }), 'image/svg+xml'); return; }
     // per-pixel effects have no vector form: embed them as an image
     const m = metrics(), dpr = 2, W = Math.round(m.W * dpr), H = Math.round(m.H * dpr), vb = [-m.ox / m.s, -m.oy / m.s, m.W / m.s, m.H / m.s];
     const glc = effectFrame(W, H, m.s * dpr, m.ox * dpr, m.oy * dpr);
@@ -858,6 +1001,7 @@
     $('fit').onclick = fit;
     const pref = (id, key, prop) => { const e = $(id); e[prop] = prefs[key]; e.onchange = e.oninput = () => { prefs[key] = prop === 'checked' ? e.checked : e.value; save(); dirty = true; updateStats(); }; };
     for (const l of FL.LEVELS) $('overlay').append(new Option(l, l));
+    $('overlay').append(new Option('strokes (how letters are drawn)', 'strokes'));
     pref('gizmos', 'gizmos', 'checked'); pref('maskView', 'mask', 'checked'); pref('statsOn', 'stats', 'checked');
     pref('overlay', 'overlay', 'value'); pref('speed', 'speed', 'value');
 
@@ -997,5 +1141,5 @@
   requestAnimationFrame(frame);
 
   // for console tinkering
-  window.fontlab = { get project() { return project; }, get frame() { return S; }, get effects() { return fxOut; }, select: k => select(k) };
+  window.fontlab = { get project() { return project; }, get frame() { return S; }, get effects() { return fxOut; }, select: k => select(k), strokes: gi => strokeAnalysis(gi) };
 })();

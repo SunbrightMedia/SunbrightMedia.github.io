@@ -149,13 +149,16 @@
       levels: ['glyph', 'word', 'line', 'text'],
       params: {
         temp: '0.68 + 0.26*noise(i*0.9 + 3, t*0.2)', palette: 'thermal', core: '0.6', spread: '0.12', mottle: '0.35', glow: '0.6',
+        animate: 'on', speed: '1',
       },
-      choice: { palette: ['thermal', 'iron', 'arctic', 'white hot'] },
-      ui: { core: [0, 1, 0.01], spread: [0, 0.5, 0.01], mottle: [0, 1, 0.01], glow: [0, 1, 0.01] },
+      choice: { palette: ['thermal', 'iron', 'arctic', 'white hot'], animate: ['on', 'off'] },
+      only: { speed: { animate: 'on' } },
+      ui: { core: [0, 1, 0.01], spread: [0, 0.5, 0.01], mottle: [0, 1, 0.01], glow: [0, 1, 0.01], speed: [0, 4, 0.01] },
       docs: {
         temp: 'temperature of each element, 0 = coldest colour, 1 = hottest (an expression per element)',
         palette: 'colour scale', core: 'how much hotter the thick middle of strokes runs', spread: 'how far heat diffuses and glows, relative to the font size',
         mottle: 'drifting blotches of warmer and cooler heat', glow: 'heat halo around the script',
+        animate: 'off: the heat stands still (t is 0 for this effect)', speed: 'how fast the heat drifts (its own clock runs at t times this)',
       },
       apply: fxHeatmap,
     },
@@ -690,7 +693,10 @@
         if (!def) continue;
         const c = makeCtx(S, e, def, t);
         c.env.size = size;
-        try { const r = def.apply(S, owner, c, e); if (r) records.push(Object.assign(r, { id: e.id, type: e.type })); }
+        // effects with an animate switch run on their own clock: stopped, or t times their speed
+        const own = def.params.animate != null;
+        if (own) c.env.t = (e.params && e.params.animate) === 'off' ? 0 : t * c.num('speed', 1);
+        try { const r = def.apply(S, owner, c, e); if (r) records.push(Object.assign(r, { id: e.id, type: e.type }, own ? { time: c.env.t } : null)); }
         catch (err) { c.fail('_', err.message); }
       }
       return { key: ow.key, scripts: ow.scripts, glyphs, size, records };

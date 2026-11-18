@@ -39,6 +39,8 @@
   .item.off .dot { background: transparent; border-color: var(--dim); }
   .item .glyph { width: 10px; text-align: center; font-weight: 600; flex: none; }
   .item .dot.fx { width: 8px; height: 8px; border-radius: 1px; transform: rotate(45deg); margin: 0 1px; }
+  .item .dot.tr { border-radius: 2px; width: 9px; height: 9px; }
+  .curve { margin-top: 6px; }
   .sh.sect { margin-top: 16px; }
   .owner { color: var(--mute); font-size: 11px; padding: 6px 8px 2px; cursor: pointer; user-select: none; }
   .owner:hover { color: var(--fg); }
@@ -114,6 +116,10 @@
     <div class="dd"><button class="ghost" data-menu="fxMenu" title="Effects are latched to a script or a group">+ Effect</button></div>
   </div>
   <div id="fxList"></div>
+  <div class="sh sect"><span>Transitions</span>
+    <div class="dd"><button class="ghost" data-menu="trMenu" title="Transitions animate text appearing, disappearing or changing; they are latched to a script">+ Transition</button></div>
+  </div>
+  <div id="trList"></div>
   <div class="sh sect"><span>Modifiers</span>
     <div class="dd"><button class="ghost" data-menu="modMenu" title="Modifiers act on whatever script they touch">+ Modifier</button></div>
   </div>
@@ -122,6 +128,7 @@
 </aside>
 <div class="menu" id="modMenu" hidden></div>
 <div class="menu" id="fxMenu" hidden></div>
+<div class="menu" id="trMenu" hidden></div>
 
 <main id="main">
   <div id="bar">
@@ -181,10 +188,12 @@
 
 <!-- Bump ?v= whenever a script changes: GitHub Pages lets browsers cache files for 10 minutes,
      and the version keeps a new page from running next to old cached scripts. -->
-<script src="lib/opentype.min.js?v=2026-11-18.8"></script>
-<script src="shapes.js?v=2026-11-18.8"></script>
-<script src="engine.js?v=2026-11-18.8"></script>
-<script src="gl.js?v=2026-11-18.8"></script>
-<script src="app.js?v=2026-11-18.8"></script>
+<script src="lib/opentype.min.js?v=2026-11-18.9"></script>
+<script src="shapes.js?v=2026-11-18.9"></script>
+<script src="engine.js?v=2026-11-18.9"></script>
+<script src="strokes.js?v=2026-11-18.9"></script>
+<script src="transitions.js?v=2026-11-18.9"></script>
+<script src="gl.js?v=2026-11-18.9"></script>
+<script src="app.js?v=2026-11-18.9"></script>
 </body>
 </html>
