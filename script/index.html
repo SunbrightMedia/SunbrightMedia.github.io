@@ -43,7 +43,15 @@
   #bar input[type=range] { width: 180px; }
   #stats { color: var(--mute); font-family: ui-monospace, Consolas, monospace; font-size: 11px; margin-left: auto; }
   #stageWrap { flex: 1; position: relative; min-height: 0; }
-  #svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  #stageWrap > * { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #svg, #fx, #maskCv { pointer-events: none; }
+  #ui { touch-action: none; cursor: grab; }
+  #maskCv { display: none; }
+  .mod.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .mod .num { display: flex; gap: 4px; align-items: center; min-width: 0; }
+  .mod .num input[type=range] { flex: 1 1 55%; min-width: 50px; padding: 0; }
+  .mod .num input[type=text] { flex: 1 1 45%; min-width: 0; }
+  .mod .tag { color: var(--mute); font-size: 11px; }
   #status { color: var(--mute); font-size: 12px; min-height: 1.4em; }
   #status.err { color: var(--err); }
   details { margin: 8px 0; }
@@ -97,11 +105,14 @@
       <code>rnd(a,b)</code> 0..1 stable random · <code>noise(x,y)</code> −1..1 · <code>fbm(x,y,oct)</code> ·
       <code>clamp lerp mix smoothstep fract tri saw sq pulse ease deg</code> · <code>hsl(h,s,l,a)</code> <code>rgb(r,g,b,a)</code> · <code>TAU</code></p>
     <p>Colour fields accept plain text too (<code>#f80</code>, <code>none</code>, <code>red</code>).</p>
+    <p><b>Spatial modifiers</b> (Warp, Nature) sit on the stage. Drag the shape to move it and the round handle to resize and rotate it.
+      Their fields are expressions too, evaluated once per frame (<code>t</code> and <code>size</code> are available), e.g. x = <code>380 + sin(t)*300</code>.</p>
   </details>
 
   <h2>Project</h2>
   <div class="row">
     <button id="exportSvg">Export frame SVG</button>
+    <button id="exportPng" title="Exactly what the stage shows, including moss">Export PNG</button>
     <button id="exportProj">Save project</button>
     <button id="importProjBtn">Open project</button><input type="file" id="importProj" accept=".json" hidden>
     <button id="reset">Reset</button>
@@ -115,16 +126,26 @@
     <label>speed <input type="number" id="speed" step="0.1" value="1" style="width:56px"></label>
     <label>show <select id="overlay"><option value="">nothing</option></select></label>
     <button id="fit">Fit</button>
+    <label><input type="checkbox" id="gizmos" checked> gizmos</label>
+    <label title="Show where spatial modifiers act, white on black"><input type="checkbox" id="maskView"> mask view</label>
     <span id="stats"></span>
   </div>
   <div id="stageWrap">
-    <svg id="svg" xmlns="http://www.w3.org/2000/svg"><rect id="bgRect"/><g id="content"></g><g id="overlayG"></g></svg>
+    <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+      <defs><mask id="holesMask" maskUnits="userSpaceOnUse"><rect id="holesRect" fill="#fff"/><path id="holesPath" fill="#000"/></mask></defs>
+      <rect id="bgRect"/><g id="content"></g>
+    </svg>
+    <canvas id="fx"></canvas>
+    <canvas id="maskCv"></canvas>
+    <svg id="ui" xmlns="http://www.w3.org/2000/svg"><g id="overlayG"></g><g id="gizmoG"></g></svg>
   </div>
 </main>
 <div id="drop">Drop font files</div>
 
 <script src="lib/opentype.min.js"></script>
+<script src="shapes.js"></script>
 <script src="engine.js"></script>
+<script src="nature.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
