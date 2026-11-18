@@ -39,7 +39,9 @@
   .item.off .dot { background: transparent; border-color: var(--dim); }
   .item .glyph { width: 10px; text-align: center; font-weight: 600; flex: none; }
   .item .dot.fx { width: 8px; height: 8px; border-radius: 1px; transform: rotate(45deg); margin: 0 1px; }
-  .sh.mods { margin-top: 16px; }
+  .sh.sect { margin-top: 16px; }
+  .owner { color: var(--mute); font-size: 11px; padding: 6px 8px 2px; cursor: pointer; user-select: none; }
+  .owner:hover { color: var(--fg); }
   .empty { color: var(--dim); font-size: 12px; padding: 4px 8px; }
   .ih .sub { color: var(--mute); font-weight: 400; font-size: 12px; }
   .mutedlist { color: var(--mute); font-size: 12px; }
@@ -108,7 +110,11 @@
 <aside id="side">
   <div class="sh"><span>Scripts</span><button class="ghost" id="addScript" title="Add a script">+ Script</button></div>
   <div id="list"></div>
-  <div class="sh mods"><span>Modifiers</span>
+  <div class="sh sect"><span>Effects</span>
+    <div class="dd"><button class="ghost" data-menu="fxMenu" title="Effects are latched to a script or a group">+ Effect</button></div>
+  </div>
+  <div id="fxList"></div>
+  <div class="sh sect"><span>Modifiers</span>
     <div class="dd"><button class="ghost" data-menu="modMenu" title="Modifiers act on whatever script they touch">+ Modifier</button></div>
   </div>
   <div id="modList"></div>
@@ -175,10 +181,10 @@
 
 <!-- Bump ?v= whenever a script changes: GitHub Pages lets browsers cache files for 10 minutes,
      and the version keeps a new page from running next to old cached scripts. -->
-<script src="lib/opentype.min.js?v=2026-11-18.2"></script>
-<script src="shapes.js?v=2026-11-18.2"></script>
-<script src="engine.js?v=2026-11-18.2"></script>
-<script src="gl.js?v=2026-11-18.2"></script>
-<script src="app.js?v=2026-11-18.2"></script>
+<script src="lib/opentype.min.js?v=2026-11-18.3"></script>
+<script src="shapes.js?v=2026-11-18.3"></script>
+<script src="engine.js?v=2026-11-18.3"></script>
+<script src="gl.js?v=2026-11-18.3"></script>
+<script src="app.js?v=2026-11-18.3"></script>
 </body>
 </html>

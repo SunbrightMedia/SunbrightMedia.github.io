@@ -502,14 +502,23 @@
     box.innerHTML = '';
     for (const sc of project.scripts) {
       const g = sc.group && groupById(sc.group);
-      if (!g) { box.append(scriptRow(sc, 0)); for (const e of sc.effects) box.append(effectRow(e, 1)); continue; }
+      if (!g) { box.append(scriptRow(sc, 0)); continue; }
       if (seen.has(g.id)) continue;
       seen.add(g.id);
       const members = project.scripts.filter(x => x.group === g.id);
       box.append(row('g:' + g.id, 0, el('span', { class: 'glyph' }, '▣'), g.name, members.length + (members.length === 1 ? ' script' : ' scripts'), false, false));
-      for (const m of members) { box.append(scriptRow(m, 1)); for (const e of m.effects) box.append(effectRow(e, 2)); }
-      for (const e of g.effects) box.append(effectRow(e, 1));
+      for (const m of members) box.append(scriptRow(m, 1));
     }
+    // effects, under the script or group each is latched to
+    const fb = $('fxList');
+    fb.innerHTML = '';
+    for (const o of [...project.scripts, ...project.groups]) {
+      if (!o.effects.length) continue;
+      const key = (isGroup(o) ? 'g:' : 's:') + o.id;
+      fb.append(el('div', { class: 'owner', title: 'Select', onclick: () => select(key) }, 'on ' + (isGroup(o) ? o.name : scriptName(o))));
+      for (const e of o.effects) fb.append(effectRow(e, 1));
+    }
+    if (!fb.firstChild) fb.append(el('div', { class: 'empty' }, 'none · + Effect adds one to the selected script'));
     const mb = $('modList');
     mb.innerHTML = '';
     for (const m of project.mods) {
@@ -749,6 +758,7 @@
     const menu = $(b.dataset.menu), open = menu.hidden;
     closeMenus();
     if (!open) return;
+    if (menu.id === 'fxMenu') { const o = currentOwner(); $('fxTarget').textContent = 'Add to ' + (isGroup(o) ? o.name : scriptName(o)); }
     // fixed position next to the button, kept on screen (the side panel would clip it otherwise)
     const r = b.getBoundingClientRect();
     menu.hidden = false;
@@ -779,7 +789,7 @@
     for (const name in MOD_PRESETS) mm.append(el('button', { onclick: () => { const l = MOD_PRESETS[name](); project.mods.push(...l); t = 0; select('m:' + l[l.length - 1].id); changed(); } }, name));
 
     const fm = $('fxMenu');
-    fm.append(el('div', { class: 'mh' }, 'Effect'));
+    fm.append(el('div', { class: 'mh', id: 'fxTarget' }, 'Effect'));
     for (const k in FL.EFFECTS) fm.append(el('button', { onclick: () => addEffects([E(k, {})]) }, FL.EFFECTS[k].label));
     fm.append(el('hr'), el('div', { class: 'mh' }, 'Preset'));
     for (const name in FX_PRESETS) fm.append(el('button', { onclick: () => addEffects(FX_PRESETS[name]()) }, name));
