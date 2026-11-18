@@ -139,10 +139,13 @@
       apply: applyWarp,
     },
 
-    // ---- surface modifiers: shade the final shape per pixel (drawn by gl.js) ----
+  };
+
+
+  // ---- effects: latched to a script or a group of scripts, drawn per pixel by gl.js ----
+  const EFFECTS = {
     heatmap: {
       label: 'Heatmap',
-      surface: true,
       levels: ['glyph', 'word', 'line', 'text'],
       params: {
         temp: '0.68 + 0.26*noise(i*0.9 + 3, t*0.2)', palette: 'thermal', core: '0.6', spread: '0.12', mottle: '0.35', glow: '0.6',
@@ -154,13 +157,12 @@
         palette: 'colour scale', core: 'how much hotter the thick middle of strokes runs', spread: 'how far heat diffuses and glows, relative to the font size',
         mottle: 'drifting blotches of warmer and cooler heat', glow: 'heat halo around the script',
       },
-      apply: applyHeatmap,
+      apply: fxHeatmap,
     },
     // Port of "KamisukiNoise" (shadertoy.com/view/7clyWr): rotated wave kernels in circles,
     // merged with smooth minimums. Fills the script with the pattern, or erodes its edges.
     kamisuki: {
       label: 'Kamisuki noise',
-      surface: true,
       global: true,
       subKey: 'mode',
       levels: ['text'],
@@ -174,12 +176,40 @@
         radius: 'kernel radius (r)', gradient: 'radius change from the left to the right of the script (the demo uses 0.45)',
         blend: 'smooth-minimum blending (k)', sharp: '0 = raw noise, 1 = thresholded', level: 'threshold', amount: 'strength',
       },
-      apply: applyKamisuki,
+      apply: fxKamisuki,
+    },
+    ascii: {
+      label: 'ASCII',
+      global: true,
+      subKey: 'mode',
+      levels: ['text'],
+      params: { mode: 'ascii', resolution: '18', chars: '', gain: '1.2', blur: '0', glow: '0', rain: '0.75', flicker: '1' },
+      choice: { mode: ['ascii', 'matrix'] },
+      text: ['chars'],
+      ui: { resolution: [3, 80, 0.5], gain: [0, 4, 0.01], blur: [0, 1, 0.01], glow: [0, 1, 0.01], rain: [0, 1, 0.01], flicker: [0, 4, 0.01] },
+      docs: {
+        mode: 'ascii: characters chosen by brightness; matrix: mirrored katakana and digits with falling rain',
+        resolution: 'characters per font size: higher = smaller characters', chars: 'your own characters (leave empty for the mode\'s set; ascii sorts them by ink)',
+        gain: 'brightness boost before characters are chosen', blur: 'blurs what is beneath before it becomes characters',
+        glow: 'makes what is beneath spill outwards, so characters glow out around it', rain: 'matrix: falling trails', flicker: 'matrix: how fast characters change',
+      },
+      apply: fxAscii,
+    },
+    posterize: {
+      label: 'Posterize',
+      global: true,
+      subKey: 'levels',
+      levels: ['text'],
+      params: { levels: '4' },
+      ui: { levels: [2, 32, 1] },
+      docs: { levels: 'colour levels per channel: what is beneath is reduced to this many steps of red, green and blue' },
+      apply: fxPosterize,
     },
   };
 
   function makeCtx(S, m, def, t) {
     const env = { i: 0, n: 1, u: 0, t, x: 0, y: 0, w: 0, h: 0, li: 0, wi: 0, gi: 0, ci: 0, pi: 0, ctrl: 0, k: 0, ch: 0, size: S.size };
+    Object.defineProperty(env, '_sizes', { value: S.sizes, enumerable: false });
     const fns = {};
     const strs = def.str || [];
     function fail(key, msg) {
@@ -187,7 +217,7 @@
       if (!e[key]) e[key] = msg;
     }
     for (const key in def.params) {
-      if ((def.choice && def.choice[key]) || (def.color && def.color.includes(key))) continue;
+      if ((def.choice && def.choice[key]) || (def.color && def.color.includes(key)) || (def.text && def.text.includes(key))) continue;
       const v = m.params && m.params[key];
       const src = v != null && String(v).trim() !== '' ? v : def.params[key];
       const c = compile(src);
@@ -241,6 +271,7 @@
     env.i = j; env.n = n; env.u = n > 1 ? j / (n - 1) : 0;
     env.x = b.cx; env.y = b.cy; env.w = b.w; env.h = b.h;
     env.li = nd.li; env.wi = nd.wi; env.gi = nd.gi; env.ci = nd.ci; env.ch = nd.ch;
+    if (env._sizes) env.size = env._sizes[nd.si] || env.size;
     env.pi = 0; env.ctrl = 0; env.k = 0;
   }
 
@@ -272,6 +303,7 @@
       for (const cm of con.cmds) np += cm.p.length;
       const b = bbox(S, [ci]);
       env.li = con.li; env.wi = con.wi; env.gi = con.gi; env.ci = ci; env.ch = con.ch;
+      if (S.sizes) env.size = S.sizes[con.si] || S.size;
       env.n = np; env.w = b.w; env.h = b.h;
       let pi = 0;
       for (const cm of con.cmds) {
@@ -445,33 +477,52 @@
     }
   }
 
-  // Heatmap: per-element temperatures (0..1) for the glyphs; the per-pixel work happens in gl.js.
-  function applyHeatmap(S, level, c, m) {
-    const list = S.nodes[level], n = list.length, temps = new Float32Array(S.nodes.glyph.length).fill(NaN);
+  // ---------- effects ----------
+  // owner: { scripts: [script index], set, glyphs: [glyph index], size }. Each returns a record for gl.js.
+
+  // Heatmap: per-element temperatures (0..1) for the owner's glyphs; the per-pixel work happens in gl.js.
+  function fxHeatmap(S, owner, c, e) {
+    const def = EFFECTS.heatmap, level = def.levels.includes(e.level) ? e.level : def.levels[0];
+    const list = S.nodes[level].filter(nd => owner.set.has(nd.si)), n = list.length;
+    const temps = new Float32Array(S.nodes.glyph.length).fill(NaN);
     for (let j = 0; j < n; j++) {
       const nd = list[j];
       setNode(c.env, nd, j, n, bbox(S, nd.cs));
       const v = Math.min(1, Math.max(0, c.num('temp', 0.5)));
       for (const g of nd.gl) temps[g] = v;
     }
-    setNode(c.env, list[0] || S.nodes.text[0], 0, 1, { x: 0, y: 0, w: 0, h: 0, cx: 0, cy: 0 });
     const k = (key, d) => Math.min(1, Math.max(0, c.num(key, d)));
-    const p = m.params || {}, def = MODIFIERS.heatmap;
-    const pick = key => (def.choice[key].includes(p[key]) ? p[key] : def.params[key]);
-    S.surface.push({
-      type: 'heatmap', id: m.id, temps, palette: pick('palette'),
+    const p = e.params || {};
+    return {
+      temps, palette: def.choice.palette.includes(p.palette) ? p.palette : def.params.palette,
       core: k('core', 0.6), spread: Math.min(0.5, Math.max(0, c.num('spread', 0.12))), mottle: k('mottle', 0.35), glow: k('glow', 0.6),
-    });
+    };
   }
 
-  function applyKamisuki(S, level, c, m) {
-    const p = m.params || {}, def = MODIFIERS.kamisuki, b = bounds(S, true);
-    S.surface.push({
-      type: 'kamisuki', id: m.id, mode: def.choice.mode.includes(p.mode) ? p.mode : 'fill',
-      scale: Math.max(0.01, c.num('scale', 6)), waves: c.num('waves', 2), rotation: c.num('rotation', 1.6), radius: c.num('radius', 0.5),
+  function fxKamisuki(S, owner, c, e) {
+    const p = e.params || {}, def = EFFECTS.kamisuki;
+    const cs = [];
+    for (const g of owner.glyphs) for (const ci of S.nodes.glyph[g].cs) if (!S.hidden[ci]) cs.push(ci);
+    const b = bbox(S, cs);
+    return {
+      mode: def.choice.mode.includes(p.mode) ? p.mode : 'fill',
+      scale: Math.max(0.01, c.num('scale', 6)), waves: c.num('waves', 2), rotation: c.num('rotation', 1.6), radius: c.num('radius', 0),
       gradient: c.num('gradient', 0), blend: Math.max(0, c.num('blend', 0.125)), sharp: Math.min(1, Math.max(0, c.num('sharp', 1))),
       level: c.num('level', 0.5), amount: c.num('amount', 1), cx: b.cx, hw: Math.max(b.w / 2, 1),
-    });
+    };
+  }
+
+  function fxAscii(S, owner, c, e) {
+    const p = e.params || {}, def = EFFECTS.ascii, k = (key, d) => Math.min(1, Math.max(0, c.num(key, d)));
+    return {
+      mode: def.choice.mode.includes(p.mode) ? p.mode : 'ascii', chars: typeof p.chars === 'string' ? p.chars : '',
+      resolution: Math.max(0.5, c.num('resolution', 18)), gain: Math.max(0, c.num('gain', 1.2)),
+      blur: k('blur', 0), glow: k('glow', 0), rain: k('rain', 0.75), flicker: Math.max(0, c.num('flicker', 1)),
+    };
+  }
+
+  function fxPosterize(S, owner, c) {
+    return { levels: Math.max(2, Math.min(256, Math.round(c.num('levels', 4)))) };
   }
 
   function applyVisible(S, level, c) {
@@ -567,17 +618,44 @@
     return base;
   }
 
+  // Several scripts in one scene: each laid out on its own (see layout), then merged with
+  // its position. Every node and contour gets si, the index of its script; nodes.text has
+  // one node per script.
+  // list: [{ base: layout(...) or null, x, y }]
+  function mergeLayouts(list) {
+    const out = { size: 160, sizes: [], contours: [], nodes: { text: [], line: [], word: [], glyph: [], contour: [] } };
+    list.forEach((it, si) => {
+      const b = it.base, dx = +it.x || 0, dy = +it.y || 0;
+      const co = out.contours.length, go = out.nodes.glyph.length, wo = out.nodes.word.length, lo = out.nodes.line.length;
+      const shift = (n, level) => Object.assign({}, n, {
+        index: out.nodes[level].length, si, cs: n.cs.map(i => i + co), gl: n.gl.map(i => i + go),
+        li: n.li + lo, wi: n.wi + wo, gi: n.gi + go, ci: n.ci + co,
+      });
+      if (!b) {
+        out.nodes.text.push({ level: 'text', index: si, si, cs: [], gl: [], li: lo, wi: wo, gi: go, ci: co, ch: 0 });
+        out.sizes.push(160);
+        return;
+      }
+      for (const c of b.contours) out.contours.push({ si, li: c.li + lo, wi: c.wi + wo, gi: c.gi + go, ch: c.ch, cmds: c.cmds.map(k => ({ t: k.t, p: k.p.map(q => [q[0] + dx, q[1] + dy]) })) });
+      for (const level of ['line', 'word', 'glyph', 'contour']) for (const n of b.nodes[level]) out.nodes[level].push(shift(n, level));
+      out.nodes.text.push(Object.assign(shift(b.nodes.text[0], 'text'), { index: si }));
+      out.sizes.push(b.size);
+    });
+    out.size = out.sizes[0] || 160;
+    return out;
+  }
+
   // ---------- evaluate one frame ----------
   function evaluate(base, mods, t) {
     const S = {
       size: base.size,
+      sizes: base.sizes || null,
       nodes: base.nodes,
-      contours: base.contours.map(c => ({ attach: c.attach, li: c.li, wi: c.wi, gi: c.gi, ch: c.ch, cmds: c.cmds.map(k => ({ t: k.t, p: k.p.map(q => [q[0], q[1]]) })) })),
+      contours: base.contours.map(c => ({ attach: c.attach, si: c.si || 0, li: c.li, wi: c.wi, gi: c.gi, ch: c.ch, cmds: c.cmds.map(k => ({ t: k.t, p: k.p.map(q => [q[0], q[1]]) })) })),
       hidden: new Uint8Array(base.contours.length),
       style: base.nodes.glyph.map(() => ({})),
       errors: {},
       fx: [],       // spatial modifiers that ran, for gizmos and masks
-      surface: [],  // surface modifiers (per-pixel shading), drawn by gl.js
       holes: [],    // polygons the warp emptied
       points: 0,
       t,
@@ -592,6 +670,27 @@
     }
     for (const c of S.contours) if (!c.attach) for (const k of c.cmds) S.points += k.p.length;
     return S;
+  }
+
+  // Effects of each owner (a script or a group of scripts), after the modifiers have run.
+  // owners: [{ key, scripts: [script index], effects: [...] }]; errors land in S.errors by effect id.
+  function evaluateEffects(S, owners, t) {
+    return owners.map(ow => {
+      const set = new Set(ow.scripts), glyphs = [];
+      S.nodes.glyph.forEach((g, gi) => { if (set.has(g.si)) glyphs.push(gi); });
+      const size = (S.sizes && S.sizes[ow.scripts[0]]) || S.size;
+      const owner = { scripts: ow.scripts, set, glyphs, size }, records = [];
+      for (const e of ow.effects || []) {
+        if (!e || e.on === false) continue;
+        const def = EFFECTS[e.type];
+        if (!def) continue;
+        const c = makeCtx(S, e, def, t);
+        c.env.size = size;
+        try { const r = def.apply(S, owner, c, e); if (r) records.push(Object.assign(r, { id: e.id, type: e.type })); }
+        catch (err) { c.fail('_', err.message); }
+      }
+      return { key: ow.key, scripts: ow.scripts, glyphs, size, records };
+    });
   }
 
   // ---------- output ----------
@@ -633,7 +732,7 @@
     let glyphs = '';
     S.nodes.glyph.forEach((g, gi) => {
       const d = glyphPathData(S, gi);
-      if (d) glyphs += `<path d="${d}"${styleAttrs(S.style[gi], o)}/>`;
+      if (d) glyphs += `<path d="${d}"${styleAttrs(S.style[gi], o.fills ? { fill: o.fills[gi] || o.fill } : o)}/>`;
     });
     if (!S.holes.length) return `<g>${glyphs}</g>`;
     return `<defs><mask id="${p}-holes" maskUnits="userSpaceOnUse" ${rect}><rect ${rect} fill="#fff"/>`
@@ -647,7 +746,7 @@
     vb = vb.map(f);
     let out = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(' ')}" width="${defaults.width || vb[2]}" height="${defaults.height || vb[3]}">\n`;
     if (defaults.background) out += `<rect x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" fill="${esc(defaults.background)}"/>\n`;
-    out += frameMarkup(S, { fill: defaults.fill, region: vb, id: 'fl' }) + '\n';
+    out += frameMarkup(S, { fill: defaults.fill, fills: defaults.fills, region: vb, id: 'fl' }) + '\n';
     return out + '</svg>\n';
   }
 
@@ -672,5 +771,5 @@
     return { family: pick('fontFamily'), style: pick('fontSubfamily'), unitsPerEm: font.unitsPerEm, ascender: font.ascender, descender: font.descender, glyphs };
   }
 
-  root.FontLab = { LEVELS, VARS, HELPERS: HN, MODIFIERS, LAYOUT_DEFAULTS, Shapes, compile, layout, evaluate, attach, bbox, bounds, glyphPathData, styleAttrs, frameMarkup, toSVG, fontToJSON, smax };
+  root.FontLab = { LEVELS, VARS, HELPERS: HN, MODIFIERS, EFFECTS, LAYOUT_DEFAULTS, Shapes, compile, layout, mergeLayouts, evaluate, evaluateEffects, attach, bbox, bounds, glyphPathData, styleAttrs, frameMarkup, toSVG, fontToJSON, smax };
 })(typeof window !== 'undefined' ? window : globalThis);
