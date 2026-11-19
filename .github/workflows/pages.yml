@@ -1,0 +1,74 @@
+# Publishes the site, with the fonts of the private repository SunbrightMedia/graphic-design
+# added to fonts/private/ (never committed here). Visitors need nothing: the site serves them.
+#
+# Setup, once: a fine-grained token that can only read graphic-design (Contents: read-only),
+# saved in this repository as the Actions secret FONTS_TOKEN; then Settings > Pages > Source:
+# GitHub Actions. Without the secret this workflow publishes nothing (the site keeps publishing
+# from the branch as before).
+#
+# After changing fonts in graphic-design: Actions > Pages > Run workflow (or push here).
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.fonts.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The site, with the private fonts
+        id: fonts
+        env:
+          FONTS_TOKEN: ${{ secrets.FONTS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$FONTS_TOKEN" ]; then
+            echo "::notice::No FONTS_TOKEN secret: nothing is published by this workflow."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir _site
+          git archive HEAD | tar -x -C _site      # the committed site
+          rm -rf _site/.github _site/.gitignore
+          auth=$(printf 'x-access-token:%s' "$FONTS_TOKEN" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic $auth" clone --quiet --depth 1 \
+            https://github.com/SunbrightMedia/graphic-design.git "$RUNNER_TEMP/fonts-src"
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet fonttools brotli
+          "$RUNNER_TEMP/venv/bin/python" .github/scripts/private_fonts.py "$RUNNER_TEMP/fonts-src" _site/fonts/private
+          rm -rf "$RUNNER_TEMP/fonts-src"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - if: steps.fonts.outputs.enabled == 'true'
+        uses: actions/configure-pages@v5
+
+      - if: steps.fonts.outputs.enabled == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,3 @@
+# fonts the deploy adds from the private graphic-design repository: never commit them
+fonts/private/
+_site/
