@@ -211,17 +211,21 @@
     _p: null,
     open() {
       if (!this._p) this._p = new Promise((res, rej) => {
-        const r = indexedDB.open('fontlab', 1);
-        r.onupgradeneeded = () => r.result.createObjectStore('fonts', { keyPath: 'name' });
+        const r = indexedDB.open('fontlab', 2);
+        r.onupgradeneeded = () => {
+          const d = r.result;
+          if (!d.objectStoreNames.contains('fonts')) d.createObjectStore('fonts', { keyPath: 'name' });   // fonts added from this device
+          if (!d.objectStoreNames.contains('gh')) d.createObjectStore('gh', { keyPath: 'value' });       // private fonts, as last fetched
+        };
         r.onsuccess = () => res(r.result);
         r.onerror = () => rej(r.error);
       });
       return this._p;
     },
-    async tx(mode, fn) {
+    async tx(mode, fn, store) {
       const d = await this.open();
       return new Promise((res, rej) => {
-        const req = fn(d.transaction('fonts', mode).objectStore('fonts'));
+        const req = fn(d.transaction(store || 'fonts', mode).objectStore(store || 'fonts'));
         req.onsuccess = () => res(req.result);
         req.onerror = () => rej(req.error);
       });
@@ -230,13 +234,87 @@
     get(name) { return this.tx('readonly', s => s.get(name)); },
     put(name, data) { return this.tx('readwrite', s => s.put({ name, data, added: Date.now() })); },
     del(name) { return this.tx('readwrite', s => s.delete(name)); },
+    ghGet(value) { return this.tx('readonly', s => s.get(value), 'gh'); },
+    ghPut(value, sha, data) { return this.tx('readwrite', s => s.put({ value, sha, data }), 'gh'); },
+    ghClear() { return this.tx('readwrite', s => s.clear(), 'gh'); },
   };
+
+  // ---------- private fonts: font files in a private GitHub repository, read with the user's own
+  // access token. The token, the list and the fonts stay in this browser; projects keep only a
+  // reference ("gh:owner/repo/path"). ----------
+  const GH_KEY = 'fontlab.github.v1', GH_REPO = 'SunbrightMedia/graphic-design', FONT_EXT = /\.(ttf|otf|woff)$/i;
+  const gh = {
+    get() { let v = null; try { v = JSON.parse(localStorage.getItem(GH_KEY)); } catch (e) { /* none */ } return Object.assign({ repo: GH_REPO, token: '', list: [], skipped: 0 }, v); },
+    set(v) { try { localStorage.setItem(GH_KEY, JSON.stringify(v)); } catch (e) { toast('Browser storage unavailable: the token cannot be kept.', true); } },
+  };
+  const ghSame = (a, b) => a.toLowerCase() === b.toLowerCase();   // repository names ignore case
+  const ghSplit = value => { const parts = value.slice(3).split('/'); return { repo: parts.slice(0, 2).join('/'), path: parts.slice(2).join('/') }; };
+  async function ghApi(s, path, accept) {
+    let r;
+    try { r = await fetch('https://api.github.com' + path, { headers: { Authorization: 'Bearer ' + s.token, Accept: accept || 'application/vnd.github+json' }, cache: 'no-store' }); }
+    catch (e) { throw new Error('GitHub could not be reached'); }
+    if (r.status === 401) throw new Error('GitHub refused the token (expired, revoked or mistyped)');
+    if (r.status === 403) throw new Error('the token is not allowed to read ' + s.repo + ' (or GitHub\'s request limit was reached)');
+    if (r.status === 404) throw new Error(s.repo + ' was not found, or the token cannot read it');
+    if (r.status === 409) return null;   // the repository is empty
+    if (!r.ok) throw new Error('GitHub answered HTTP ' + r.status);
+    return r;
+  }
+  // the repository's font files (path and content hash), remembered for when GitHub cannot be reached
+  async function ghList(s) {
+    const [owner, name] = s.repo.split('/').map(encodeURIComponent);
+    const info = await (await ghApi(s, `/repos/${owner}/${name}`)).json();
+    const r = await ghApi(s, `/repos/${owner}/${name}/git/trees/${encodeURIComponent(info.default_branch)}?recursive=1`);
+    const tree = r ? (await r.json()).tree || [] : [];
+    s.list = tree.filter(e => e.type === 'blob' && FONT_EXT.test(e.path)).map(e => ({ path: e.path, sha: e.sha }));
+    s.skipped = tree.filter(e => e.type === 'blob' && /\.woff2$/i.test(e.path)).length;
+    gh.set(s);
+    return s;
+  }
+  // a private font's bytes: from this browser if it has the current version, else from GitHub
+  async function ghFont(value) {
+    const s = gh.get(), { repo, path } = ghSplit(value);
+    const entry = ghSame(repo, s.repo) ? s.list.find(e => e.path === path) : null;
+    let cached = null;
+    try { cached = await db.ghGet(value); } catch (e) { /* no storage */ }
+    if (cached && s.token && (!entry || cached.sha === entry.sha)) return cached.data;
+    if (!s.token || !ghSame(repo, s.repo)) throw new Error(`${path} is a private font in ${repo}: connect it in File → Private fonts`);
+    if (!entry) throw new Error(`${path} is no longer in ${repo}`);
+    const [owner, name] = repo.split('/').map(encodeURIComponent);
+    const r = await ghApi(s, `/repos/${owner}/${name}/git/blobs/${entry.sha}`, 'application/vnd.github.raw+json');
+    let data = await r.arrayBuffer();
+    const head = new Uint8Array(data, 0, Math.min(16, data.byteLength));
+    if (head.length && head[0] === 0x7b) {   // "{": GitHub sent the JSON form (base64) instead of the raw file
+      const b = atob((JSON.parse(new TextDecoder().decode(data)).content || '').replace(/\s/g, '')), u = new Uint8Array(b.length);
+      for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+      data = u.buffer;
+    }
+    opentype.parse(data);   // a font, before it is kept
+    try { await db.ghPut(value, entry.sha, data); } catch (e) { /* kept for this session only */ }
+    return data;
+  }
+  // list the repository again; fonts that changed there are fetched again
+  async function syncPrivateFonts(quiet) {
+    const s = gh.get();
+    if (!s.token) return s;
+    const old = new Map(s.list.map(e => [e.path, e.sha]));
+    try { await ghList(s); } catch (e) { if (!quiet) throw e; toast('Private fonts: ' + e.message, true); return s; }
+    let changed = false;
+    for (const e of s.list) {
+      const v = 'gh:' + s.repo + '/' + e.path;
+      if (old.has(e.path) && old.get(e.path) !== e.sha && fonts.has(v)) { fonts.delete(v); changed = true; }
+    }
+    await refreshFonts();
+    if (changed) await rebuild(true);
+    return s;
+  }
   const fonts = new Map(); // font value -> Font, or a Promise of one while loading
   function loadFont(value) {
     if (fonts.has(value)) return Promise.resolve(fonts.get(value));
     const p = (async () => {
       let buf;
       if (value.startsWith('idb:')) { const r = await db.get(value.slice(4)); if (!r) throw new Error('not found in browser storage'); buf = r.data; }
+      else if (value.startsWith('gh:')) buf = await ghFont(value);
       else { const r = await fetch(value.slice(4)); if (!r.ok) throw new Error('HTTP ' + r.status); buf = await r.arrayBuffer(); }
       return opentype.parse(buf);
     })();
@@ -248,11 +326,15 @@
   async function refreshFonts() {
     let names = [];
     try { names = await db.names(); } catch (e) { toast('Browser storage unavailable: added fonts will not be remembered.', true); }
+    const g = gh.get(), base = p => p.split('/').pop().replace(FONT_EXT, '');
+    const list = g.token ? g.list : [], dup = n => list.filter(e => base(e.path) === n).length > 1;
     fontOptions = [
       ...names.map(n => ({ value: 'idb:' + n, label: n, device: true })),
+      ...list.map(e => ({ value: 'gh:' + g.repo + '/' + e.path, label: dup(base(e.path)) ? e.path : base(e.path), private: true })),
       ...BUILTIN.map(b => ({ value: 'url:' + b.url, label: b.name, device: false })),
     ];
-    for (const s of project.scripts) if (!fontOptions.some(o => o.value === s.font)) s.font = DEFAULT_FONT;
+    // a private font that cannot be listed just now keeps its place (it shows why when drawn)
+    for (const s of project.scripts) if (!fontOptions.some(o => o.value === s.font) && !s.font.startsWith('gh:')) s.font = DEFAULT_FONT;
     if (selKind() === 's') renderInspector();
   }
   function fontLabel(f) {
@@ -286,6 +368,46 @@
     fonts.delete(v);
     for (const s of project.scripts) if (s.font === v) s.font = DEFAULT_FONT;
     save(); await refreshFonts(); await rebuild(true); renderInspector();
+  }
+
+  // the File → Private fonts dialog
+  function ghShow(msg, err) { const st = $('ghStatus'); st.textContent = msg || ''; st.classList.toggle('err', !!err); }
+  function ghSummary(s) {
+    const n = s.list.length, skip = s.skipped ? ` (${s.skipped} WOFF2 file${s.skipped > 1 ? 's' : ''} skipped: use TTF, OTF or WOFF)` : '';
+    return n ? `Connected to ${s.repo}: ${n} font${n > 1 ? 's' : ''}, in the font menu under "${s.repo.split('/')[1]} (private)".${skip}`
+      : `Connected to ${s.repo}, which has no font files yet: add TTF, OTF or WOFF files anywhere in it, then Connect again.${skip}`;
+  }
+  function openPrivateFonts() {
+    const s = gh.get();
+    $('ghRepo').value = s.repo;
+    $('ghToken').value = '';
+    $('ghToken').placeholder = s.token ? 'saved in this browser (paste a new one to replace it)' : 'github_pat_…';
+    $('ghDisconnect').hidden = !s.token;
+    ghShow(s.token ? ghSummary(s) : 'Not connected.');
+    $('ghDlg').showModal();
+  }
+  async function connectPrivateFonts() {
+    const s = gh.get(), repo = $('ghRepo').value.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$|\/$/g, ''), token = $('ghToken').value.trim() || s.token;
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) { ghShow('The repository is owner/name, for example ' + GH_REPO + '.', true); return; }
+    if (!token) { ghShow('Paste an access token first.', true); return; }
+    ghShow('Connecting…');
+    const next = { repo, token, list: [], skipped: 0 };
+    try { await ghList(next); } catch (e) { ghShow(e.message, true); return; }
+    if (!ghSame(repo, s.repo)) { try { await db.ghClear(); } catch (e) { /* none */ } }
+    gh.set(next);
+    $('ghToken').value = ''; $('ghToken').placeholder = 'saved in this browser (paste a new one to replace it)'; $('ghDisconnect').hidden = false;
+    ghShow(ghSummary(next));
+    for (const k of [...fonts.keys()]) if (k.startsWith('gh:')) fonts.delete(k);
+    await refreshFonts(); await rebuild(true);
+  }
+  async function disconnectPrivateFonts() {
+    if (!confirm('Forget the token, and the private fonts kept in this browser?')) return;
+    try { localStorage.removeItem(GH_KEY); } catch (e) { /* none */ }
+    try { await db.ghClear(); } catch (e) { /* none */ }
+    for (const k of [...fonts.keys()]) if (k.startsWith('gh:')) fonts.delete(k);
+    $('ghDisconnect').hidden = true; $('ghToken').placeholder = 'github_pat_…'; $('ghRepo').value = GH_REPO;
+    ghShow('Disconnected: the token and the private fonts are gone from this browser.');
+    await refreshFonts(); await rebuild(true);
   }
 
   // ---------- geometry and view ----------
@@ -701,8 +823,14 @@
         project.scripts.splice(project.scripts.indexOf(sc), 1); pruneGroups(); select(null); changed(); rebuild();
       }, !many)));
     const sel = el('select', { onchange: async () => { sc.font = sel.value; save(); await rebuild(true); renderInspector(); } });
-    const dev = fontOptions.filter(o => o.device), site = fontOptions.filter(o => !o.device);
+    const dev = fontOptions.filter(o => o.device), priv = fontOptions.filter(o => o.private), site = fontOptions.filter(o => !o.device && !o.private);
     if (dev.length) sel.append(el('optgroup', { label: 'On this device' }, ...dev.map(o => new Option(o.label, o.value))));
+    const g = gh.get();
+    if (priv.length) sel.append(el('optgroup', { label: g.repo.split('/')[1] + ' (private)' }, ...priv.map(o => new Option(o.label, o.value))));
+    if (sc.font.startsWith('gh:') && !priv.some(o => o.value === sc.font)) {
+      const { path } = ghSplit(sc.font);
+      sel.append(el('optgroup', { label: 'Private, not available here' }, new Option(path.split('/').pop(), sc.font)));
+    }
     sel.append(el('optgroup', { label: 'Site' }, ...site.map(o => new Option(o.label, o.value))));
     sel.value = sc.font;
     box.append(field('font', el('div', { class: 'row' }, sel,
@@ -1066,6 +1194,11 @@
     };
     $('saveProj').onclick = () => download('fontlab-project.json', JSON.stringify(project, null, 2), 'application/json');
     $('openProj').onclick = () => $('projFile').click();
+    $('privateFonts').onclick = () => { closeMenus(); openPrivateFonts(); };
+    $('ghClose').onclick = () => $('ghDlg').close();
+    $('ghConnect').onclick = connectPrivateFonts;
+    $('ghToken').onkeydown = e => { if (e.key === 'Enter') connectPrivateFonts(); };
+    $('ghDisconnect').onclick = disconnectPrivateFonts;
     $('reset').onclick = () => {
       if (!confirm('Reset scripts, effects and modifiers to defaults? Added fonts are kept.')) return;
       project = normalize(defaultProject()); selected = null; save(); renderInspector(); rebuild(true);
@@ -1190,7 +1323,7 @@
   $('build').textContent = 'version ' + (build || 'dev');
   wire();
   renderList();
-  refreshFonts().then(() => rebuild(true));
+  refreshFonts().then(() => rebuild(true)).then(() => syncPrivateFonts(true));
   requestAnimationFrame(frame);
 
   // for console tinkering

@@ -97,6 +97,17 @@
   .menu button:hover, .menu label.mi:hover { background: var(--sel); }
   .menu .mi input[type=checkbox] { margin: 0; }
   .menu .mi span { flex: 1; }
+  dialog#ghDlg { background: var(--bg); color: var(--fg); border: 1px solid var(--line2); border-radius: 6px; padding: 16px; width: min(400px, calc(100vw - 32px)); }
+  dialog#ghDlg::backdrop { background: rgba(0, 0, 0, 0.7); }
+  #ghDlg h3 { margin: 0 0 8px; font-size: 14px; }
+  #ghDlg p, #ghDlg ol { margin: 0 0 10px; color: var(--mute); }
+  #ghDlg ol { padding-left: 18px; }
+  #ghDlg a { color: var(--fg); }
+  #ghDlg label { display: block; margin: 8px 0 3px; color: var(--mute); }
+  #ghDlg input { width: 100%; }
+  #ghDlg .status { margin: 10px 0 0; color: var(--fg); min-height: 1.4em; }
+  #ghDlg .status.err { color: var(--err); }
+  #ghDlg .btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
   .menu .mi select, .menu .mi input[type=number] { width: 90px; }
   .menu hr { border: 0; border-top: 1px solid var(--line2); margin: 5px 2px; }
   .menu .mh { color: var(--mute); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 6px 8px 3px; }
@@ -173,6 +184,8 @@
         <button id="saveProj">Save project</button>
         <button id="openProj">Open project…</button>
         <hr>
+        <button id="privateFonts">Private fonts…</button>
+        <hr>
         <button id="reset">Reset</button>
         <div class="mh" id="build"></div>
       </div>
@@ -190,6 +203,24 @@
 <input type="file" id="fontFile" accept=".ttf,.otf,.woff" multiple hidden>
 <input type="file" id="projFile" accept=".json" hidden>
 <div id="drop">Drop font files</div>
+<dialog id="ghDlg">
+  <h3>Private fonts</h3>
+  <p>Fonts from a private GitHub repository, read with your own access token. The token and the fonts stay in this browser; projects keep only the font's name.</p>
+  <details><summary>Making a token</summary>
+    <ol>
+      <li>On GitHub: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Settings → Developer settings → Fine-grained tokens → Generate new token</a>.</li>
+      <li>Repository access: <b>Only select repositories</b>, the fonts repository.</li>
+      <li>Permissions → Repository permissions → <b>Contents: Read-only</b>. Nothing else.</li>
+      <li>Generate, copy it, paste it below.</li>
+    </ol>
+  </details>
+  <label for="ghRepo">Repository</label>
+  <input id="ghRepo" type="text" spellcheck="false" autocomplete="off">
+  <label for="ghToken">Access token</label>
+  <input id="ghToken" type="password" spellcheck="false" autocomplete="off">
+  <p class="status" id="ghStatus"></p>
+  <div class="btns"><button id="ghDisconnect">Disconnect</button><button id="ghClose">Close</button><button id="ghConnect">Connect</button></div>
+</dialog>
 
 <template id="helpTpl">
   <div class="help">
@@ -204,13 +235,13 @@
 
 <!-- Bump ?v= whenever a script changes: GitHub Pages lets browsers cache files for 10 minutes,
      and the version keeps a new page from running next to old cached scripts. -->
-<script src="lib/opentype.min.js?v=2026-11-18.15"></script>
-<script src="shapes.js?v=2026-11-18.15"></script>
-<script src="schemes.js?v=2026-11-18.15"></script>
-<script src="nebula.js?v=2026-11-18.15"></script>
-<script src="engine.js?v=2026-11-18.15"></script>
-<script src="transitions.js?v=2026-11-18.15"></script>
-<script src="gl.js?v=2026-11-18.15"></script>
-<script src="app.js?v=2026-11-18.15"></script>
+<script src="lib/opentype.min.js?v=2026-11-19.1"></script>
+<script src="shapes.js?v=2026-11-19.1"></script>
+<script src="schemes.js?v=2026-11-19.1"></script>
+<script src="nebula.js?v=2026-11-19.1"></script>
+<script src="engine.js?v=2026-11-19.1"></script>
+<script src="transitions.js?v=2026-11-19.1"></script>
+<script src="gl.js?v=2026-11-19.1"></script>
+<script src="app.js?v=2026-11-19.1"></script>
 </body>
 </html>
